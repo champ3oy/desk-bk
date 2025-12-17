@@ -80,19 +80,27 @@ export class EmailService {
 
       // const { data, error } = await this.resend.emails.send({ ... }); // newer resend SDK returns object
       // Let's use standard try/catch
-      await this.resend.emails.send({
+      const response = await this.resend.emails.send({
         from: this.fromEmail,
         to: [to],
         subject,
         html,
       });
 
-      this.logger.log(`Invitation email sent to ${to}`);
+      if (response.error) {
+        this.logger.error(
+          `Failed to send invitation email to ${to}: ${response.error.message}`,
+          response.error,
+        );
+        throw new Error(`Email sending failed: ${response.error.message}`);
+      }
+
+      this.logger.log(
+        `Invitation email sent to ${to}. ID: ${response.data?.id}`,
+      );
     } catch (error) {
       this.logger.error(`Failed to send invitation email to ${to}`, error);
-      // Don't throw, just log. We don't want to break the API flow if email fails in this context?
-      // Actually, for invitations, email IS the feature. Maybe we should throw.
-      // For now, let's log.
+      // We should probably rethrow if it's a critical failure, or at least ensure the caller knows.
     }
   }
 }

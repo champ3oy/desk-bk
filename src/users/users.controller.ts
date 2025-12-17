@@ -50,8 +50,8 @@ export class UsersController {
   }
 
   @Get()
-  @Roles(UserRole.ADMIN, UserRole.AGENT, UserRole.CUSTOMER)
-  @ApiOperation({ summary: 'Get all users' })
+  @Roles(UserRole.ADMIN, UserRole.AGENT)
+  @ApiOperation({ summary: 'Get all users (Admin/Agent only)' })
   @ApiResponse({
     status: 200,
     description: 'List of users',

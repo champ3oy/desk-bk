@@ -37,9 +37,9 @@ export class CustomersController {
   constructor(private readonly customersService: CustomersService) {}
 
   @Post()
-  @Roles(UserRole.ADMIN, UserRole.AGENT, UserRole.CUSTOMER)
+  @Roles(UserRole.ADMIN, UserRole.AGENT)
   @ApiOperation({
-    summary: 'Create a new customer (Admin/Agent/Customer)',
+    summary: 'Create a new customer (Admin/Agent only)',
     description: 'Customers are external parties, not platform users',
   })
   @ApiBody({ type: CreateCustomerDto })
@@ -57,9 +57,9 @@ export class CustomersController {
   }
 
   @Get()
-  @Roles(UserRole.ADMIN, UserRole.AGENT, UserRole.CUSTOMER)
+  @Roles(UserRole.ADMIN, UserRole.AGENT)
   @ApiOperation({
-    summary: 'Get all customers in organization',
+    summary: 'Get all customers in organization (Admin/Agent only)',
   })
   @ApiResponse({
     status: 200,
@@ -72,9 +72,9 @@ export class CustomersController {
   }
 
   @Get(':id')
-  @Roles(UserRole.ADMIN, UserRole.AGENT, UserRole.CUSTOMER)
+  @Roles(UserRole.ADMIN, UserRole.AGENT)
   @ApiOperation({
-    summary: 'Get a customer by ID',
+    summary: 'Get a customer by ID (Admin/Agent only)',
   })
   @ApiParam({ name: 'id', description: 'Customer ID' })
   @ApiResponse({ status: 200, description: 'Customer details', type: Customer })
@@ -85,9 +85,9 @@ export class CustomersController {
   }
 
   @Patch(':id')
-  @Roles(UserRole.ADMIN, UserRole.AGENT, UserRole.CUSTOMER)
+  @Roles(UserRole.ADMIN, UserRole.AGENT)
   @ApiOperation({
-    summary: 'Update a customer',
+    summary: 'Update a customer (Admin/Agent only)',
   })
   @ApiParam({ name: 'id', description: 'Customer ID' })
   @ApiBody({ type: UpdateCustomerDto })
@@ -111,9 +111,9 @@ export class CustomersController {
   }
 
   @Delete(':id')
-  @Roles(UserRole.ADMIN, UserRole.AGENT, UserRole.CUSTOMER)
+  @Roles(UserRole.ADMIN, UserRole.AGENT)
   @ApiOperation({
-    summary: 'Delete a customer',
+    summary: 'Delete a customer (Admin/Agent only)',
   })
   @ApiParam({ name: 'id', description: 'Customer ID' })
   @ApiResponse({ status: 200, description: 'Customer successfully deleted' })

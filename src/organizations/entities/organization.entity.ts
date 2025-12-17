@@ -20,6 +20,14 @@ export class Organization {
   @Prop({ required: false })
   description?: string;
 
+  @ApiPropertyOptional()
+  @Prop()
+  slug?: string;
+
+  @ApiPropertyOptional()
+  @Prop()
+  ownerId?: string; // Stored as string or ObjectId
+
   @ApiProperty({
     description: 'Whether organization is active',
     example: true,

@@ -44,6 +44,16 @@ export class TrainingController {
     );
   }
 
+  @Post('scan-website')
+  @ApiOperation({ summary: 'Scan a website for pages' })
+  @ApiResponse({
+    status: 200,
+    description: 'Returns a list of pages found on the website.',
+  })
+  async scanWebsite(@Body('url') url: string) {
+    return this.trainingService.scanWebsite(url);
+  }
+
   @Get()
   @ApiOperation({ summary: 'List all training sources for the organization' })
   async findAll(@Request() req) {
