@@ -96,7 +96,11 @@ export class InvitationsController {
   @ApiOperation({
     summary: 'Get all invitations for the organization (Admin/Agent only)',
   })
-  @ApiResponse({ status: 200, description: 'List of invitations', type: [Invitation] })
+  @ApiResponse({
+    status: 200,
+    description: 'List of invitations',
+    type: [Invitation],
+  })
   @ApiForbiddenResponse({ description: 'Insufficient permissions' })
   findAll(@Request() req) {
     return this.invitationsService.findAll(req.user.organizationId);
@@ -110,7 +114,11 @@ export class InvitationsController {
     summary: 'Get an invitation by ID (Admin/Agent only)',
   })
   @ApiParam({ name: 'id', description: 'Invitation ID' })
-  @ApiResponse({ status: 200, description: 'Invitation details', type: Invitation })
+  @ApiResponse({
+    status: 200,
+    description: 'Invitation details',
+    type: Invitation,
+  })
   @ApiNotFoundResponse({ description: 'Invitation not found' })
   @ApiForbiddenResponse({ description: 'Insufficient permissions' })
   findOne(@Param('id') id: string, @Request() req) {
@@ -160,4 +168,3 @@ export class InvitationsController {
     return this.invitationsService.cancel(id, req.user.organizationId);
   }
 }
-

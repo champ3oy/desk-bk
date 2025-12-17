@@ -107,15 +107,4 @@ export class UsersController {
   ) {
     return this.usersService.update(id, updateUserDto, req.user.organizationId);
   }
-
-  @Delete(':id')
-  @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Delete a user (Admin only)' })
-  @ApiParam({ name: 'id', description: 'User ID' })
-  @ApiResponse({ status: 200, description: 'User successfully deleted' })
-  @ApiNotFoundResponse({ description: 'User not found' })
-  @ApiForbiddenResponse({ description: 'Insufficient permissions' })
-  remove(@Param('id') id: string, @Request() req) {
-    return this.usersService.remove(id, req.user.organizationId);
-  }
 }
