@@ -208,6 +208,7 @@ export const createResponseAgent = async (
   const model = new ChatGoogleGenerativeAI({
     model: modelName,
     apiKey,
+    temperature: 0.3,
   });
 
   return createAgent({
