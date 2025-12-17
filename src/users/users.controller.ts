@@ -39,7 +39,10 @@ export class UsersController {
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Create a new user (Admin only)' })
   @ApiBody({ type: CreateUserDto })
-  @ApiCreatedResponse({ description: 'User successfully created', type: UserResponseDto })
+  @ApiCreatedResponse({
+    description: 'User successfully created',
+    type: UserResponseDto,
+  })
   @ApiResponse({ status: 400, description: 'Invalid input data' })
   @ApiForbiddenResponse({ description: 'Insufficient permissions' })
   create(@Body() createUserDto: CreateUserDto) {
@@ -47,19 +50,38 @@ export class UsersController {
   }
 
   @Get()
-  @Roles(UserRole.ADMIN, UserRole.AGENT)
-  @ApiOperation({ summary: 'Get all users (Admin/Agent only)' })
-  @ApiResponse({ status: 200, description: 'List of users', type: [UserResponseDto] })
+  @Roles(UserRole.ADMIN, UserRole.AGENT, UserRole.CUSTOMER)
+  @ApiOperation({ summary: 'Get all users' })
+  @ApiResponse({
+    status: 200,
+    description: 'List of users',
+    type: [UserResponseDto],
+  })
   @ApiForbiddenResponse({ description: 'Insufficient permissions' })
   findAll(@Request() req) {
     return this.usersService.findAll(req.user.organizationId);
+  }
+
+  @Get('me')
+  @ApiOperation({ summary: 'Get current user profile' })
+  @ApiResponse({
+    status: 200,
+    description: 'User profile',
+    type: UserResponseDto,
+  })
+  findMe(@Request() req) {
+    return this.usersService.findOne(req.user.userId);
   }
 
   @Get(':id')
   @Roles(UserRole.ADMIN, UserRole.AGENT)
   @ApiOperation({ summary: 'Get a user by ID (Admin/Agent only)' })
   @ApiParam({ name: 'id', description: 'User ID' })
-  @ApiResponse({ status: 200, description: 'User details', type: UserResponseDto })
+  @ApiResponse({
+    status: 200,
+    description: 'User details',
+    type: UserResponseDto,
+  })
   @ApiNotFoundResponse({ description: 'User not found' })
   @ApiForbiddenResponse({ description: 'Insufficient permissions' })
   findOne(@Param('id') id: string, @Request() req) {
@@ -71,7 +93,11 @@ export class UsersController {
   @ApiOperation({ summary: 'Update a user (Admin only)' })
   @ApiParam({ name: 'id', description: 'User ID' })
   @ApiBody({ type: UpdateUserDto })
-  @ApiResponse({ status: 200, description: 'User successfully updated', type: UserResponseDto })
+  @ApiResponse({
+    status: 200,
+    description: 'User successfully updated',
+    type: UserResponseDto,
+  })
   @ApiNotFoundResponse({ description: 'User not found' })
   @ApiForbiddenResponse({ description: 'Insufficient permissions' })
   update(
@@ -93,4 +119,3 @@ export class UsersController {
     return this.usersService.remove(id, req.user.organizationId);
   }
 }
-

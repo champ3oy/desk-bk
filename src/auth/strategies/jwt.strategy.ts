@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, Logger } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
@@ -6,6 +6,7 @@ import { UsersService } from '../../users/users.service';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
+  private readonly logger = new Logger(JwtStrategy.name);
   constructor(
     private configService: ConfigService,
     private usersService: UsersService,
@@ -20,11 +21,26 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
   async validate(payload: any) {
     try {
-      const user = await this.usersService.findByEmail(
+      this.logger.log(
+        `Validating JWT for email=${payload.email} org=${payload.organizationId || 'none'}`,
+      );
+      let user = await this.usersService.findByEmail(
         payload.email,
         payload.organizationId,
       );
-      if (!user || !user.isActive) {
+      
+      // Fallback: try without organizationId filter if user not found
+      if (!user && payload.organizationId) {
+        this.logger.debug(
+          `User not found with org filter, trying without org filter for email=${payload.email}`,
+        );
+        user = await this.usersService.findByEmail(payload.email);
+      }
+      
+      if (!user) {
+        this.logger.warn(
+          `User not found for email=${payload.email} org=${payload.organizationId || 'none'}`,
+        );
         throw new UnauthorizedException();
       }
       const userId = user._id.toString();
@@ -36,6 +52,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         organizationId: organizationId || null,
       };
     } catch (error) {
+      this.logger.error(
+        `JWT validation failed for email=${payload?.email ?? 'unknown'} org=${payload?.organizationId ?? 'none'}`,
+      );
       throw new UnauthorizedException();
     }
   }

@@ -7,6 +7,7 @@ import {
   OrganizationSchema,
 } from './entities/organization.entity';
 import { UsersModule } from '../users/users.module';
+import { InvoicesModule } from '../invoices/invoices.module';
 
 @Module({
   imports: [
@@ -14,10 +15,10 @@ import { UsersModule } from '../users/users.module';
       { name: Organization.name, schema: OrganizationSchema },
     ]),
     UsersModule,
+    InvoicesModule,
   ],
   controllers: [OrganizationsController],
   providers: [OrganizationsService],
   exports: [OrganizationsService],
 })
 export class OrganizationsModule {}
-

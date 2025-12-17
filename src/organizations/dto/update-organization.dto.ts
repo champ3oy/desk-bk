@@ -1,4 +1,13 @@
-import { IsString, IsOptional, IsBoolean } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsBoolean,
+  IsNumber,
+  IsArray,
+  IsInt,
+  Min,
+  Max,
+} from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UpdateOrganizationDto {
@@ -25,5 +34,113 @@ export class UpdateOrganizationDto {
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
-}
 
+  @ApiPropertyOptional({
+    description: 'Whether AI auto-reply using draft responses is enabled',
+    example: false,
+  })
+  @IsBoolean()
+  @IsOptional()
+  aiAutoReplyEmail?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Whether AI auto-reply is enabled for social media',
+    example: false,
+  })
+  @IsBoolean()
+  @IsOptional()
+  aiAutoReplySocialMedia?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Whether AI auto-reply is enabled for live chat',
+    example: false,
+  })
+  @IsBoolean()
+  @IsOptional()
+  aiAutoReplyLiveChat?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Confidence threshold for auto-replies',
+    example: 85,
+  })
+  @IsNumber()
+  @IsOptional()
+  aiConfidenceThreshold?: number;
+
+  @ApiPropertyOptional({
+    description: 'Restricted topics',
+    example: ['Billing'],
+  })
+  @IsArray()
+  @IsOptional()
+  aiRestrictedTopics?: string[];
+
+  @ApiPropertyOptional({
+    description: 'Learn from tickets',
+    example: true,
+  })
+  @IsBoolean()
+  @IsOptional()
+  aiLearnFromTickets?: boolean;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  aiPersonalityPrompt?: string;
+
+  @ApiPropertyOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  @IsOptional()
+  aiFormality?: number;
+
+  @ApiPropertyOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  @IsOptional()
+  aiResponseLength?: number;
+
+  @ApiPropertyOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  @IsOptional()
+  aiEmpathy?: number;
+
+  @ApiPropertyOptional()
+  @IsBoolean()
+  @IsOptional()
+  aiUseEmojis?: boolean;
+
+  @ApiPropertyOptional()
+  @IsBoolean()
+  @IsOptional()
+  aiIncludeGreetings?: boolean;
+
+  @ApiPropertyOptional()
+  @IsBoolean()
+  @IsOptional()
+  aiIncludeSignOff?: boolean;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  aiWordsToUse?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  aiWordsToAvoid?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  plan?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  billingEmail?: string;
+}

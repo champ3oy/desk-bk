@@ -1,0 +1,17 @@
+import { Module } from '@nestjs/common';
+import { MongooseModule } from '@nestjs/mongoose';
+import { DispatcherService } from './dispatcher.service';
+import { EmailIntegrationModule } from '../integrations/email/email-integration.module';
+import { CustomersModule } from '../customers/customers.module';
+import { OrganizationsModule } from '../organizations/organizations.module';
+
+@Module({
+  imports: [
+    EmailIntegrationModule,
+    CustomersModule,
+    OrganizationsModule,
+  ],
+  providers: [DispatcherService],
+  exports: [DispatcherService],
+})
+export class DispatcherModule {}

@@ -8,19 +8,23 @@ import { UsersModule } from '../users/users.module';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
 import jwtConfig from '../config/jwt.config';
+import { SessionsModule } from '../sessions/sessions.module';
 
 @Module({
   imports: [
     UsersModule,
     PassportModule,
+    SessionsModule,
     ConfigModule,
     JwtModule.registerAsync({
       imports: [ConfigModule.forRoot({ load: [jwtConfig] })],
       useFactory: (configService: ConfigService) => {
         const expiresIn = configService.get<string>('jwt.expiresIn') || '7d';
         return {
-          secret: configService.get<string>('jwt.secret') || 'your-secret-key-change-in-production',
-          signOptions: { 
+          secret:
+            configService.get<string>('jwt.secret') ||
+            'your-secret-key-change-in-production',
+          signOptions: {
             expiresIn: expiresIn as any,
           },
         };
@@ -33,4 +37,3 @@ import jwtConfig from '../config/jwt.config';
   exports: [AuthService],
 })
 export class AuthModule {}
-

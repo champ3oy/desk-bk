@@ -15,8 +15,12 @@ import {
 } from './entities/invitation.entity';
 import { CreateInvitationDto } from './dto/create-invitation.dto';
 import { AcceptInvitationDto } from './dto/accept-invitation.dto';
+
 import { UsersService } from '../users/users.service';
 import { UserRole } from '../users/entities/user.entity';
+import { EmailService } from '../email/email.service';
+import { OrganizationsService } from '../organizations/organizations.service';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class InvitationsService {
@@ -24,6 +28,9 @@ export class InvitationsService {
     @InjectModel(Invitation.name)
     private invitationModel: Model<InvitationDocument>,
     private usersService: UsersService,
+    private emailService: EmailService,
+    private organizationsService: OrganizationsService,
+    private configService: ConfigService,
   ) {}
 
   async create(
@@ -73,7 +80,9 @@ export class InvitationsService {
       expiresAt,
     });
 
-    return invitation.save();
+    const savedInvitation = await invitation.save();
+    await this.sendEmail(savedInvitation, invitedBy);
+    return savedInvitation;
   }
 
   async findByToken(token: string): Promise<InvitationDocument> {
@@ -92,9 +101,7 @@ export class InvitationsService {
 
     // Check status
     if (invitation.status !== InvitationStatus.PENDING) {
-      throw new BadRequestException(
-        `Invitation has been ${invitation.status}`,
-      );
+      throw new BadRequestException(`Invitation has been ${invitation.status}`);
     }
 
     return invitation;
@@ -147,7 +154,10 @@ export class InvitationsService {
       .exec();
   }
 
-  async findOne(id: string, organizationId: string): Promise<InvitationDocument> {
+  async findOne(
+    id: string,
+    organizationId: string,
+  ): Promise<InvitationDocument> {
     const invitation = await this.invitationModel
       .findOne({
         _id: id,
@@ -163,13 +173,14 @@ export class InvitationsService {
     return invitation;
   }
 
-  async resend(id: string, organizationId: string): Promise<InvitationDocument> {
+  async resend(
+    id: string,
+    organizationId: string,
+  ): Promise<InvitationDocument> {
     const invitation = await this.findOne(id, organizationId);
 
     if (invitation.status !== InvitationStatus.PENDING) {
-      throw new BadRequestException(
-        'Can only resend pending invitations',
-      );
+      throw new BadRequestException('Can only resend pending invitations');
     }
 
     // Generate new token and extend expiration
@@ -178,16 +189,19 @@ export class InvitationsService {
     expiresAt.setDate(expiresAt.getDate() + 7);
     invitation.expiresAt = expiresAt;
 
-    return invitation.save();
+    await invitation.save();
+
+    // Resend email
+    await this.sendEmail(invitation, invitation.invitedBy.toString());
+
+    return invitation;
   }
 
   async cancel(id: string, organizationId: string): Promise<void> {
     const invitation = await this.findOne(id, organizationId);
 
     if (invitation.status !== InvitationStatus.PENDING) {
-      throw new BadRequestException(
-        'Can only cancel pending invitations',
-      );
+      throw new BadRequestException('Can only cancel pending invitations');
     }
 
     invitation.status = InvitationStatus.CANCELLED;
@@ -199,5 +213,32 @@ export class InvitationsService {
     // Using UUID v4 + timestamp for uniqueness
     return `${randomUUID()}-${Date.now()}`.replace(/-/g, '');
   }
-}
 
+  private async sendEmail(invitation: InvitationDocument, inviterId: string) {
+    try {
+      const organization = await this.organizationsService.findOne(
+        invitation.organizationId.toString(),
+      );
+
+      const inviter = await this.usersService.findOne(inviterId);
+
+      const frontendUrl =
+        this.configService.get<string>('FRONTEND_URL') ||
+        'http://localhost:3000';
+      const inviteLink = `${frontendUrl}/accept-invite?token=${invitation.token}`;
+
+      await this.emailService.sendInvitation({
+        to: invitation.email,
+        inviteLink,
+        organizationName: organization.name,
+        inviterName: inviter.firstName
+          ? `${inviter.firstName} ${inviter.lastName}`
+          : 'An administrator',
+      });
+    } catch (error) {
+      console.error('Failed to send invitation email', error);
+      // We don't throw here to avoid failing the HTTP request if email fails,
+      // but in production we might want a background job for this.
+    }
+  }
+}

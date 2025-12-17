@@ -16,35 +16,48 @@ import { CategoriesModule } from './categories/categories.module';
 import { TagsModule } from './tags/tags.module';
 import { AttachmentsModule } from './attachments/attachments.module';
 import { AiModule } from './ai/ai.module';
+import { TrainingModule } from './training/training.module';
+import { SessionsModule } from './sessions/sessions.module';
+import { InvoicesModule } from './invoices/invoices.module';
+import { IntegrationsModule } from './integrations/integrations.module';
+
 import databaseConfig from './config/database.config';
 import aiConfig from './config/ai.config';
+import jwtConfig from './config/jwt.config';
+
+import { EmailModule } from './email/email.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [databaseConfig, aiConfig],
+      load: [databaseConfig, aiConfig, jwtConfig],
     }),
     MongooseModule.forRootAsync({
       imports: [ConfigModule],
-      useFactory: (configService: ConfigService) => ({
-        uri: configService.get<string>('database.uri'),
+      useFactory: async (configService: ConfigService) => ({
+        uri: configService.get<string>('MONGODB_URI'),
       }),
       inject: [ConfigService],
     }),
-    UsersModule,
+    EmailModule,
     AuthModule,
+    UsersModule,
     OrganizationsModule,
     CustomersModule,
     InvitationsModule,
     GroupsModule,
-    ThreadsModule,
     TicketsModule,
+    ThreadsModule,
     CommentsModule,
     CategoriesModule,
     TagsModule,
     AttachmentsModule,
     AiModule,
+    TrainingModule,
+    IntegrationsModule,
+    SessionsModule,
+    InvoicesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

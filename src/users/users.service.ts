@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  Logger,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -12,6 +13,8 @@ import { UpdateUserDto } from './dto/update-user.dto';
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     @InjectModel(User.name)
     private userModel: Model<UserDocument>,
@@ -46,7 +49,9 @@ export class UsersService {
     };
 
     if (createUserDto.organizationId) {
-      userData.organizationId = new Types.ObjectId(createUserDto.organizationId);
+      userData.organizationId = new Types.ObjectId(
+        createUserDto.organizationId,
+      );
     }
 
     const user = new this.userModel(userData);
@@ -68,10 +73,20 @@ export class UsersService {
   }
 
   async findOne(id: string, organizationId?: string): Promise<UserResponse> {
-    const query: any = { _id: id };
-    if (organizationId) {
-      query.organizationId = new Types.ObjectId(organizationId);
+    // Ensure id is a valid ObjectId, otherwise it will fail to match
+    if (!Types.ObjectId.isValid(id)) {
+      throw new NotFoundException(`Invalid ID format: ${id}`);
     }
+
+    const query: any = { _id: new Types.ObjectId(id) };
+    if (organizationId) {
+      // Check for both ObjectId and String format to handle potential data inconsistencies
+      query.organizationId = {
+        $in: [new Types.ObjectId(organizationId), organizationId],
+      };
+    }
+
+    this.logger.debug(`findOne query: ${JSON.stringify(query)}`);
 
     const user = await this.userModel
       .findOne(query)
@@ -93,9 +108,29 @@ export class UsersService {
   ): Promise<UserDocument | null> {
     const query: any = { email };
     if (organizationId) {
-      query.organizationId = new Types.ObjectId(organizationId);
+      // Check for both ObjectId and String format to handle potential data inconsistencies
+      query.organizationId = {
+        $in: [new Types.ObjectId(organizationId), organizationId],
+      };
     }
-    return this.userModel.findOne(query).exec();
+    this.logger.debug(`findByEmail query: ${JSON.stringify(query)}`);
+    const user = await this.userModel.findOne(query).exec();
+    if (!user) {
+      // Try to find user without org filter to see if they exist
+      const userWithoutOrg = await this.userModel.findOne({ email }).exec();
+      if (userWithoutOrg) {
+        this.logger.warn(
+          `User found with email=${email} but orgId=${userWithoutOrg.organizationId?.toString()} doesn't match requested orgId=${organizationId}`,
+        );
+      } else {
+        this.logger.warn(`No user found with email=${email}`);
+      }
+    } else {
+      this.logger.debug(
+        `User found: email=${user.email}, orgId=${user.organizationId?.toString()}`,
+      );
+    }
+    return user;
   }
 
   async update(
@@ -103,10 +138,18 @@ export class UsersService {
     updateUserDto: UpdateUserDto,
     organizationId?: string,
   ): Promise<UserResponse> {
-    const query: any = { _id: id };
-    if (organizationId) {
-      query.organizationId = new Types.ObjectId(organizationId);
+    if (!Types.ObjectId.isValid(id)) {
+      throw new NotFoundException(`Invalid ID format: ${id}`);
     }
+
+    const query: any = { _id: new Types.ObjectId(id) };
+    if (organizationId) {
+      query.organizationId = {
+        $in: [new Types.ObjectId(organizationId), organizationId],
+      };
+    }
+
+    this.logger.debug(`update query: ${JSON.stringify(query)}`);
 
     const userDoc = await this.userModel.findOne(query).exec();
 
@@ -115,7 +158,7 @@ export class UsersService {
     }
 
     if (updateUserDto.email && updateUserDto.email !== userDoc.email) {
-      const orgId = organizationId || (userDoc.organizationId?.toString());
+      const orgId = organizationId || userDoc.organizationId?.toString();
       if (!orgId) {
         // User doesn't have an org yet, check globally
         const existingUser = await this.userModel.findOne({
@@ -139,12 +182,20 @@ export class UsersService {
       }
     }
 
+    // Create a copy of updates to avoid mutating the DTO or overwriting handled fields
+    const updates: any = { ...updateUserDto };
+
     // Handle organizationId if provided as string
-    if (updateUserDto.organizationId) {
-      userDoc.organizationId = new Types.ObjectId(updateUserDto.organizationId);
+    if (updates.organizationId) {
+      userDoc.organizationId = new Types.ObjectId(updates.organizationId);
+      delete updates.organizationId; // Remove so Object.assign doesn't overwrite with string
     }
 
-    Object.assign(userDoc, updateUserDto);
+    if (updates.password) {
+      updates.password = await bcrypt.hash(updates.password, 10);
+    }
+
+    Object.assign(userDoc, updates);
     const savedUser = await userDoc.save();
     const { password: _, ...result } = savedUser.toObject();
     return result as UserResponse;
@@ -159,4 +210,3 @@ export class UsersService {
     await this.userModel.findOneAndDelete(query).exec();
   }
 }
-

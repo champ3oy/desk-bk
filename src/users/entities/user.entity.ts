@@ -54,6 +54,28 @@ export class User {
   isActive: boolean;
 
   @ApiPropertyOptional({
+    description: 'Phone number',
+    example: '+1 (555) 123-4567',
+  })
+  @Prop()
+  phone?: string;
+
+  @ApiPropertyOptional({ description: 'Company name', example: 'Acme Corp' })
+  @Prop()
+  company?: string;
+
+  @ApiPropertyOptional({ description: 'Job title', example: 'Support Manager' })
+  @Prop()
+  jobTitle?: string;
+
+  @ApiPropertyOptional({
+    description: 'Location',
+    example: 'San Francisco, CA',
+  })
+  @Prop()
+  location?: string;
+
+  @ApiPropertyOptional({
     description: 'Creation timestamp',
     example: '2024-01-01T00:00:00.000Z',
   })
@@ -64,6 +86,88 @@ export class User {
     example: '2024-01-01T00:00:00.000Z',
   })
   updatedAt?: Date;
+  @ApiPropertyOptional({
+    description: 'Notification preferences',
+    example: { email: true, desktop: false, digest: 'daily' },
+  })
+  @Prop({
+    type: {
+      email: { type: Boolean, default: true },
+      desktop: { type: Boolean, default: true },
+      digest: { type: String, default: 'daily' }, // 'daily', 'weekly', 'never'
+    },
+    default: { email: true, desktop: true, digest: 'daily' },
+  })
+  notifications?: {
+    email: boolean;
+    desktop: boolean;
+    digest: string;
+  };
+
+  @ApiPropertyOptional({
+    description: 'Regional preferences',
+    example: {
+      language: 'en',
+      timezone: 'UTC',
+      dateFormat: 'MM/DD/YYYY',
+      timeFormat: '12h',
+    },
+  })
+  @Prop({
+    type: {
+      language: { type: String, default: 'en' },
+      timezone: { type: String, default: 'UTC' },
+      dateFormat: { type: String, default: 'MM/DD/YYYY' },
+      timeFormat: { type: String, default: '12h' },
+    },
+    default: {
+      language: 'en',
+      timezone: 'UTC',
+      dateFormat: 'MM/DD/YYYY',
+      timeFormat: '12h',
+    },
+  })
+  regional?: {
+    language: string;
+    timezone: string;
+    dateFormat: string;
+    timeFormat: string;
+  };
+
+  @ApiPropertyOptional({
+    description: 'Agent email signature',
+    example: {
+      text: 'Best regards, Agent',
+      imageUrl: 'http...',
+      enabled: true,
+    },
+  })
+  @Prop({
+    type: {
+      text: { type: String, default: '' },
+      imageUrl: { type: String, default: '' },
+      enabled: { type: Boolean, default: true },
+    },
+    default: { text: '', imageUrl: '', enabled: true },
+  })
+  signature?: {
+    text: string;
+    imageUrl: string;
+    enabled: boolean;
+  };
+
+  @ApiPropertyOptional({
+    description: 'Whether 2FA is enabled',
+    example: false,
+  })
+  @Prop({ default: false })
+  twoFactorEnabled?: boolean;
+
+  @ApiPropertyOptional({
+    description: '2FA Secret (internal use only)',
+  })
+  @Prop({ select: false }) // Do not return by default
+  twoFactorSecret?: string;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
@@ -108,6 +212,24 @@ export class UserResponseDto {
   isActive: boolean;
 
   @ApiPropertyOptional({
+    description: 'Phone number',
+    example: '+1 (555) 123-4567',
+  })
+  phone?: string;
+
+  @ApiPropertyOptional({ description: 'Company name', example: 'Acme Corp' })
+  company?: string;
+
+  @ApiPropertyOptional({ description: 'Job title', example: 'Support Manager' })
+  jobTitle?: string;
+
+  @ApiPropertyOptional({
+    description: 'Location',
+    example: 'San Francisco, CA',
+  })
+  location?: string;
+
+  @ApiPropertyOptional({
     description: 'Creation timestamp',
     example: '2024-01-01T00:00:00.000Z',
   })
@@ -118,4 +240,29 @@ export class UserResponseDto {
     example: '2024-01-01T00:00:00.000Z',
   })
   updatedAt?: Date;
+
+  @ApiPropertyOptional()
+  notifications?: {
+    email: boolean;
+    desktop: boolean;
+    digest: string;
+  };
+
+  @ApiPropertyOptional()
+  regional?: {
+    language: string;
+    timezone: string;
+    dateFormat: string;
+    timeFormat: string;
+  };
+
+  @ApiPropertyOptional()
+  signature?: {
+    text: string;
+    imageUrl: string;
+    enabled: boolean;
+  };
+
+  @ApiPropertyOptional()
+  twoFactorEnabled?: boolean;
 }

@@ -1,4 +1,5 @@
 import { Module, forwardRef } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { TicketsService } from './tickets.service';
 import { TicketsController } from './tickets.controller';
@@ -7,6 +8,7 @@ import { Tag, TagSchema } from '../tags/entities/tag.entity';
 import { CustomersModule } from '../customers/customers.module';
 import { GroupsModule } from '../groups/groups.module';
 import { ThreadsModule } from '../threads/threads.module';
+import { OrganizationsModule } from '../organizations/organizations.module';
 
 @Module({
   imports: [
@@ -16,6 +18,8 @@ import { ThreadsModule } from '../threads/threads.module';
     ]),
     CustomersModule,
     GroupsModule,
+    OrganizationsModule,
+    ConfigModule,
     forwardRef(() => ThreadsModule),
   ],
   controllers: [TicketsController],
@@ -23,4 +27,3 @@ import { ThreadsModule } from '../threads/threads.module';
   exports: [TicketsService],
 })
 export class TicketsModule {}
-

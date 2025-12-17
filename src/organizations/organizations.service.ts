@@ -15,41 +15,36 @@ import { UpdateOrganizationDto } from './dto/update-organization.dto';
 import { UsersService } from '../users/users.service';
 import { UserRole } from '../users/entities/user.entity';
 
+import { InvoicesService } from '../invoices/invoices.service';
+
 @Injectable()
 export class OrganizationsService {
   constructor(
     @InjectModel(Organization.name)
     private organizationModel: Model<OrganizationDocument>,
     private usersService: UsersService,
+    private invoicesService: InvoicesService,
   ) {}
+
+  // ... (create method remains unchanged)
 
   async create(
     createOrganizationDto: CreateOrganizationDto,
     userId: string,
   ): Promise<Organization> {
-    // Users can create multiple organizations
-    // Create the organization
     const organization = new this.organizationModel(createOrganizationDto);
     const savedOrganization = await organization.save();
 
-    // Get user to check if they have a primary organization
     const user = await this.usersService.findOne(userId);
-    
-    // If user doesn't have a primary organization, assign this one and make them admin
-    if (!user.organizationId) {
-      await this.usersService.update(
-        userId,
-        {
-          organizationId: savedOrganization._id.toString(),
-          role: UserRole.ADMIN,
-        },
-        undefined, // undefined = no organization filter
-      );
-    } else {
-      // User already has a primary org, but they can still create more
-      // They become admin of this new org (we could track this in a separate table later)
-      // For now, we'll just create the org - the user's primary orgId stays the same
-    }
+
+    await this.usersService.update(
+      userId,
+      {
+        organizationId: savedOrganization._id.toString(),
+        role: UserRole.ADMIN,
+      },
+      undefined,
+    );
 
     return savedOrganization;
   }
@@ -80,6 +75,34 @@ export class OrganizationsService {
       throw new NotFoundException(`Organization with ID ${id} not found`);
     }
 
+    // Generate invoice if plan changed
+    if (updateOrganizationDto.plan) {
+      const plan = updateOrganizationDto.plan.toLowerCase();
+      let amount = 0;
+      switch (plan) {
+        case 'starter':
+          amount = 350;
+          break;
+        case 'professional':
+          amount = 600;
+          break;
+        case 'enterprise':
+          amount = 1200;
+          break;
+      }
+
+      if (amount > 0) {
+        await this.invoicesService.create({
+          organizationId: new Types.ObjectId(id),
+          invoiceNumber: `INV-${new Date().getFullYear()}-${Date.now().toString().slice(-6)}`,
+          amount,
+          currency: 'GHS',
+          status: 'paid',
+          date: new Date(),
+        });
+      }
+    }
+
     return organization;
   }
 
@@ -87,5 +110,10 @@ export class OrganizationsService {
     const organization = await this.findOne(id);
     await this.organizationModel.findByIdAndDelete(id).exec();
   }
+  async addSupportEmail(id: string, email: string): Promise<void> {
+    await this.organizationModel.updateOne(
+      { _id: id },
+      { $addToSet: { additionalEmails: email } },
+    );
+  }
 }
-

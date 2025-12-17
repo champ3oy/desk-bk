@@ -1,18 +1,18 @@
 /**
  * Manual Testing Script for AI Agents
- * 
+ *
  * This script helps you manually test the response and sentiment agents.
- * 
+ *
  * Usage:
  * 1. Make sure your database is running and populated with test data
  * 2. Set up your environment variables (GEMINI_API_KEY in .env file)
  * 3. Import this file in a NestJS service or controller, or run it directly
- * 
+ *
  * Example usage in a controller:
- * 
+ *
  * import { draftResponse } from './ai/agents/response';
  * import { analyzeSentiment } from './ai/agents/sentiment';
- * 
+ *
  * // In your controller method:
  * const response = await draftResponse(
  *   ticketId,
@@ -23,7 +23,7 @@
  *   req.user.role,
  *   req.user.organizationId,
  * );
- * 
+ *
  * const sentiment = await analyzeSentiment(
  *   ticketId,
  *   this.ticketsService,
@@ -53,6 +53,8 @@ export async function testResponseAgent(
   ticketsService: TicketsService,
   threadsService: ThreadsService,
   configService: ConfigService,
+  organizationsService: any,
+  knowledgeBaseService: any,
   userId: string,
   userRole: UserRole,
   organizationId: string,
@@ -66,6 +68,8 @@ export async function testResponseAgent(
       ticketsService,
       threadsService,
       configService,
+      organizationsService,
+      knowledgeBaseService,
       userId,
       userRole,
       organizationId,
@@ -156,6 +160,8 @@ export async function testBothAgents(
     ticketsService,
     threadsService,
     configService,
+    null, // organizationsService - pass actual service if available
+    null, // knowledgeBaseService - pass actual service if available
     userId,
     userRole,
     organizationId,
@@ -163,4 +169,3 @@ export async function testBothAgents(
 
   return { sentiment, response };
 }
-

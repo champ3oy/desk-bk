@@ -41,7 +41,8 @@ export class CreateUserDto {
   lastName: string;
 
   @ApiPropertyOptional({
-    description: 'Organization ID (required when creating users in an organization)',
+    description:
+      'Organization ID (required when creating users in an organization)',
     example: '507f1f77bcf86cd799439011',
   })
   @IsMongoId()
@@ -57,5 +58,36 @@ export class CreateUserDto {
   @IsEnum(UserRole)
   @IsOptional()
   role?: UserRole;
-}
 
+  @ApiPropertyOptional({
+    description: 'Phone number',
+    example: '+1 (555) 123-4567',
+  })
+  @IsString()
+  @IsOptional()
+  phone?: string;
+
+  @ApiPropertyOptional({
+    description: 'Company name',
+    example: 'Acme Corp',
+  })
+  @IsString()
+  @IsOptional()
+  company?: string;
+
+  @ApiPropertyOptional({
+    description: 'Job title',
+    example: 'Support Manager',
+  })
+  @IsString()
+  @IsOptional()
+  jobTitle?: string;
+
+  @ApiPropertyOptional({
+    description: 'Location',
+    example: 'San Francisco, CA',
+  })
+  @IsString()
+  @IsOptional()
+  location?: string;
+}

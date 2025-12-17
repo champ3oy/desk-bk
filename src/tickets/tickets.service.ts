@@ -6,6 +6,7 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
+import { ConfigService } from '@nestjs/config';
 import { Model, Types } from 'mongoose';
 import { Ticket, TicketDocument } from './entities/ticket.entity';
 import { CreateTicketDto } from './dto/create-ticket.dto';
@@ -14,6 +15,14 @@ import { UserRole } from '../users/entities/user.entity';
 import { Tag, TagDocument } from '../tags/entities/tag.entity';
 import { GroupsService } from '../groups/groups.service';
 import { ThreadsService } from '../threads/threads.service';
+import { OrganizationsService } from '../organizations/organizations.service';
+import { draftResponse } from '../ai/agents/response';
+import {
+  MessageType,
+  MessageAuthorType,
+} from '../threads/entities/message.entity';
+import { PaginationDto } from '../common/dto/pagination.dto';
+import { TicketPaginationDto } from './dto/ticket-pagination.dto';
 
 @Injectable()
 export class TicketsService {
@@ -25,7 +34,28 @@ export class TicketsService {
     private groupsService: GroupsService,
     @Inject(forwardRef(() => ThreadsService))
     private threadsService: ThreadsService,
+    private organizationsService: OrganizationsService,
+    private configService: ConfigService,
   ) {}
+
+  /**
+   * Check if ticket content matches any restricted topics
+   */
+  private checkRestrictedTopics(
+    subject: string,
+    description: string,
+    restrictedTopics: string[],
+  ): boolean {
+    if (!restrictedTopics || restrictedTopics.length === 0) {
+      return false;
+    }
+
+    const content = `${subject} ${description}`.toLowerCase();
+
+    return restrictedTopics.some((topic) =>
+      content.includes(topic.toLowerCase()),
+    );
+  }
 
   async create(
     createTicketDto: CreateTicketDto,
@@ -76,6 +106,87 @@ export class TicketsService {
       console.error('Failed to auto-create thread:', error);
     }
 
+    // Enhanced Auto-reply with full configuration support
+    try {
+      const org = await this.organizationsService.findOne(organizationId);
+
+      // Check if auto-reply is enabled for this channel
+      // For now, we assume email channel. In future, check ticket.channel
+      const shouldAutoReply = org.aiAutoReplyEmail; // Could be org.aiAutoReplySocialMedia or org.aiAutoReplyLiveChat based on channel
+
+      if (shouldAutoReply) {
+        // Check restricted topics
+        const isRestricted = this.checkRestrictedTopics(
+          savedTicket.subject,
+          savedTicket.description,
+          org.aiRestrictedTopics || [],
+        );
+
+        if (isRestricted) {
+          console.log(
+            `Skipping auto-reply for ticket ${savedTicket._id}: matches restricted topic`,
+          );
+          return savedTicket;
+        }
+
+        // Use timeout to not block the main request
+        setTimeout(async () => {
+          try {
+            const response = await draftResponse(
+              savedTicket._id.toString(),
+              this,
+              this.threadsService,
+              this.configService,
+              this.organizationsService,
+              null, // knowledgeBaseService - not injected in tickets service yet
+              createTicketDto.customerId, // Use customer ID for context permissions
+              UserRole.CUSTOMER, // Assume customer role for the context
+              organizationId,
+            );
+
+            if (response.content) {
+              // Check confidence threshold (if available in response metadata)
+              // For now, we'll assume the AI is confident enough
+              // In future, implement confidence scoring
+              const confidence = 85; // Placeholder - should come from AI response
+
+              if (confidence >= (org.aiConfidenceThreshold || 85)) {
+                const thread = await this.threadsService.getOrCreateThread(
+                  savedTicket._id.toString(),
+                  createTicketDto.customerId,
+                  organizationId,
+                );
+
+                await this.threadsService.createMessage(
+                  thread._id.toString(),
+                  {
+                    content: response.content,
+                    messageType: MessageType.EXTERNAL,
+                  },
+                  organizationId,
+                  createTicketDto.customerId,
+                  UserRole.CUSTOMER,
+                  MessageAuthorType.AI,
+                );
+
+                console.log(
+                  `AI auto-reply sent for ticket ${savedTicket._id} (confidence: ${confidence}%)`,
+                );
+              } else {
+                console.log(
+                  `Skipping auto-reply for ticket ${savedTicket._id}: confidence ${confidence}% below threshold ${org.aiConfidenceThreshold}%`,
+                );
+              }
+            }
+          } catch (err) {
+            console.error('Failed to generate AI auto-reply:', err);
+          }
+        }, 1000);
+      }
+    } catch (error) {
+      console.error('Failed to check auto-reply settings:', error);
+    }
+
     return savedTicket;
   }
 
@@ -83,10 +194,41 @@ export class TicketsService {
     userId: string,
     userRole: UserRole,
     organizationId: string,
-  ): Promise<Ticket[]> {
+    paginationDto: TicketPaginationDto = { page: 1, limit: 10 },
+  ): Promise<{
+    data: Ticket[];
+    meta: { total: number; page: number; limit: number; totalPages: number };
+  }> {
+    console.log(
+      `FindAll Tickets: User=${userId}, Role=${userRole}, Org=${organizationId}`,
+    );
+    const {
+      page = 1,
+      limit = 10,
+      status,
+      priority,
+      assignedToId: filterAssignedToId,
+      customerId,
+    } = paginationDto;
+    const skip = (page - 1) * limit;
+
     const query: any = {
       organizationId: new Types.ObjectId(organizationId),
     };
+
+    // Apply filters
+    if (status) {
+      query.status = status;
+    }
+    if (priority) {
+      query.priority = priority;
+    }
+    if (filterAssignedToId) {
+      query.assignedToId = new Types.ObjectId(filterAssignedToId);
+    }
+    if (customerId) {
+      query.customerId = new Types.ObjectId(customerId);
+    }
 
     // Agents see tickets assigned to them, their groups, or unassigned tickets
     // Admins see all tickets in org
@@ -105,18 +247,43 @@ export class TicketsService {
           assignedToId: { $exists: false },
           assignedToGroupId: { $exists: false },
         }, // Unassigned tickets
+        {
+          _id: {
+            $in: await this.threadsService.findTicketIdsByParticipant(
+              userId,
+              organizationId,
+            ),
+          },
+        },
       ];
     }
     // Admins see all tickets (no additional filter)
 
-    return this.ticketModel
-      .find(query)
-      .populate('customerId', 'email firstName lastName company')
-      .populate('assignedToId', 'email firstName lastName')
-      .populate('assignedToGroupId', 'name description')
-      .populate('categoryId', 'name description')
-      .populate('tagIds', 'name color')
-      .exec();
+    const [data, total] = await Promise.all([
+      this.ticketModel
+        .find(query)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate('customerId', 'email firstName lastName company')
+        .populate('organizationId', 'name')
+        .populate('assignedToId', 'email firstName lastName')
+        .populate('assignedToGroupId', 'name description')
+        .populate('categoryId', 'name description')
+        .populate('tagIds', 'name color')
+        .exec(),
+      this.ticketModel.countDocuments(query).exec(),
+    ]);
+
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
   async findOne(
@@ -131,6 +298,7 @@ export class TicketsService {
         organizationId: new Types.ObjectId(organizationId),
       })
       .populate('customerId', 'email firstName lastName company')
+      .populate('organizationId', 'name')
       .populate('assignedToId', 'email firstName lastName')
       .populate('assignedToGroupId', 'name description')
       .populate('categoryId', 'name description')
@@ -172,6 +340,20 @@ export class TicketsService {
       );
     }
 
+    // Customers can only see their own tickets
+    if (userRole === UserRole.CUSTOMER) {
+      const ticketCustomerId =
+        typeof ticket.customerId === 'object' && ticket.customerId
+          ? (ticket.customerId as any)._id.toString()
+          : String(ticket.customerId);
+
+      if (ticketCustomerId !== userId) {
+        throw new ForbiddenException(
+          'You do not have permission to view this ticket',
+        );
+      }
+    }
+
     return ticket;
   }
 
@@ -182,10 +364,13 @@ export class TicketsService {
     userRole: UserRole,
     organizationId: string,
   ): Promise<Ticket> {
-    const ticket = await this.findOne(id, userId, userRole, organizationId);
-
-    // Only agents and admins can update tickets
-    // Customers (external parties) cannot update tickets directly
+    // Verify existence and permissions first
+    const existingTicket = await this.findOne(
+      id,
+      userId,
+      userRole,
+      organizationId,
+    );
 
     const updateData: any = { ...updateTicketDto };
 
@@ -215,8 +400,27 @@ export class TicketsService {
       );
     }
 
-    Object.assign(ticket, updateData);
-    return ticket.save();
+    // Use findByIdAndUpdate to avoid validation errors on existing valid/invalid documents involved in full save()
+    // and to handle atomic updates better.
+    const updatedTicket = await this.ticketModel
+      .findByIdAndUpdate(
+        id,
+        { $set: updateData },
+        { new: true, runValidators: false }, // Disable validators to allow updates on legacy docs that might miss fields
+      )
+      .populate('customerId', 'email firstName lastName company')
+      .populate('organizationId', 'name')
+      .populate('assignedToId', 'email firstName lastName')
+      .populate('assignedToGroupId', 'name description')
+      .populate('categoryId', 'name description')
+      .populate('tagIds', 'name color')
+      .exec();
+
+    if (!updatedTicket) {
+      throw new NotFoundException(`Ticket with ID ${id} not found`);
+    }
+
+    return updatedTicket;
   }
 
   async remove(

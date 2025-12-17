@@ -6,6 +6,8 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  Get,
+  Patch,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -22,7 +24,11 @@ import { summarizeTicket } from './agents/summary';
 import { TicketsService } from '../tickets/tickets.service';
 import { ThreadsService } from '../threads/threads.service';
 import { CommentsService } from '../comments/comments.service';
-import { DraftResponseDto, DraftResponseResponseDto } from './dto/draft-response.dto';
+import { OrganizationsService } from '../organizations/organizations.service';
+import {
+  DraftResponseDto,
+  DraftResponseResponseDto,
+} from './dto/draft-response.dto';
 import {
   AnalyzeSentimentDto,
   AnalyzeSentimentResponseDto,
@@ -31,6 +37,14 @@ import {
   SummarizeTicketDto,
   SummarizeTicketResponseDto,
 } from './dto/summarize-ticket.dto';
+import { UpdatePersonalityConfigDto } from './dto/update-personality-config.dto';
+import { UpdateResponseConfigDto } from './dto/update-response-config.dto';
+import { KnowledgeBaseService } from './knowledge-base.service';
+import {
+  PlaygroundChatDto,
+  PlaygroundChatResponseDto,
+} from './dto/playground-chat.dto';
+import { playgroundChat } from './agents/playground';
 
 @ApiTags('AI')
 @ApiBearerAuth('JWT-auth')
@@ -42,12 +56,14 @@ export class AiController {
     private readonly threadsService: ThreadsService,
     private readonly commentsService: CommentsService,
     private readonly configService: ConfigService,
+    private readonly organizationsService: OrganizationsService,
+    private readonly knowledgeBaseService: KnowledgeBaseService, // KnowledgeBaseService
   ) {}
 
   @Post('draft-response')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Draft a response for a ticket',
+    summary: 'Draft a response',
     description:
       'Uses AI to draft a professional customer support response based on ticket context, including all threads and messages',
   })
@@ -65,6 +81,8 @@ export class AiController {
       this.ticketsService,
       this.threadsService,
       this.configService,
+      this.organizationsService,
+      this.knowledgeBaseService,
       req.user.userId,
       req.user.role,
       req.user.organizationId,
@@ -127,5 +145,149 @@ export class AiController {
       req.user.organizationId,
     );
   }
-}
 
+  @Get('personality-config')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get AI personality configuration',
+    description:
+      'Retrieves the current AI personality settings for the organization',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'AI personality configuration',
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async getPersonalityConfig(@Request() req) {
+    const org = await this.organizationsService.findOne(
+      req.user.organizationId,
+    );
+
+    return {
+      aiPersonalityPrompt: org.aiPersonalityPrompt,
+      aiFormality: org.aiFormality,
+      aiEmpathy: org.aiEmpathy,
+      aiResponseLength: org.aiResponseLength,
+      aiUseEmojis: org.aiUseEmojis,
+      aiIncludeGreetings: org.aiIncludeGreetings,
+      aiIncludeSignOff: org.aiIncludeSignOff,
+      aiWordsToUse: org.aiWordsToUse,
+      aiWordsToAvoid: org.aiWordsToAvoid,
+    };
+  }
+
+  @Patch('personality-config')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Update AI personality configuration',
+    description: 'Updates the AI personality settings for the organization',
+  })
+  @ApiBody({ type: UpdatePersonalityConfigDto })
+  @ApiResponse({
+    status: 200,
+    description: 'AI personality configuration updated successfully',
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async updatePersonalityConfig(
+    @Body() updateDto: UpdatePersonalityConfigDto,
+    @Request() req,
+  ) {
+    const updatedOrg = await this.organizationsService.update(
+      req.user.organizationId,
+      updateDto,
+    );
+
+    return {
+      aiPersonalityPrompt: updatedOrg.aiPersonalityPrompt,
+      aiFormality: updatedOrg.aiFormality,
+      aiEmpathy: updatedOrg.aiEmpathy,
+      aiResponseLength: updatedOrg.aiResponseLength,
+      aiUseEmojis: updatedOrg.aiUseEmojis,
+      aiIncludeGreetings: updatedOrg.aiIncludeGreetings,
+      aiIncludeSignOff: updatedOrg.aiIncludeSignOff,
+      aiWordsToUse: updatedOrg.aiWordsToUse,
+      aiWordsToAvoid: updatedOrg.aiWordsToAvoid,
+    };
+  }
+
+  @Get('response-config')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get AI response configuration',
+    description:
+      'Retrieves the current AI response settings for the organization',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'AI response configuration',
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async getResponseConfig(@Request() req) {
+    const org = await this.organizationsService.findOne(
+      req.user.organizationId,
+    );
+
+    return {
+      aiLearnFromTickets: org.aiLearnFromTickets,
+      aiAutoReplyEmail: org.aiAutoReplyEmail,
+      aiAutoReplySocialMedia: org.aiAutoReplySocialMedia,
+      aiAutoReplyLiveChat: org.aiAutoReplyLiveChat,
+      aiConfidenceThreshold: org.aiConfidenceThreshold,
+      aiRestrictedTopics: org.aiRestrictedTopics,
+    };
+  }
+
+  @Patch('response-config')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Update AI response configuration',
+    description: 'Updates the AI response settings for the organization',
+  })
+  @ApiBody({ type: UpdateResponseConfigDto })
+  @ApiResponse({
+    status: 200,
+    description: 'AI response configuration updated successfully',
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async updateResponseConfig(
+    @Body() updateDto: UpdateResponseConfigDto,
+    @Request() req,
+  ) {
+    const updatedOrg = await this.organizationsService.update(
+      req.user.organizationId,
+      updateDto,
+    );
+
+    return {
+      aiLearnFromTickets: updatedOrg.aiLearnFromTickets,
+      aiAutoReplyEmail: updatedOrg.aiAutoReplyEmail,
+      aiAutoReplySocialMedia: updatedOrg.aiAutoReplySocialMedia,
+      aiAutoReplyLiveChat: updatedOrg.aiAutoReplyLiveChat,
+      aiConfidenceThreshold: updatedOrg.aiConfidenceThreshold,
+      aiRestrictedTopics: updatedOrg.aiRestrictedTopics,
+    };
+  }
+  @Post('playground-chat')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Chat with the AI in playground mode',
+    description:
+      'Simulates a chat conversation with the AI using the organization personality settings',
+  })
+  @ApiBody({ type: PlaygroundChatDto })
+  @ApiResponse({
+    status: 200,
+    description: 'AI response',
+    type: PlaygroundChatResponseDto,
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async playgroundChat(@Body() body: PlaygroundChatDto, @Request() req) {
+    return await playgroundChat(
+      body.message,
+      this.configService,
+      this.organizationsService,
+      this.knowledgeBaseService,
+      req.user.organizationId,
+    );
+  }
+}

@@ -9,6 +9,7 @@ import {
   UseGuards,
   Request,
   BadRequestException,
+  Query,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -33,6 +34,8 @@ import { Message } from '../threads/entities/message.entity';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../users/entities/user.entity';
+import { PaginationDto } from '../common/dto/pagination.dto';
+import { TicketPaginationDto } from './dto/ticket-pagination.dto';
 
 @ApiTags('Tickets')
 @ApiBearerAuth('JWT-auth')
@@ -50,23 +53,24 @@ export class TicketsController {
     description: 'Tickets are created for customers (external parties)',
   })
   @ApiBody({ type: CreateTicketDto })
-  @ApiCreatedResponse({ description: 'Ticket successfully created', type: Ticket })
+  @ApiCreatedResponse({
+    description: 'Ticket successfully created',
+    type: Ticket,
+  })
   @ApiResponse({ status: 400, description: 'Invalid input data' })
   create(@Body() createTicketDto: CreateTicketDto, @Request() req) {
-    return this.ticketsService.create(
-      createTicketDto,
-      req.user.organizationId,
-    );
+    return this.ticketsService.create(createTicketDto, req.user.organizationId);
   }
 
   @Get()
   @ApiOperation({ summary: 'Get all tickets (filtered by user role)' })
   @ApiResponse({ status: 200, description: 'List of tickets', type: [Ticket] })
-  findAll(@Request() req) {
+  findAll(@Request() req, @Query() paginationDto: TicketPaginationDto) {
     return this.ticketsService.findAll(
       req.user.userId,
       req.user.role,
       req.user.organizationId,
+      paginationDto,
     );
   }
 
@@ -89,7 +93,11 @@ export class TicketsController {
   @ApiOperation({ summary: 'Update a ticket' })
   @ApiParam({ name: 'id', description: 'Ticket ID' })
   @ApiBody({ type: UpdateTicketDto })
-  @ApiResponse({ status: 200, description: 'Ticket successfully updated', type: Ticket })
+  @ApiResponse({
+    status: 200,
+    description: 'Ticket successfully updated',
+    type: Ticket,
+  })
   @ApiNotFoundResponse({ description: 'Ticket not found' })
   @ApiForbiddenResponse({ description: 'Access denied' })
   update(
@@ -127,7 +135,7 @@ export class TicketsController {
   @ApiOperation({
     summary: 'Send a message to a ticket (Admin/Agent only)',
     description:
-      'Sends a message to the ticket\'s thread. Each ticket has exactly one thread. ' +
+      "Sends a message to the ticket's thread. Each ticket has exactly one thread. " +
       'Specify messageType as "external" (visible to customer) or "internal" (not visible to customer).',
   })
   @ApiParam({ name: 'id', description: 'Ticket ID' })
@@ -175,4 +183,3 @@ export class TicketsController {
     );
   }
 }
-

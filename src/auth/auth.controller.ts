@@ -9,6 +9,7 @@ import {
 } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { LocalAuthGuard } from './guards/local-auth.guard';
 import { CreateUserDto } from '../users/dto/create-user.dto';
 import { UsersService } from '../users/users.service';
@@ -52,12 +53,41 @@ export class AuthController {
       type: 'object',
       properties: {
         access_token: { type: 'string' },
+        refresh_token: { type: 'string' },
       },
     },
   })
   @ApiUnauthorizedResponse({ description: 'Invalid credentials' })
   async login(@Body() loginDto: LoginDto, @Request() req) {
-    return this.authService.login(loginDto);
+    // LocalAuthGuard attaches the validated user to req.user
+    // If we use req.user, we skip re-validation inside AuthService.login
+    const user = req.user || loginDto;
+
+    // Extract IP and User Agent
+    // behind proxy like Nginx might need x-forwarded-for
+    const ip =
+      req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip;
+    const userAgent = req.headers['user-agent'];
+
+    return this.authService.login(user, { ip, userAgent });
+  }
+
+  @Post('refresh')
+  @ApiOperation({ summary: 'Refresh access token' })
+  @ApiBody({ type: RefreshTokenDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Tokens successfully refreshed',
+    schema: {
+      type: 'object',
+      properties: {
+        access_token: { type: 'string' },
+        refresh_token: { type: 'string' },
+      },
+    },
+  })
+  @ApiUnauthorizedResponse({ description: 'Invalid refresh token' })
+  async refresh(@Body() refreshTokenDto: RefreshTokenDto) {
+    return this.authService.refreshToken(refreshTokenDto.refresh_token);
   }
 }
-

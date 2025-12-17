@@ -8,10 +8,7 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import {
-  Thread,
-  ThreadDocument,
-} from './entities/thread.entity';
+import { Thread, ThreadDocument } from './entities/thread.entity';
 import {
   Message,
   MessageDocument,
@@ -25,6 +22,7 @@ import { TicketsService } from '../tickets/tickets.service';
 import { CustomersService } from '../customers/customers.service';
 import { GroupsService } from '../groups/groups.service';
 import { UserRole } from '../users/entities/user.entity';
+import { DispatcherService } from '../dispatcher/dispatcher.service';
 
 @Injectable()
 export class ThreadsService {
@@ -37,6 +35,7 @@ export class ThreadsService {
     private ticketsService: TicketsService,
     private customersService: CustomersService,
     private groupsService: GroupsService,
+    private dispatcherService: DispatcherService,
   ) {}
 
   /**
@@ -85,7 +84,12 @@ export class ThreadsService {
     userRole: UserRole,
   ): Promise<ThreadDocument | null> {
     // Verify ticket access
-    await this.ticketsService.findOne(ticketId, userId, userRole, organizationId);
+    await this.ticketsService.findOne(
+      ticketId,
+      userId,
+      userRole,
+      organizationId,
+    );
 
     const thread = await this.threadModel
       .findOne({
@@ -140,7 +144,22 @@ export class ThreadsService {
     userRole: UserRole,
     authorType: MessageAuthorType = MessageAuthorType.USER,
   ): Promise<MessageDocument> {
-    const thread = await this.findOne(threadId, organizationId, userId, userRole);
+    let thread;
+    if (authorType === MessageAuthorType.AI) {
+      // Bypass permission checks for AI messages
+      thread = await this.threadModel
+        .findOne({
+          _id: threadId,
+          organizationId: new Types.ObjectId(organizationId),
+        })
+        .exec();
+
+      if (!thread) {
+        throw new NotFoundException(`Thread with ID ${threadId} not found`);
+      }
+    } else {
+      thread = await this.findOne(threadId, organizationId, userId, userRole);
+    }
 
     const message = new this.messageModel({
       threadId: new Types.ObjectId(threadId),
@@ -154,7 +173,60 @@ export class ThreadsService {
       isRead: false,
     });
 
-    return message.save();
+    const savedMessage = await message.save();
+
+    // Dispatch external messages to customers (e.g. via Email)
+    if (
+      savedMessage.messageType === MessageType.EXTERNAL &&
+      (savedMessage.authorType === MessageAuthorType.USER ||
+        savedMessage.authorType === MessageAuthorType.AI)
+    ) {
+      try {
+        // Fetch ticket to get subject
+        const ticket = await this.ticketsService.findOne(
+          thread.ticketId.toString(),
+          userId,
+          userRole,
+          organizationId,
+        );
+
+        // Fetch customer to get email
+        // Handle both populated and non-populated customerId
+        const customerIdString =
+          typeof thread.customerId === 'object' && thread.customerId._id
+            ? thread.customerId._id.toString()
+            : thread.customerId.toString();
+
+        const customer = await this.customersService.findOne(
+          customerIdString,
+          organizationId,
+        );
+
+        if (customer.email) {
+          // Find last message with external ID for threading
+          const lastMessage = await this.messageModel
+            .findOne({
+              threadId: savedMessage.threadId,
+              externalMessageId: { $exists: true, $ne: null },
+              _id: { $ne: savedMessage._id }, // Exclude current message
+            })
+            .sort({ createdAt: -1 });
+
+          await this.dispatcherService.dispatch(
+            savedMessage,
+            ticket,
+            customer.email,
+            lastMessage?.externalMessageId,
+            lastMessage?.externalMessageId, // Simple threading: use last ID as references too
+          );
+        }
+      } catch (error) {
+        console.error('Failed to dispatch message:', error);
+        // Don't fail the request, just log
+      }
+    }
+
+    return savedMessage;
   }
 
   async getMessages(
@@ -164,7 +236,12 @@ export class ThreadsService {
     userRole: UserRole,
     messageType?: MessageType,
   ): Promise<MessageDocument[]> {
-    const thread = await this.findOne(threadId, organizationId, userId, userRole);
+    const thread = await this.findOne(
+      threadId,
+      organizationId,
+      userId,
+      userRole,
+    );
 
     const query: any = {
       threadId: new Types.ObjectId(threadId),
@@ -193,7 +270,9 @@ export class ThreadsService {
             organizationId,
           );
           const isInGroup = thread.participantGroupIds.some((groupId) =>
-            userGroups.some((group) => group._id.toString() === groupId.toString()),
+            userGroups.some(
+              (group) => group._id.toString() === groupId.toString(),
+            ),
           );
 
           if (!isInGroup) {
@@ -265,7 +344,12 @@ export class ThreadsService {
     participantUserIds?: string[],
     participantGroupIds?: string[],
   ): Promise<ThreadDocument> {
-    const thread = await this.findOne(threadId, organizationId, userId, userRole);
+    const thread = await this.findOne(
+      threadId,
+      organizationId,
+      userId,
+      userRole,
+    );
 
     if (
       (!participantUserIds || participantUserIds.length === 0) &&
@@ -285,7 +369,9 @@ export class ThreadsService {
 
     // Add new user participants (avoid duplicates)
     if (participantUserIds && participantUserIds.length > 0) {
-      const existingUserIds = thread.participantUserIds.map((id) => id.toString());
+      const existingUserIds = thread.participantUserIds.map((id) =>
+        id.toString(),
+      );
       const newUserIds = participantUserIds.filter(
         (id) => !existingUserIds.includes(id),
       );
@@ -296,7 +382,9 @@ export class ThreadsService {
 
     // Add new group participants (avoid duplicates)
     if (participantGroupIds && participantGroupIds.length > 0) {
-      const existingGroupIds = thread.participantGroupIds.map((id) => id.toString());
+      const existingGroupIds = thread.participantGroupIds.map((id) =>
+        id.toString(),
+      );
       const newGroupIds = participantGroupIds.filter(
         (id) => !existingGroupIds.includes(id),
       );
@@ -319,7 +407,12 @@ export class ThreadsService {
     participantUserIds?: string[],
     participantGroupIds?: string[],
   ): Promise<ThreadDocument> {
-    const thread = await this.findOne(threadId, organizationId, userId, userRole);
+    const thread = await this.findOne(
+      threadId,
+      organizationId,
+      userId,
+      userRole,
+    );
 
     // Remove user participants
     if (participantUserIds && participantUserIds.length > 0) {
@@ -381,7 +474,27 @@ export class ThreadsService {
     userRole: UserRole,
   ): Promise<ThreadDocument[]> {
     // Return single thread for ticket (or empty array if none exists)
-    const thread = await this.findByTicket(ticketId, organizationId, userId, userRole);
+    const thread = await this.findByTicket(
+      ticketId,
+      organizationId,
+      userId,
+      userRole,
+    );
     return thread ? [thread] : [];
+  }
+  async findTicketIdsByParticipant(
+    userId: string,
+    organizationId: string,
+  ): Promise<Types.ObjectId[]> {
+    const threads = await this.threadModel
+      .find({
+        organizationId: new Types.ObjectId(organizationId),
+        participantUserIds: new Types.ObjectId(userId),
+        isActive: true,
+      })
+      .select('ticketId')
+      .exec();
+
+    return threads.map((t) => t.ticketId);
   }
 }

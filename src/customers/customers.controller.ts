@@ -37,13 +37,16 @@ export class CustomersController {
   constructor(private readonly customersService: CustomersService) {}
 
   @Post()
-  @Roles(UserRole.ADMIN, UserRole.AGENT)
+  @Roles(UserRole.ADMIN, UserRole.AGENT, UserRole.CUSTOMER)
   @ApiOperation({
-    summary: 'Create a new customer (Admin/Agent only)',
+    summary: 'Create a new customer (Admin/Agent/Customer)',
     description: 'Customers are external parties, not platform users',
   })
   @ApiBody({ type: CreateCustomerDto })
-  @ApiCreatedResponse({ description: 'Customer successfully created', type: Customer })
+  @ApiCreatedResponse({
+    description: 'Customer successfully created',
+    type: Customer,
+  })
   @ApiResponse({ status: 400, description: 'Invalid input data' })
   @ApiForbiddenResponse({ description: 'Insufficient permissions' })
   create(@Body() createCustomerDto: CreateCustomerDto, @Request() req) {
@@ -54,20 +57,24 @@ export class CustomersController {
   }
 
   @Get()
-  @Roles(UserRole.ADMIN, UserRole.AGENT)
+  @Roles(UserRole.ADMIN, UserRole.AGENT, UserRole.CUSTOMER)
   @ApiOperation({
-    summary: 'Get all customers in organization (Admin/Agent only)',
+    summary: 'Get all customers in organization',
   })
-  @ApiResponse({ status: 200, description: 'List of customers', type: [Customer] })
+  @ApiResponse({
+    status: 200,
+    description: 'List of customers',
+    type: [Customer],
+  })
   @ApiForbiddenResponse({ description: 'Insufficient permissions' })
   findAll(@Request() req) {
     return this.customersService.findAll(req.user.organizationId);
   }
 
   @Get(':id')
-  @Roles(UserRole.ADMIN, UserRole.AGENT)
+  @Roles(UserRole.ADMIN, UserRole.AGENT, UserRole.CUSTOMER)
   @ApiOperation({
-    summary: 'Get a customer by ID (Admin/Agent only)',
+    summary: 'Get a customer by ID',
   })
   @ApiParam({ name: 'id', description: 'Customer ID' })
   @ApiResponse({ status: 200, description: 'Customer details', type: Customer })
@@ -78,13 +85,17 @@ export class CustomersController {
   }
 
   @Patch(':id')
-  @Roles(UserRole.ADMIN, UserRole.AGENT)
+  @Roles(UserRole.ADMIN, UserRole.AGENT, UserRole.CUSTOMER)
   @ApiOperation({
-    summary: 'Update a customer (Admin/Agent only)',
+    summary: 'Update a customer',
   })
   @ApiParam({ name: 'id', description: 'Customer ID' })
   @ApiBody({ type: UpdateCustomerDto })
-  @ApiResponse({ status: 200, description: 'Customer successfully updated', type: Customer })
+  @ApiResponse({
+    status: 200,
+    description: 'Customer successfully updated',
+    type: Customer,
+  })
   @ApiNotFoundResponse({ description: 'Customer not found' })
   @ApiForbiddenResponse({ description: 'Insufficient permissions' })
   update(
@@ -100,9 +111,9 @@ export class CustomersController {
   }
 
   @Delete(':id')
-  @Roles(UserRole.ADMIN, UserRole.AGENT)
+  @Roles(UserRole.ADMIN, UserRole.AGENT, UserRole.CUSTOMER)
   @ApiOperation({
-    summary: 'Delete a customer (Admin/Agent only)',
+    summary: 'Delete a customer',
   })
   @ApiParam({ name: 'id', description: 'Customer ID' })
   @ApiResponse({ status: 200, description: 'Customer successfully deleted' })
@@ -112,4 +123,3 @@ export class CustomersController {
     return this.customersService.remove(id, req.user.organizationId);
   }
 }
-

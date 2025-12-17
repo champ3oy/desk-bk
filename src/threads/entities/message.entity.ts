@@ -12,6 +12,7 @@ export enum MessageChannel {
 export enum MessageAuthorType {
   USER = 'user',
   CUSTOMER = 'customer',
+  AI = 'ai',
 }
 
 export enum MessageType {
@@ -23,16 +24,23 @@ export type MessageDocument = Message & Document;
 
 @Schema({ timestamps: true })
 export class Message {
-  @ApiProperty({ description: 'Thread ID', example: '507f1f77bcf86cd799439011' })
+  @ApiProperty({
+    description: 'Thread ID',
+    example: '507f1f77bcf86cd799439011',
+  })
   @Prop({ type: Types.ObjectId, ref: 'Thread', required: true })
   threadId: Types.ObjectId;
 
-  @ApiProperty({ description: 'Organization ID', example: '507f1f77bcf86cd799439011' })
+  @ApiProperty({
+    description: 'Organization ID',
+    example: '507f1f77bcf86cd799439011',
+  })
   @Prop({ type: Types.ObjectId, ref: 'Organization', required: true })
   organizationId: Types.ObjectId;
 
   @ApiProperty({
-    description: 'Message type - external (visible to customer) or internal (not visible to customer)',
+    description:
+      'Message type - external (visible to customer) or internal (not visible to customer)',
     enum: MessageType,
     example: MessageType.EXTERNAL,
   })
@@ -96,6 +104,14 @@ export class Message {
   isRead: boolean;
 
   @ApiPropertyOptional({
+    description:
+      'External message ID from provider (for email threading, SMS/WhatsApp IDs)',
+    example: '<message-id@example.com>',
+  })
+  @Prop({ required: false, index: true })
+  externalMessageId?: string;
+
+  @ApiPropertyOptional({
     description: 'Creation timestamp',
     example: '2024-01-01T00:00:00.000Z',
   })
@@ -113,4 +129,4 @@ export const MessageSchema = SchemaFactory.createForClass(Message);
 // Index for faster lookups
 MessageSchema.index({ threadId: 1, createdAt: -1 });
 MessageSchema.index({ organizationId: 1, createdAt: -1 });
-
+MessageSchema.index({ externalMessageId: 1, organizationId: 1 });

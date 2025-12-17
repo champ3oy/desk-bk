@@ -7,6 +7,7 @@ import { Message, MessageSchema } from './entities/message.entity';
 import { TicketsModule } from '../tickets/tickets.module';
 import { CustomersModule } from '../customers/customers.module';
 import { GroupsModule } from '../groups/groups.module';
+import { DispatcherModule } from '../dispatcher/dispatcher.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { GroupsModule } from '../groups/groups.module';
     forwardRef(() => TicketsModule),
     CustomersModule,
     GroupsModule,
+    DispatcherModule,
   ],
   controllers: [ThreadsController],
   providers: [ThreadsService],
