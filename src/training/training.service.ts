@@ -7,13 +7,19 @@ import {
 } from './entities/training-source.entity';
 import { CreateTrainingSourceDto } from './dto/create-training-source.dto';
 
+import { GoogleGenerativeAIEmbeddings } from '@langchain/google-genai';
+import { ConfigService } from '@nestjs/config';
 import { convert } from 'html-to-text';
+import * as mammoth from 'mammoth';
+import { PDFParse } from 'pdf-parse';
 
 @Injectable()
 export class TrainingService {
   constructor(
     @InjectModel(TrainingSource.name)
+    @InjectModel(TrainingSource.name)
     private trainingSourceModel: Model<TrainingSourceDocument>,
+    private configService: ConfigService,
   ) {}
 
   async create(
@@ -54,8 +60,15 @@ export class TrainingService {
       }
     }
 
+    // Generate embedding
+    let embedding: number[] | undefined;
+    if (sourceData.content) {
+      embedding = await this.generateEmbedding(sourceData.content);
+    }
+
     const createdSource = new this.trainingSourceModel({
       ...sourceData,
+      embedding,
       organizationId: new Types.ObjectId(organizationId),
     });
     return createdSource.save();
@@ -111,6 +124,13 @@ export class TrainingService {
 
     if (!source) {
       throw new NotFoundException(`Training source with ID ${id} not found`);
+    }
+
+    // If content changed, regenerate embedding
+    if (updateDto.content) {
+      (updateDto as any).embedding = await this.generateEmbedding(
+        updateDto.content,
+      );
     }
 
     Object.assign(source, updateDto);
@@ -199,6 +219,115 @@ export class TrainingService {
       return pages;
     } catch (error) {
       throw new Error(`Failed to scan website: ${error.message}`);
+    }
+  }
+  async findSimilar(
+    embedding: number[],
+    organizationId: string,
+    limit: number = 3,
+  ): Promise<any[]> {
+    return this.trainingSourceModel
+      .aggregate([
+        {
+          $vectorSearch: {
+            index: 'vector_index',
+            path: 'embedding',
+            queryVector: embedding,
+            numCandidates: limit * 10,
+            limit: limit,
+            filter: {
+              organizationId: new Types.ObjectId(organizationId),
+            },
+          },
+        },
+        {
+          $project: {
+            name: 1,
+            content: 1,
+            score: { $meta: 'vectorSearchScore' },
+          },
+        },
+      ])
+      .exec();
+  }
+
+  async processFile(
+    file: Express.Multer.File,
+    organizationId: string,
+  ): Promise<TrainingSource> {
+    const content = await this.parseFileContent(file);
+
+    const sourceData: any = {
+      name: file.originalname,
+      type: 'file',
+      content,
+      size: (file.size / 1024).toFixed(1) + ' KB',
+      metadata: {
+        mimetype: file.mimetype,
+        originalName: file.originalname,
+      },
+    };
+
+    // Generate embedding
+    let embedding: number[] | undefined;
+    if (content) {
+      embedding = await this.generateEmbedding(content);
+    }
+
+    const createdSource = new this.trainingSourceModel({
+      ...sourceData,
+      embedding,
+      organizationId: new Types.ObjectId(organizationId),
+    });
+    return createdSource.save();
+  }
+
+  private async parseFileContent(file: Express.Multer.File): Promise<string> {
+    try {
+      if (file.mimetype === 'application/pdf') {
+        const parser = new PDFParse({ data: file.buffer });
+        const result = await parser.getText();
+        return result.text;
+      } else if (
+        file.mimetype ===
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+        file.mimetype === 'application/msword'
+      ) {
+        const result = await mammoth.extractRawText({ buffer: file.buffer });
+        return result.value;
+      } else if (
+        file.mimetype === 'text/plain' ||
+        file.mimetype === 'text/csv' ||
+        file.mimetype === 'application/json'
+      ) {
+        return file.buffer.toString('utf-8');
+      } else {
+        throw new Error(`Unsupported file type: ${file.mimetype}`);
+      }
+    } catch (error) {
+      throw new Error(`Failed to parse file: ${error.message}`);
+    }
+  }
+
+  private async generateEmbedding(text: string): Promise<number[]> {
+    try {
+      if (!text || text.trim().length === 0) return [];
+
+      const apiKey = this.configService.get<string>('ai.geminiApiKey');
+      if (!apiKey) {
+        console.warn('Gemini API key not found, skipping embedding generation');
+        return [];
+      }
+
+      const embeddings = new GoogleGenerativeAIEmbeddings({
+        modelName: 'embedding-001', // or text-embedding-004
+        apiKey,
+      });
+
+      return await embeddings.embedQuery(text);
+    } catch (error) {
+      console.error('Failed to generate embedding:', error);
+      return []; // Return empty array on failure to avoid blocking creation
     }
   }
 }

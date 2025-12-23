@@ -1,6 +1,6 @@
 import * as z from 'zod';
 import { createAgent, tool } from 'langchain';
-import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
+import { AIModelFactory } from '../../ai-model.factory';
 import { ConfigService } from '@nestjs/config';
 import { TicketsService } from '../../../tickets/tickets.service';
 import { ThreadsService } from '../../../threads/threads.service';
@@ -122,19 +122,7 @@ export const createSentimentAgent = (
     organizationId,
   );
 
-  // Get API key and model from config
-  const apiKey = configService.get<string>('ai.geminiApiKey');
-  const modelName = configService.get<string>('ai.model') || 'gemini-2.0-flash-exp';
-
-  if (!apiKey) {
-    throw new Error('Gemini API key is not configured. Please set GEMINI_API_KEY or GOOGLE_API_KEY environment variable.');
-  }
-
-  // Create Google Generative AI model instance
-  const model = new ChatGoogleGenerativeAI({
-    model: modelName,
-    apiKey,
-  });
+  const model = AIModelFactory.create(configService);
 
   return createAgent({
     model,
@@ -178,13 +166,16 @@ export const analyzeSentiment = async (
   const content = lastMessage?.content || '';
 
   // Handle both string and array content formats
-  const responseContent = typeof content === 'string' 
-    ? content 
-    : Array.isArray(content) 
-      ? content.map((item: any) => 
-          typeof item === 'string' ? item : item.text || ''
-        ).join('')
-      : '';
+  const responseContent =
+    typeof content === 'string'
+      ? content
+      : Array.isArray(content)
+        ? content
+            .map((item: any) =>
+              typeof item === 'string' ? item : item.text || '',
+            )
+            .join('')
+        : '';
 
   // Parse the structured sentiment response
   // Handle multiple formats:
@@ -192,33 +183,45 @@ export const analyzeSentiment = async (
   // - "Confidence level:" (with or without markdown)
   // - "Explanation:" or "Brief explanation of why this sentiment was detected:"
   // - "Key phrases or indicators:" or "Key phrases or indicators that led to this conclusion:"
-  
+
   // Match sentiment (Primary/Primarily sentiment: <value>)
-  const sentimentMatch = responseContent.match(/(?:Primary|Primarily)\s+sentiment[:\s]+(\w+)/i);
-  
+  const sentimentMatch = responseContent.match(
+    /(?:Primary|Primarily)\s+sentiment[:\s]+(\w+)/i,
+  );
+
   // Match confidence (Confidence level: <value>)
-  const confidenceMatch = responseContent.match(/Confidence\s+level[:\s]+(\w+)/i);
-  
+  const confidenceMatch = responseContent.match(
+    /Confidence\s+level[:\s]+(\w+)/i,
+  );
+
   // Extract explanation - matches "Brief explanation of why this sentiment was detected: <text>"
   // or "Explanation: <text>" - captures everything until "Key phrases" or end of string
-  const explanationMatch = responseContent.match(/(?:Brief\s+)?explanation\s+(?:of\s+why\s+this\s+sentiment\s+was\s+detected|:)\s*:?\s*([\s\S]*?)(?=\nKey\s+phrases|$)/i);
-  
-  // Extract key phrases - matches "Key phrases or indicators that led to this conclusion:" 
+  const explanationMatch = responseContent.match(
+    /(?:Brief\s+)?explanation\s+(?:of\s+why\s+this\s+sentiment\s+was\s+detected|:)\s*:?\s*([\s\S]*?)(?=\nKey\s+phrases|$)/i,
+  );
+
+  // Extract key phrases - matches "Key phrases or indicators that led to this conclusion:"
   // or "Key phrases or indicators:" followed by bullet points or text
-  const keyPhrasesMatch = responseContent.match(/Key\s+phrases\s+(?:or\s+indicators\s+)?(?:that\s+led\s+to\s+this\s+conclusion|:)\s*:?\s*([\s\S]*?)$/i);
+  const keyPhrasesMatch = responseContent.match(
+    /Key\s+phrases\s+(?:or\s+indicators\s+)?(?:that\s+led\s+to\s+this\s+conclusion|:)\s*:?\s*([\s\S]*?)$/i,
+  );
 
   const sentiment = sentimentMatch?.[1]?.toLowerCase() || 'neutral';
   const confidence = confidenceMatch?.[1]?.toLowerCase() || 'medium';
   const explanation = explanationMatch?.[1]?.trim() || '';
   const keyPhrasesText = keyPhrasesMatch?.[1]?.trim() || '';
-  
+
   // Extract key phrases (could be comma-separated, quoted, or bullet points)
   // Handle bullet points like "- \"Unable to login\"" or "- \"keep getting an error message\""
   const keyPhrases = keyPhrasesText
     .split(/\n/)
     .map((line) => {
       // Remove bullet points and quotes
-      return line.trim().replace(/^[-•*]\s*/, '').replace(/^["']|["']$/g, '').trim();
+      return line
+        .trim()
+        .replace(/^[-•*]\s*/, '')
+        .replace(/^["']|["']$/g, '')
+        .trim();
     })
     .filter((phrase) => phrase.length > 0);
 
@@ -226,8 +229,12 @@ export const analyzeSentiment = async (
     sentiment,
     confidence,
     explanation,
-    keyPhrases: keyPhrases.length > 0 ? keyPhrases : (keyPhrasesText ? [keyPhrasesText] : []),
+    keyPhrases:
+      keyPhrases.length > 0
+        ? keyPhrases
+        : keyPhrasesText
+          ? [keyPhrasesText]
+          : [],
     content: responseContent,
   };
 };
-

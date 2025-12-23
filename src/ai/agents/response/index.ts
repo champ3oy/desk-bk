@@ -1,15 +1,33 @@
 import * as z from 'zod';
 import { createAgent, tool } from 'langchain';
-import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
+
 import { ConfigService } from '@nestjs/config';
 import { TicketsService } from '../../../tickets/tickets.service';
 import { ThreadsService } from '../../../threads/threads.service';
 import { UserRole } from '../../../users/entities/user.entity';
 import { OrganizationsService } from '../../../organizations/organizations.service';
 import { Organization } from '../../../organizations/entities/organization.entity';
+import { AIModelFactory } from '../../ai-model.factory';
 
-const DEFAULT_SYSTEM_PROMPT = `You are an expert customer support agent. Your role is to draft professional, empathetic, and helpful responses to customers. 
-When drafting a response:
+const DEFAULT_SYSTEM_PROMPT = `You are an expert customer support agent for our company. Your role is to draft professional, empathetic, and helpful responses to customers.
+
+# KNOWLEDGE BASE INSTRUCTIONS
+- You will be provided with relevant context from our knowledge base.
+- ALWAYS prioritize information from the knowledge base over your general training.
+- If the knowledge base contains the answer, use it to solve the customer's problem.
+- If the knowledge base does not contain the answer, perform a generic helpful response but politely admit if you are unsure about company-specific policies that aren't in the knowledge base.
+- Cite specific policies or guides if they appear in the knowledge base context.
+
+# INTERNAL AGENT PERSONA (CRITICAL)
+- You ARE the company. Speak with authority and ownership.
+- NEVER say "According to our records", "According to our resources", "Based on the knowledge base", or similar phrases.
+- Present information as facts you know.
+- BAD: "According to our resources, the EEBF is a fund..."
+- GOOD: "The EEBF is a fund..."
+- BAD: "Our records show that refunds take 5 days."
+- GOOD: "Refunds typically process within 5 days."
+
+# GENERAL GUIDELINES
 - Be clear, concise, and professional
 - Show empathy and understanding
 - Address the customer's concerns directly
@@ -194,22 +212,7 @@ export const createResponseAgent = async (
   let systemPrompt = buildSystemPrompt(org);
 
   // Get API key and model from config
-  const apiKey = configService.get<string>('ai.geminiApiKey');
-  const modelName =
-    configService.get<string>('ai.model') || 'gemini-2.0-flash-exp';
-
-  if (!apiKey) {
-    throw new Error(
-      'Gemini API key is not configured. Please set GEMINI_API_KEY or GOOGLE_API_KEY environment variable.',
-    );
-  }
-
-  // Create Google Generative AI model instance
-  const model = new ChatGoogleGenerativeAI({
-    model: modelName,
-    apiKey,
-    temperature: 0.3,
-  });
+  const model = AIModelFactory.create(configService);
 
   return createAgent({
     model,

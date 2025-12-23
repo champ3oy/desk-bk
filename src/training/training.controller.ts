@@ -10,7 +10,10 @@ import {
   Request,
   HttpCode,
   HttpStatus,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { TrainingService } from './training.service';
 import { CreateTrainingSourceDto } from './dto/create-training-source.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -42,6 +45,17 @@ export class TrainingController {
       createTrainingSourceDto,
       req.user.organizationId,
     );
+  }
+
+  @Post('upload')
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiOperation({ summary: 'Upload a file for training' })
+  @ApiResponse({
+    status: 201,
+    description: 'The file has been uploaded and processed.',
+  })
+  async uploadFile(@UploadedFile() file: Express.Multer.File, @Request() req) {
+    return this.trainingService.processFile(file, req.user.organizationId);
   }
 
   @Post('scan-website')

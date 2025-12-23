@@ -9,6 +9,7 @@ import {
   Get,
   Patch,
 } from '@nestjs/common';
+import { AIModelFactory } from './ai-model.factory';
 import {
   ApiTags,
   ApiOperation,
@@ -45,6 +46,11 @@ import {
   PlaygroundChatResponseDto,
 } from './dto/playground-chat.dto';
 import { playgroundChat } from './agents/playground';
+import {
+  GenerateInstructionsDto,
+  GenerateInstructionsResponseDto,
+} from './dto/generate-instructions.dto';
+import { generateInstructions } from './agents/generate-instructions';
 
 @ApiTags('AI')
 @ApiBearerAuth('JWT-auth')
@@ -59,6 +65,33 @@ export class AiController {
     private readonly organizationsService: OrganizationsService,
     private readonly knowledgeBaseService: KnowledgeBaseService, // KnowledgeBaseService
   ) {}
+
+  @Post('generate-instructions')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Generate system instructions',
+    description:
+      'Uses AI to generate system instructions based on personality description and parameters',
+  })
+  @ApiBody({ type: GenerateInstructionsDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Generated system instructions',
+    type: GenerateInstructionsResponseDto,
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async generateInstructions(
+    @Body() body: GenerateInstructionsDto,
+    @Request() req,
+  ) {
+    return await generateInstructions(
+      body.description,
+      body.formality,
+      body.empathy,
+      body.verbosity,
+      this.configService,
+    );
+  }
 
   @Post('draft-response')
   @HttpCode(HttpStatus.OK)
@@ -267,6 +300,21 @@ export class AiController {
       aiRestrictedTopics: updatedOrg.aiRestrictedTopics,
     };
   }
+  @Get('models')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get available AI models',
+    description: 'Retrieves the list of configured and available AI models',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'List of available AI models',
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async getAvailableModels(@Request() req) {
+    return AIModelFactory.getAvailableModels(this.configService);
+  }
+
   @Post('playground-chat')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -288,6 +336,9 @@ export class AiController {
       this.organizationsService,
       this.knowledgeBaseService,
       req.user.organizationId,
+      body.history,
+      body.provider,
+      body.model,
     );
   }
 }

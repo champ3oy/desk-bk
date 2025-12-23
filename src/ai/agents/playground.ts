@@ -1,4 +1,4 @@
-import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
+import { AIModelFactory } from '../ai-model.factory';
 import { ConfigService } from '@nestjs/config';
 import { OrganizationsService } from '../../organizations/organizations.service';
 import { buildSystemPrompt } from './response';
@@ -10,6 +10,9 @@ export const playgroundChat = async (
   organizationsService: OrganizationsService,
   knowledgeBaseService: KnowledgeBaseService,
   organizationId: string,
+  history?: Array<{ role: 'user' | 'assistant'; content: string }>,
+  provider?: string,
+  modelName?: string,
 ) => {
   // Fetch organization settings
   const org = await organizationsService.findOne(organizationId);
@@ -35,25 +38,30 @@ export const playgroundChat = async (
     fullPrompt = `User Query: ${message}\n\n# KNOWLEDGE BASE CONTEXT\nUse the following information to help answer the user's query if relevant:\n${knowledgeContext}`;
   }
 
-  // Initialize model
-  const apiKey = configService.get<string>('ai.geminiApiKey');
-  const modelName =
-    configService.get<string>('ai.model') || 'gemini-2.0-flash-exp';
-
-  if (!apiKey) {
-    throw new Error('Gemini API key is not configured.');
-  }
-
-  const model = new ChatGoogleGenerativeAI({
+  const model = AIModelFactory.create(configService, {
+    provider,
     model: modelName,
-    apiKey,
   });
 
-  // Generate response
-  const response = await model.invoke([
+  // Build messages array with history
+  const messages: Array<{ role: string; content: string }> = [
     { role: 'system', content: systemPrompt },
-    { role: 'user', content: fullPrompt },
-  ]);
+  ];
+
+  // Add conversation history if provided
+  if (history && history.length > 0) {
+    // Filter out messages with empty content to satisfy Gemini requirements
+    const validHistory = history.filter(
+      (msg) => msg.content && msg.content.trim() !== '',
+    );
+    messages.push(...validHistory);
+  }
+
+  // Add current user message
+  messages.push({ role: 'user', content: fullPrompt });
+
+  // Generate response
+  const response = await model.invoke(messages);
 
   const content = response.content;
 

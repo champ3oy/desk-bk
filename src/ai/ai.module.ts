@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { AiController } from './ai.controller';
 import { TicketsModule } from '../tickets/tickets.module';
 import { ThreadsModule } from '../threads/threads.module';
@@ -14,6 +15,7 @@ import { KnowledgeBaseService } from './knowledge-base.service';
     CommentsModule,
     OrganizationsModule,
     TrainingModule,
+    ConfigModule,
   ],
   controllers: [AiController],
   providers: [KnowledgeBaseService],

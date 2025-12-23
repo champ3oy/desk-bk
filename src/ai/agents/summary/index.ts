@@ -1,6 +1,6 @@
 import * as z from 'zod';
 import { createAgent, tool } from 'langchain';
-import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
+import { AIModelFactory } from '../../ai-model.factory';
 import { ConfigService } from '@nestjs/config';
 import { TicketsService } from '../../../tickets/tickets.service';
 import { ThreadsService } from '../../../threads/threads.service';
@@ -101,22 +101,7 @@ export const createSummarizeAgent = (
     organizationId,
   );
 
-  // Get API key and model from config
-  const apiKey = configService.get<string>('ai.geminiApiKey');
-  const modelName =
-    configService.get<string>('ai.model') || 'gemini-2.0-flash-exp';
-
-  if (!apiKey) {
-    throw new Error(
-      'Gemini API key is not configured. Please set GEMINI_API_KEY or GOOGLE_API_KEY environment variable.',
-    );
-  }
-
-  // Create Google Generative AI model instance
-  const model = new ChatGoogleGenerativeAI({
-    model: modelName,
-    apiKey,
-  });
+  const model = AIModelFactory.create(configService);
 
   return createAgent({
     model,

@@ -50,6 +50,13 @@ export class TrainingSource {
   })
   @Prop({ type: Object, required: false })
   metadata?: Record<string, any>;
+
+  @ApiProperty({
+    description: 'Vector embedding of the content',
+    required: false,
+  })
+  @Prop({ type: [Number], required: false, select: false })
+  embedding?: number[];
 }
 
 export const TrainingSourceSchema =
