@@ -66,6 +66,15 @@ export class PlaygroundChatDto {
   @IsString()
   @IsOptional()
   model?: string;
+
+  @ApiProperty({
+    description: 'The email of the customer (if known)',
+    example: 'customer@example.com',
+    required: false,
+  })
+  @IsString()
+  @IsOptional()
+  customerEmail?: string;
 }
 
 export class PlaygroundChatResponseDto {

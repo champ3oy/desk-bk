@@ -26,6 +26,7 @@ import { TicketsService } from '../tickets/tickets.service';
 import { ThreadsService } from '../threads/threads.service';
 import { CommentsService } from '../comments/comments.service';
 import { OrganizationsService } from '../organizations/organizations.service';
+import { CustomersService } from '../customers/customers.service';
 import {
   DraftResponseDto,
   DraftResponseResponseDto,
@@ -63,7 +64,8 @@ export class AiController {
     private readonly commentsService: CommentsService,
     private readonly configService: ConfigService,
     private readonly organizationsService: OrganizationsService,
-    private readonly knowledgeBaseService: KnowledgeBaseService, // KnowledgeBaseService
+    private readonly knowledgeBaseService: KnowledgeBaseService,
+    private readonly customersService: CustomersService,
   ) {}
 
   @Post('generate-instructions')
@@ -335,10 +337,12 @@ export class AiController {
       this.configService,
       this.organizationsService,
       this.knowledgeBaseService,
+      this.customersService,
       req.user.organizationId,
       body.history,
       body.provider,
       body.model,
+      body.customerEmail,
     );
   }
 }
