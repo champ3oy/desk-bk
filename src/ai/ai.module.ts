@@ -7,6 +7,7 @@ import { CommentsModule } from '../comments/comments.module';
 import { OrganizationsModule } from '../organizations/organizations.module';
 import { TrainingModule } from '../training/training.module';
 import { KnowledgeBaseService } from './knowledge-base.service';
+import { CustomersModule } from '../customers/customers.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { KnowledgeBaseService } from './knowledge-base.service';
     OrganizationsModule,
     TrainingModule,
     ConfigModule,
+    CustomersModule,
   ],
   controllers: [AiController],
   providers: [KnowledgeBaseService],
