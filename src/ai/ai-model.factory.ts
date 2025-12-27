@@ -38,6 +38,11 @@ export class AIModelFactory {
 
     const isCustom = provider?.toLowerCase() === 'custom';
 
+    // Map 'gemma3' to the specific model version 'gemma3:4b' required by the custom provider
+    if (isCustom && modelName === 'gemma3') {
+      modelName = 'gemma3:4b';
+    }
+
     this.logger.log(
       `[AI Factory] Using Model: '${modelName}' Provider: '${provider}'`,
     );
