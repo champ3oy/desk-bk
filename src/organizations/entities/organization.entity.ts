@@ -196,6 +196,39 @@ export class Organization {
   })
   @Prop()
   billingEmail?: string;
+  @ApiPropertyOptional({
+    description: 'Widget configuration settings',
+  })
+  @Prop({
+    type: {
+      primaryColor: { type: String, default: '#06B6D4' },
+      secondaryColor: { type: String, default: '#0F2035' },
+      position: { type: String, default: 'bottom-right' },
+      size: { type: String, default: 'medium' },
+      borderRadius: { type: String, default: 'rounded' },
+      logoUrl: { type: String, default: '' },
+      customCSS: { type: String, default: '' },
+      welcomeMessage: {
+        type: String,
+        default: 'Hello! How can I help you today?',
+      },
+      headerText: { type: String, default: 'Chat with us' },
+    },
+    default: {},
+    _id: false,
+  })
+  widgetConfig?: {
+    primaryColor?: string;
+    secondaryColor?: string;
+    position?: string;
+    size?: string;
+    borderRadius?: string;
+    logoUrl?: string;
+    customCSS?: string;
+    welcomeMessage?: string;
+    headerText?: string;
+  };
+
   @ApiPropertyOptional({ description: 'Payment method info' })
   @Prop({
     type: {

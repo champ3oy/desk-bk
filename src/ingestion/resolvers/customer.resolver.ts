@@ -24,6 +24,7 @@ export class CustomerResolver {
         firstName?: string;
         lastName?: string;
         company?: string;
+        externalId?: string;
       } = {};
 
       if (message.senderEmail) {
@@ -41,16 +42,26 @@ export class CustomerResolver {
         customerData.lastName = nameParts.lastName;
       }
 
+      // For widget messages, use sessionId as externalId
+      if (message.metadata?.sessionId) {
+        customerData.externalId = message.metadata.sessionId;
+      }
+
       // Find or create customer
       const customer = await this.customersService.findOrCreate(
         customerData,
         organizationId,
       );
 
-      this.logger.debug(`Resolved customer ${customer._id} for organization ${organizationId}`);
+      this.logger.debug(
+        `Resolved customer ${customer._id} for organization ${organizationId}`,
+      );
       return customer._id.toString();
     } catch (error) {
-      this.logger.error(`Error resolving customer: ${error.message}`, error.stack);
+      this.logger.error(
+        `Error resolving customer: ${error.message}`,
+        error.stack,
+      );
       throw error;
     }
   }
@@ -81,4 +92,3 @@ export class CustomerResolver {
     };
   }
 }
-

@@ -5,6 +5,7 @@ import { WebhooksController } from './webhooks.controller';
 import { EmailParser } from './parsers/email.parser';
 import { SmsParser } from './parsers/sms.parser';
 import { WhatsAppParser } from './parsers/whatsapp.parser';
+import { WidgetParser } from './parsers/widget.parser';
 import { OrganizationResolver } from './resolvers/organization.resolver';
 import { CustomerResolver } from './resolvers/customer.resolver';
 import { TicketResolver } from './resolvers/ticket.resolver';
@@ -19,6 +20,8 @@ import { OrganizationsModule } from '../organizations/organizations.module';
 import { CustomersModule } from '../customers/customers.module';
 import { TicketsModule } from '../tickets/tickets.module';
 import { ThreadsModule } from '../threads/threads.module';
+import { TrainingModule } from '../training/training.module';
+import { KnowledgeBaseService } from '../ai/knowledge-base.service';
 
 @Module({
   imports: [
@@ -31,6 +34,7 @@ import { ThreadsModule } from '../threads/threads.module';
     CustomersModule,
     TicketsModule,
     forwardRef(() => ThreadsModule),
+    TrainingModule, // For KnowledgeBaseService
   ],
   controllers: [WebhooksController],
   providers: [
@@ -38,12 +42,13 @@ import { ThreadsModule } from '../threads/threads.module';
     EmailParser,
     SmsParser,
     WhatsAppParser,
+    WidgetParser,
     OrganizationResolver,
     CustomerResolver,
     TicketResolver,
     PendingReviewService,
+    KnowledgeBaseService,
   ],
   exports: [IngestionService, PendingReviewService],
 })
 export class IngestionModule {}
-

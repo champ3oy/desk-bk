@@ -6,11 +6,17 @@ export type ThreadDocument = Thread & Document;
 
 @Schema({ timestamps: true })
 export class Thread {
-  @ApiProperty({ description: 'Organization ID', example: '507f1f77bcf86cd799439011' })
+  @ApiProperty({
+    description: 'Organization ID',
+    example: '507f1f77bcf86cd799439011',
+  })
   @Prop({ type: Types.ObjectId, ref: 'Organization', required: true })
   organizationId: Types.ObjectId;
 
-  @ApiProperty({ description: 'Ticket ID', example: '507f1f77bcf86cd799439011' })
+  @ApiProperty({
+    description: 'Ticket ID',
+    example: '507f1f77bcf86cd799439011',
+  })
   @Prop({ type: Types.ObjectId, ref: 'Ticket', required: true, unique: true })
   ticketId: Types.ObjectId;
 
@@ -30,7 +36,8 @@ export class Thread {
   participantUserIds: Types.ObjectId[];
 
   @ApiPropertyOptional({
-    description: 'Participant group IDs (groups whose members can see internal messages)',
+    description:
+      'Participant group IDs (groups whose members can see internal messages)',
     type: [String],
     example: ['507f1f77bcf86cd799439011'],
   })
@@ -52,6 +59,13 @@ export class Thread {
     example: '2024-01-01T00:00:00.000Z',
   })
   updatedAt?: Date;
+
+  @ApiPropertyOptional({
+    description: 'Additional metadata',
+    example: { sessionId: 'abc-123' },
+  })
+  @Prop({ type: Object, default: {} })
+  metadata?: Record<string, any>;
 }
 
 export const ThreadSchema = SchemaFactory.createForClass(Thread);
@@ -60,4 +74,3 @@ export const ThreadSchema = SchemaFactory.createForClass(Thread);
 ThreadSchema.index({ ticketId: 1, organizationId: 1 }, { unique: true }); // One thread per ticket
 ThreadSchema.index({ customerId: 1, organizationId: 1 });
 ThreadSchema.index({ participantUserIds: 1, organizationId: 1 });
-

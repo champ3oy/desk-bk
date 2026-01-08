@@ -143,4 +143,20 @@ export class UpdateOrganizationDto {
   @IsString()
   @IsOptional()
   billingEmail?: string;
+
+  @ApiPropertyOptional({
+    description: 'Widget configuration',
+  })
+  @IsOptional()
+  widgetConfig?: {
+    primaryColor?: string;
+    secondaryColor?: string;
+    position?: string;
+    size?: string;
+    borderRadius?: string;
+    logoUrl?: string;
+    customCSS?: string;
+    welcomeMessage?: string;
+    headerText?: string;
+  };
 }

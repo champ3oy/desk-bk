@@ -46,6 +46,7 @@ export class ThreadsService {
     ticketId: string,
     customerId: string,
     organizationId: string,
+    metadata?: Record<string, any>,
   ): Promise<ThreadDocument> {
     // Check if thread already exists for this ticket
     const existingThread = await this.threadModel.findOne({
@@ -55,6 +56,11 @@ export class ThreadsService {
     });
 
     if (existingThread) {
+      if (metadata) {
+        // Merge new metadata if provided
+        existingThread.metadata = { ...existingThread.metadata, ...metadata };
+        await existingThread.save();
+      }
       return existingThread;
     }
 
@@ -69,6 +75,7 @@ export class ThreadsService {
       participantUserIds: [],
       participantGroupIds: [],
       isActive: true,
+      metadata: metadata || {},
     });
 
     return thread.save();

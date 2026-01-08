@@ -5,6 +5,7 @@ import { IncomingMessageDto } from './dto/incoming-message.dto';
 import { EmailParser } from './parsers/email.parser';
 import { SmsParser } from './parsers/sms.parser';
 import { WhatsAppParser } from './parsers/whatsapp.parser';
+import { WidgetParser } from './parsers/widget.parser';
 import { OrganizationResolver } from './resolvers/organization.resolver';
 import { CustomerResolver } from './resolvers/customer.resolver';
 import { TicketResolver } from './resolvers/ticket.resolver';
@@ -36,6 +37,7 @@ export class IngestionService {
     private emailParser: EmailParser,
     private smsParser: SmsParser,
     private whatsappParser: WhatsAppParser,
+    private widgetParser: WidgetParser,
     private organizationResolver: OrganizationResolver,
     private customerResolver: CustomerResolver,
     private ticketResolver: TicketResolver,
@@ -206,6 +208,8 @@ export class IngestionService {
         return this.smsParser.parse(payload, provider);
       case MessageChannel.WHATSAPP:
         return this.whatsappParser.parse(payload, provider);
+      case MessageChannel.WIDGET:
+        return this.widgetParser.parse(payload);
       default:
         throw new Error(`Unsupported channel: ${channel}`);
     }
@@ -252,6 +256,7 @@ export class IngestionService {
       ticketId,
       customerId,
       organizationId,
+      message.metadata, // Pass metadata (e.g. sessionId)
     );
 
     // Check for content duplicate within last 2 minutes (to catch different Message-IDs for same content)
@@ -374,6 +379,7 @@ export class IngestionService {
       (ticket as any)._id.toString(),
       customerId,
       organizationId,
+      message.metadata, // Pass metadata (e.g. sessionId)
     );
 
     // Create initial message in thread (directly, bypassing permission checks for customer messages)
@@ -442,5 +448,37 @@ export class IngestionService {
     }
 
     return this.messageModel.findOne(query).exec();
+  }
+
+  /**
+   * Find a thread by sessionId stored in metadata
+   */
+  async findThreadBySessionId(
+    sessionId: string,
+    organizationId: string,
+  ): Promise<ThreadDocument | null> {
+    return this.threadModel
+      .findOne({
+        'metadata.sessionId': sessionId,
+        organizationId: new Types.ObjectId(organizationId),
+        isActive: true,
+      })
+      .exec();
+  }
+
+  /**
+   * Get all messages for a thread
+   */
+  async getThreadMessages(
+    threadId: string,
+    organizationId: string,
+  ): Promise<MessageDocument[]> {
+    return this.messageModel
+      .find({
+        threadId: new Types.ObjectId(threadId),
+        organizationId: new Types.ObjectId(organizationId),
+      })
+      .sort({ createdAt: 1 })
+      .exec();
   }
 }

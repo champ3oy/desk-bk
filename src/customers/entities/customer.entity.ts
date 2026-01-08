@@ -6,9 +6,12 @@ export type CustomerDocument = Customer & Document;
 
 @Schema({ timestamps: true })
 export class Customer {
-  @ApiProperty({ description: 'Customer email', example: 'customer@example.com' })
-  @Prop({ required: true })
-  email: string;
+  @ApiPropertyOptional({
+    description: 'Customer email',
+    example: 'customer@example.com',
+  })
+  @Prop({ required: false })
+  email?: string;
 
   @ApiProperty({ description: 'First name', example: 'John' })
   @Prop({ required: true })
@@ -18,7 +21,10 @@ export class Customer {
   @Prop({ required: true })
   lastName: string;
 
-  @ApiProperty({ description: 'Organization ID', example: '507f1f77bcf86cd799439011' })
+  @ApiProperty({
+    description: 'Organization ID',
+    example: '507f1f77bcf86cd799439011',
+  })
   @Prop({ type: Types.ObjectId, ref: 'Organization', required: true })
   organizationId: Types.ObjectId;
 
@@ -33,6 +39,13 @@ export class Customer {
   @ApiProperty({ description: 'Whether customer is active', example: true })
   @Prop({ default: true })
   isActive: boolean;
+
+  @ApiPropertyOptional({
+    description: 'External ID for widget sessions',
+    example: 'session_abc123',
+  })
+  @Prop({ required: false })
+  externalId?: string;
 
   @ApiPropertyOptional({
     description: 'Creation timestamp',
@@ -50,5 +63,10 @@ export class Customer {
 export const CustomerSchema = SchemaFactory.createForClass(Customer);
 
 // Create compound index for email uniqueness within organization
-CustomerSchema.index({ email: 1, organizationId: 1 }, { unique: true });
+CustomerSchema.index(
+  { email: 1, organizationId: 1 },
+  { unique: true, sparse: true },
+);
 
+// Index for externalId lookup
+CustomerSchema.index({ externalId: 1, organizationId: 1 }, { sparse: true });

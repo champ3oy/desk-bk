@@ -69,10 +69,7 @@ export class CustomersService {
   ): Promise<CustomerDocument> {
     const customer = await this.findOne(id, organizationId);
 
-    if (
-      updateCustomerDto.email &&
-      updateCustomerDto.email !== customer.email
-    ) {
+    if (updateCustomerDto.email && updateCustomerDto.email !== customer.email) {
       const existingCustomer = await this.customerModel.findOne({
         email: updateCustomerDto.email,
         organizationId: new Types.ObjectId(organizationId),
@@ -164,7 +161,7 @@ export class CustomersService {
 
   /**
    * Find or create a customer within an organization
-   * Matches by email or phone (if either matches, returns existing customer)
+   * Matches by email, phone, or externalId (if any match, returns existing customer)
    * Updates customer info if found but data differs
    */
   async findOrCreate(
@@ -174,12 +171,13 @@ export class CustomersService {
       firstName?: string;
       lastName?: string;
       company?: string;
+      externalId?: string; // For widget sessions without email
     },
     organizationId: string,
   ): Promise<CustomerDocument> {
     const orgId = new Types.ObjectId(organizationId);
 
-    // Try to find existing customer by email or phone
+    // Try to find existing customer by email, phone, or externalId
     let existingCustomer: CustomerDocument | null = null;
 
     if (customerData.email) {
@@ -196,12 +194,25 @@ export class CustomersService {
       );
     }
 
+    // Check by externalId (for widget sessions)
+    if (!existingCustomer && customerData.externalId) {
+      existingCustomer = await this.customerModel
+        .findOne({
+          externalId: customerData.externalId,
+          organizationId: orgId,
+        })
+        .exec();
+    }
+
     if (existingCustomer) {
       // Update customer info if provided data differs
       let needsUpdate = false;
       const updates: any = {};
 
-      if (customerData.email && existingCustomer.email !== customerData.email.toLowerCase().trim()) {
+      if (
+        customerData.email &&
+        existingCustomer.email !== customerData.email.toLowerCase().trim()
+      ) {
         // Email changed - but we found by phone, so update email
         updates.email = customerData.email.toLowerCase().trim();
         needsUpdate = true;
@@ -212,17 +223,26 @@ export class CustomersService {
         needsUpdate = true;
       }
 
-      if (customerData.firstName && existingCustomer.firstName !== customerData.firstName) {
+      if (
+        customerData.firstName &&
+        existingCustomer.firstName !== customerData.firstName
+      ) {
         updates.firstName = customerData.firstName;
         needsUpdate = true;
       }
 
-      if (customerData.lastName && existingCustomer.lastName !== customerData.lastName) {
+      if (
+        customerData.lastName &&
+        existingCustomer.lastName !== customerData.lastName
+      ) {
         updates.lastName = customerData.lastName;
         needsUpdate = true;
       }
 
-      if (customerData.company && existingCustomer.company !== customerData.company) {
+      if (
+        customerData.company &&
+        existingCustomer.company !== customerData.company
+      ) {
         updates.company = customerData.company;
         needsUpdate = true;
       }
@@ -236,26 +256,37 @@ export class CustomersService {
     }
 
     // Create new customer
-    // Email is required for customer creation
-    if (!customerData.email) {
-      throw new BadRequestException('Email is required to create a customer');
+    // For widget customers, we can create without email if we have externalId
+    if (!customerData.email && !customerData.externalId) {
+      throw new BadRequestException(
+        'Email or externalId is required to create a customer',
+      );
     }
 
-    // First name and last name are required
+    // First name and last name handling
     if (!customerData.firstName || !customerData.lastName) {
-      // Try to parse from email or use defaults
-      const emailParts = customerData.email.split('@')[0];
-      const nameParts = emailParts.split(/[._-]/);
-      customerData.firstName = customerData.firstName || nameParts[0] || 'Customer';
-      customerData.lastName = customerData.lastName || nameParts.slice(1).join(' ') || 'Unknown';
+      if (customerData.email) {
+        // Try to parse from email
+        const emailParts = customerData.email.split('@')[0];
+        const nameParts = emailParts.split(/[._-]/);
+        customerData.firstName =
+          customerData.firstName || nameParts[0] || 'Customer';
+        customerData.lastName =
+          customerData.lastName || nameParts.slice(1).join(' ') || 'Unknown';
+      } else {
+        // Widget customer without email
+        customerData.firstName = customerData.firstName || 'Website';
+        customerData.lastName = customerData.lastName || 'Visitor';
+      }
     }
 
     const newCustomer = new this.customerModel({
-      email: customerData.email.toLowerCase().trim(),
+      email: customerData.email?.toLowerCase().trim(),
       firstName: customerData.firstName,
       lastName: customerData.lastName,
       phone: customerData.phone,
       company: customerData.company,
+      externalId: customerData.externalId,
       organizationId: orgId,
       isActive: true,
     });
@@ -263,4 +294,3 @@ export class CustomersService {
     return newCustomer.save();
   }
 }
-

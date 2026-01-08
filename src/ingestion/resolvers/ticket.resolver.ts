@@ -2,7 +2,10 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { IncomingMessageDto } from '../dto/incoming-message.dto';
-import { Message, MessageDocument } from '../../threads/entities/message.entity';
+import {
+  Message,
+  MessageDocument,
+} from '../../threads/entities/message.entity';
 import { Thread, ThreadDocument } from '../../threads/entities/thread.entity';
 import { TicketsService } from '../../tickets/tickets.service';
 import { TicketStatus } from '../../tickets/entities/ticket.entity';
@@ -53,7 +56,9 @@ export class TicketResolver {
           organizationId,
         );
         if (ticketId) {
-          this.logger.debug(`Found reply ticket ${ticketId} by message ID from metadata`);
+          this.logger.debug(
+            `Found reply ticket ${ticketId} by message ID from metadata`,
+          );
           return ticketId;
         }
       }
@@ -75,7 +80,10 @@ export class TicketResolver {
       this.logger.debug('No existing ticket found - treating as new ticket');
       return null;
     } catch (error) {
-      this.logger.error(`Error resolving ticket: ${error.message}`, error.stack);
+      this.logger.error(
+        `Error resolving ticket: ${error.message}`,
+        error.stack,
+      );
       // On error, treat as new ticket to avoid losing messages
       return null;
     }
@@ -140,6 +148,22 @@ export class TicketResolver {
     // For now, we'll check if there's a pattern we can use
     // This might need to be enhanced based on how providers send thread IDs
 
+    // Check strict match for widget session ID in metadata
+    if (threadId) {
+      const threadBySession = await this.threadModel.findOne({
+        'metadata.sessionId': threadId,
+        organizationId: new Types.ObjectId(organizationId),
+        isActive: true, // Only match valid/active threads
+      });
+
+      if (threadBySession) {
+        this.logger.debug(
+          `Found reply ticket ${threadBySession.ticketId} by session ID: ${threadId}`,
+        );
+        return threadBySession.ticketId.toString();
+      }
+    }
+
     // Alternative: Find most recent thread for this customer and check if threadId matches
     // This is a simplified approach - in production you might want to store thread IDs separately
     const threads = await this.threadModel
@@ -174,10 +198,11 @@ export class TicketResolver {
       // Get ticket to check current status
       // We'll need to import TicketsService properly
       // For now, just log - the actual update can be done in the ingestion service
-      this.logger.debug(`Customer replied to ticket ${ticketId} - status may need update`);
+      this.logger.debug(
+        `Customer replied to ticket ${ticketId} - status may need update`,
+      );
     } catch (error) {
       this.logger.error(`Error updating ticket on reply: ${error.message}`);
     }
   }
 }
-

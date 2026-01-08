@@ -6,6 +6,7 @@ export enum MessageChannel {
   EMAIL = 'email',
   SMS = 'sms',
   WHATSAPP = 'whatsapp',
+  WIDGET = 'widget',
   PLATFORM = 'platform', // Direct platform messaging
 }
 

@@ -54,25 +54,6 @@ export class OrganizationsService {
   }
 
   async findOne(id: string): Promise<Organization> {
-    if (id === '666666666666666666666666') {
-      let org = await this.organizationModel.findById(id).exec();
-      if (!org) {
-        // Persist the mock org so it exists for other queries
-        org = await new this.organizationModel({
-          _id: new Types.ObjectId(id),
-          name: 'My Organization',
-          slug: 'my-org-' + Date.now(), // Ensure unique slug
-          ownerId: new Types.ObjectId(), // Placeholder
-          plan: 'professional',
-          isActive: true,
-          aiAutoReplyEmail: true,
-          aiConfidenceThreshold: 85,
-          aiRestrictedTopics: [],
-        }).save();
-      }
-      return org;
-    }
-
     const organization = await this.organizationModel.findById(id).exec();
 
     if (!organization) {
@@ -89,6 +70,20 @@ export class OrganizationsService {
     const organization = await this.organizationModel
       .findByIdAndUpdate(id, updateOrganizationDto, { new: true })
       .exec();
+
+    if (updateOrganizationDto.widgetConfig) {
+      console.log(
+        `[OrganizationsService] Updating widget config for ${id}:`,
+        JSON.stringify(updateOrganizationDto.widgetConfig, null, 2),
+      );
+    }
+
+    if (organization?.widgetConfig) {
+      console.log(
+        `[OrganizationsService] Updated org widget config:`,
+        JSON.stringify(organization.widgetConfig, null, 2),
+      );
+    }
 
     if (!organization) {
       throw new NotFoundException(`Organization with ID ${id} not found`);
