@@ -23,6 +23,7 @@ import {
 import { CustomersService } from './customers.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
+import { MergeCustomerDto } from './dto/merge-customer.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -121,5 +122,31 @@ export class CustomersController {
   @ApiForbiddenResponse({ description: 'Insufficient permissions' })
   remove(@Param('id') id: string, @Request() req) {
     return this.customersService.remove(id, req.user.organizationId);
+  }
+
+  @Post(':id/merge')
+  @Roles(UserRole.ADMIN, UserRole.AGENT)
+  @ApiOperation({
+    summary: 'Merge this customer into another customer (Admin/Agent only)',
+  })
+  @ApiParam({ name: 'id', description: 'Source Customer ID' })
+  @ApiBody({ type: MergeCustomerDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Customer merged successfully',
+    type: Customer,
+  })
+  @ApiNotFoundResponse({ description: 'Customer not found' })
+  @ApiForbiddenResponse({ description: 'Insufficient permissions' })
+  merge(
+    @Param('id') id: string,
+    @Body() mergeCustomerDto: MergeCustomerDto,
+    @Request() req,
+  ) {
+    return this.customersService.merge(
+      id,
+      mergeCustomerDto.targetCustomerId,
+      req.user.organizationId,
+    );
   }
 }

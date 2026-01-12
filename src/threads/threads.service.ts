@@ -504,4 +504,95 @@ export class ThreadsService {
 
     return threads.map((t) => t.ticketId);
   }
+
+  /**
+   * Merge two threads.
+   * Moves all messages from source thread to target thread.
+   * Merges participants.
+   * Deactivates source thread.
+   */
+  async mergeThreads(
+    sourceThreadId: string,
+    targetThreadId: string,
+    organizationId: string,
+  ): Promise<void> {
+    const sourceThread = await this.threadModel.findOne({
+      _id: sourceThreadId,
+      organizationId: new Types.ObjectId(organizationId),
+    });
+
+    const targetThread = await this.threadModel.findOne({
+      _id: targetThreadId,
+      organizationId: new Types.ObjectId(organizationId),
+    });
+
+    if (!sourceThread || !targetThread) {
+      throw new NotFoundException('One or both threads not found');
+    }
+
+    // Move messages
+    await this.messageModel.updateMany(
+      { threadId: sourceThreadId },
+      { $set: { threadId: targetThreadId } },
+    );
+
+    // Merge participants
+    const userParticipants = new Set([
+      ...sourceThread.participantUserIds.map((id) => id.toString()),
+      ...targetThread.participantUserIds.map((id) => id.toString()),
+    ]);
+
+    const groupParticipants = new Set([
+      ...sourceThread.participantGroupIds.map((id) => id.toString()),
+      ...targetThread.participantGroupIds.map((id) => id.toString()),
+    ]);
+
+    targetThread.participantUserIds = Array.from(userParticipants).map(
+      (id) => new Types.ObjectId(id),
+    );
+    targetThread.participantGroupIds = Array.from(groupParticipants).map(
+      (id) => new Types.ObjectId(id),
+    );
+
+    await targetThread.save();
+
+    // Deactivate source thread
+    sourceThread.isActive = false;
+    await sourceThread.save();
+  }
+
+  /**
+   * Update customer references in threads and messages.
+   * Used when merging customers.
+   */
+  async updateCustomerForThreads(
+    oldCustomerId: string,
+    newCustomerId: string,
+    organizationId: string,
+  ): Promise<void> {
+    // Update threads
+    await this.threadModel.updateMany(
+      {
+        customerId: new Types.ObjectId(oldCustomerId),
+        organizationId: new Types.ObjectId(organizationId),
+      },
+      {
+        $set: { customerId: new Types.ObjectId(newCustomerId) },
+      },
+    );
+
+    // Update messages (where author is the customer)
+    // Note: We should strictly check authorType, but filtering by ID is usually safe enough if IDs are unique across collections
+    // But let's be safe and check authorType if possible. The schema has authorType.
+    await this.messageModel.updateMany(
+      {
+        authorId: new Types.ObjectId(oldCustomerId),
+        organizationId: new Types.ObjectId(organizationId),
+        authorType: MessageAuthorType.CUSTOMER, // Assuming this enum value exists and is correct context
+      },
+      {
+        $set: { authorId: new Types.ObjectId(newCustomerId) },
+      },
+    );
+  }
 }

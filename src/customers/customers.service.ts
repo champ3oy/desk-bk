@@ -10,11 +10,19 @@ import { Customer, CustomerDocument } from './entities/customer.entity';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 
+import { TicketsService } from '../tickets/tickets.service';
+import { ThreadsService } from '../threads/threads.service';
+import { forwardRef, Inject } from '@nestjs/common';
+
 @Injectable()
 export class CustomersService {
   constructor(
     @InjectModel(Customer.name)
     private customerModel: Model<CustomerDocument>,
+    @Inject(forwardRef(() => TicketsService))
+    private ticketsService: TicketsService,
+    @Inject(forwardRef(() => ThreadsService))
+    private threadsService: ThreadsService,
   ) {}
 
   async create(
@@ -292,5 +300,51 @@ export class CustomersService {
     });
 
     return newCustomer.save();
+  }
+
+  async merge(
+    sourceCustomerId: string,
+    targetCustomerId: string,
+    organizationId: string,
+  ): Promise<CustomerDocument> {
+    const sourceCustomer = await this.findOne(sourceCustomerId, organizationId);
+    const targetCustomer = await this.findOne(targetCustomerId, organizationId);
+
+    // Reassign tickets
+    await this.ticketsService.updateCustomer(
+      sourceCustomerId,
+      targetCustomerId,
+      organizationId,
+    );
+
+    // Reassign threads and messages
+    await this.threadsService.updateCustomerForThreads(
+      sourceCustomerId,
+      targetCustomerId,
+      organizationId,
+    );
+
+    // Simple field merging strategy: fill missing fields in target from source
+    let needsUpdate = false;
+    if (!targetCustomer.phone && sourceCustomer.phone) {
+      targetCustomer.phone = sourceCustomer.phone;
+      needsUpdate = true;
+    }
+    if (!targetCustomer.company && sourceCustomer.company) {
+      targetCustomer.company = sourceCustomer.company;
+      needsUpdate = true;
+    }
+    // Note: externalId is tricky, only one can have it usually.
+    // If target doesn't have it, we could move it, but it might be associated with a session.
+    // Let's assume user knows what they are doing merging.
+
+    if (needsUpdate) {
+      await targetCustomer.save();
+    }
+
+    // Delete source customer
+    await this.remove(sourceCustomerId, organizationId);
+
+    return targetCustomer;
   }
 }

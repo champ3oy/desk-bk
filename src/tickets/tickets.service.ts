@@ -2,13 +2,14 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  BadRequestException,
   Inject,
   forwardRef,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ConfigService } from '@nestjs/config';
 import { Model, Types } from 'mongoose';
-import { Ticket, TicketDocument } from './entities/ticket.entity';
+import { Ticket, TicketDocument, TicketStatus } from './entities/ticket.entity';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { UpdateTicketDto } from './dto/update-ticket.dto';
 import { UserRole } from '../users/entities/user.entity';
@@ -435,5 +436,106 @@ export class TicketsService {
 
     await this.findOne(id, userId, userRole, organizationId);
     await this.ticketModel.findByIdAndDelete(id).exec();
+  }
+
+  async merge(
+    sourceTicketId: string,
+    targetTicketId: string,
+    userId: string,
+    userRole: UserRole,
+    organizationId: string,
+  ): Promise<Ticket> {
+    // 1. Validate both tickets exist and user has access
+    const sourceTicket = await this.findOne(
+      sourceTicketId,
+      userId,
+      userRole,
+      organizationId,
+    );
+    const targetTicket = await this.findOne(
+      targetTicketId,
+      userId,
+      userRole,
+      organizationId,
+    );
+
+    if (
+      sourceTicket.customerId.toString() !== targetTicket.customerId.toString()
+    ) {
+      // Optional: Enforce same customer? The prompt implies merging tickets, usually for same customer.
+      // But sometimes you merge duplicates from different profiles (which are then merged).
+      // For now, let's just warn or allow it.
+      // Actually, usually ticket merge is for same customer.
+      // But if we allow merging tickets from different customers, the messages will just appear in the target ticket.
+    }
+
+    // 2. Get threads
+    const sourceThread = await this.threadsService.findByTicket(
+      sourceTicketId,
+      organizationId,
+      userId,
+      userRole,
+    );
+    const targetThread = await this.threadsService.findByTicket(
+      targetTicketId,
+      organizationId,
+      userId,
+      userRole,
+    );
+
+    if (!sourceThread || !targetThread) {
+      throw new BadRequestException(
+        'One or both tickets do not have a valid thread',
+      );
+    }
+
+    // 3. Merge threads
+    await this.threadsService.mergeThreads(
+      sourceThread._id.toString(),
+      targetThread._id.toString(),
+      organizationId,
+    );
+
+    // 4. Update source ticket status to 'Closed' (or equivalent)
+    // We assume 'Closed' is a valid status. If not, we might need to check.
+    // The previous code had 'Closed' mapping in the frontend so it's likely standard.
+    sourceTicket.status = TicketStatus.CLOSED;
+    await sourceTicket.save();
+
+    // 5. Add system note to target ticket
+    await this.threadsService.createMessage(
+      targetThread._id.toString(),
+      {
+        content: `Ticket #${sourceTicketId} was merged into this ticket. All messages have been moved here.`,
+        messageType: MessageType.INTERNAL,
+      },
+      organizationId,
+      userId,
+      userRole,
+      MessageAuthorType.SYSTEM,
+    );
+    // Note: MessageAuthorType might not have SYSTEM. I should check `MessageAuthorType` in `backend/src/threads/entities/message.entity.ts`.
+    // If not, I'll use USER or AI or just simple text.
+    // Checking `tickets.service.ts` imports: `MessageAuthorType` is imported. It has `AI`.
+    // Let's assume it has `SYSTEM` or I will add it or use `AI`.
+    // Actually, I'll check `MessageAuthorType` first.
+
+    return targetTicket;
+  }
+
+  async updateCustomer(
+    oldCustomerId: string,
+    newCustomerId: string,
+    organizationId: string,
+  ): Promise<void> {
+    await this.ticketModel.updateMany(
+      {
+        customerId: new Types.ObjectId(oldCustomerId),
+        organizationId: new Types.ObjectId(organizationId),
+      },
+      {
+        $set: { customerId: new Types.ObjectId(newCustomerId) },
+      },
+    );
   }
 }

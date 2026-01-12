@@ -14,6 +14,7 @@ export enum MessageAuthorType {
   USER = 'user',
   CUSTOMER = 'customer',
   AI = 'ai',
+  SYSTEM = 'system',
 }
 
 export enum MessageType {

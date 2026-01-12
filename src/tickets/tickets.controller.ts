@@ -25,6 +25,7 @@ import {
 import { TicketsService } from './tickets.service';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { UpdateTicketDto } from './dto/update-ticket.dto';
+import { MergeTicketDto } from './dto/merge-ticket.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Ticket } from './entities/ticket.entity';
 import { ThreadsService } from '../threads/threads.service';
@@ -180,6 +181,31 @@ export class TicketsController {
       req.user.organizationId,
       req.user.userId,
       req.user.role,
+    );
+  }
+
+  @Post(':id/merge')
+  @ApiOperation({ summary: 'Merge this ticket into another ticket' })
+  @ApiParam({ name: 'id', description: 'Source Ticket ID' })
+  @ApiBody({ type: MergeTicketDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Ticket merged successfully',
+    type: Ticket,
+  })
+  @ApiNotFoundResponse({ description: 'Ticket not found' })
+  @ApiForbiddenResponse({ description: 'Access denied' })
+  merge(
+    @Param('id') id: string,
+    @Body() mergeTicketDto: MergeTicketDto,
+    @Request() req,
+  ) {
+    return this.ticketsService.merge(
+      id,
+      mergeTicketDto.targetTicketId,
+      req.user.userId,
+      req.user.role,
+      req.user.organizationId,
     );
   }
 }
