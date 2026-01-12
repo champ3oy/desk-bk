@@ -33,6 +33,7 @@ export class ThreadsService {
     private messageModel: Model<MessageDocument>,
     @Inject(forwardRef(() => TicketsService))
     private ticketsService: TicketsService,
+    @Inject(forwardRef(() => CustomersService))
     private customersService: CustomersService,
     private groupsService: GroupsService,
     private dispatcherService: DispatcherService,

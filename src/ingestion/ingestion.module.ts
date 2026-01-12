@@ -31,8 +31,8 @@ import { KnowledgeBaseService } from '../ai/knowledge-base.service';
       { name: Thread.name, schema: ThreadSchema },
     ]),
     OrganizationsModule,
-    CustomersModule,
-    TicketsModule,
+    forwardRef(() => CustomersModule),
+    forwardRef(() => TicketsModule),
     forwardRef(() => ThreadsModule),
     TrainingModule, // For KnowledgeBaseService
   ],

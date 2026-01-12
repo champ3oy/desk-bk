@@ -16,7 +16,7 @@ import { OrganizationsModule } from '../organizations/organizations.module';
       { name: Ticket.name, schema: TicketSchema },
       { name: Tag.name, schema: TagSchema },
     ]),
-    CustomersModule,
+    forwardRef(() => CustomersModule),
     GroupsModule,
     OrganizationsModule,
     ConfigModule,

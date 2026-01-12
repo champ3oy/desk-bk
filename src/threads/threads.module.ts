@@ -16,7 +16,7 @@ import { DispatcherModule } from '../dispatcher/dispatcher.module';
       { name: Message.name, schema: MessageSchema },
     ]),
     forwardRef(() => TicketsModule),
-    CustomersModule,
+    forwardRef(() => CustomersModule),
     GroupsModule,
     DispatcherModule,
   ],
@@ -25,4 +25,3 @@ import { DispatcherModule } from '../dispatcher/dispatcher.module';
   exports: [ThreadsService],
 })
 export class ThreadsModule {}
-
