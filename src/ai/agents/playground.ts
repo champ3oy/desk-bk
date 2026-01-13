@@ -17,23 +17,42 @@ export const playgroundChat = async (
   modelName?: string,
   customerEmail?: string,
 ) => {
-  // Fetch organization settings
-  const org = await organizationsService.findOne(organizationId);
+  const totalStart = Date.now();
+  console.log(`[PERF] playgroundChat started`);
+
+  // ========== PARALLELIZED DATA FETCHING ==========
+  // Fetch organization, customer (if email provided), and knowledge base in parallel
+  const parallelStart = Date.now();
+
+  const [org, customer, knowledgeContext] = await Promise.all([
+    organizationsService.findOne(organizationId),
+    customerEmail
+      ? customersService.findByEmail(customerEmail, organizationId)
+      : Promise.resolve(null),
+    knowledgeBaseService
+      ? knowledgeBaseService
+          .retrieveRelevantContent(message, organizationId, 3)
+          .catch((error: Error) => {
+            console.error('Failed to retrieve knowledge base content:', error);
+            return '';
+          })
+      : Promise.resolve(''),
+  ]);
+
+  console.log(
+    `[PERF] Parallel fetch (org + customer + KB): ${Date.now() - parallelStart}ms`,
+  );
+
+  // ========== BUILD SYSTEM PROMPT ==========
   let systemPrompt = buildSystemPrompt(org);
 
   // --- Customer Context & Mini Agent Logic ---
   let customerValues: any = null;
 
-  // 1. If we have a customerEmail, lookup the customer
-  if (customerEmail) {
-    const customer = await customersService.findByEmail(
-      customerEmail,
-      organizationId,
-    );
-    if (customer) {
-      customerValues = customer;
-      systemPrompt += `\n\nCONTEXT: You are speaking with a known customer named ${customer.firstName} ${customer.lastName} (Email: ${customer.email}). You MUST address them by name in your greeting and personalize the conversation.`;
-    }
+  // 1. If we have a customer from lookup
+  if (customer) {
+    customerValues = customer;
+    systemPrompt += `\n\nCONTEXT: You are speaking with a known customer named ${customer.firstName} ${customer.lastName} (Email: ${customer.email}). You MUST address them by name in your greeting and personalize the conversation.`;
   }
 
   // 2. If no customer identified yet, instruct AI to extract info
@@ -49,30 +68,19 @@ export const playgroundChat = async (
   }
   // -------------------------------------------
 
-  // Retrieve relevant knowledge base content
-  let knowledgeContext = '';
-  if (knowledgeBaseService) {
-    try {
-      knowledgeContext = await knowledgeBaseService.retrieveRelevantContent(
-        message,
-        organizationId,
-        3, // Max 3 relevant documents
-      );
-    } catch (error) {
-      console.error('Failed to retrieve knowledge base content:', error);
-    }
-  }
-
-  // Build full prompt
+  // Build full prompt with knowledge context
   let fullPrompt = message;
   if (knowledgeContext) {
     fullPrompt = `User Query: ${message}\n\n# KNOWLEDGE BASE CONTEXT\nUse the following information to help answer the user's query if relevant:\n${knowledgeContext}`;
   }
 
+  // ========== MODEL INITIALIZATION ==========
+  const modelStart = Date.now();
   const model = AIModelFactory.create(configService, {
     provider,
     model: modelName,
   });
+  console.log(`[PERF] Model initialization: ${Date.now() - modelStart}ms`);
 
   // Build messages array with history
   const messages: Array<{ role: string; content: string }> = [
@@ -91,8 +99,42 @@ export const playgroundChat = async (
   // Add current user message
   messages.push({ role: 'user', content: fullPrompt });
 
-  // Generate response
-  const response = await model.invoke(messages);
+  // ========== LLM INVOCATION ==========
+  const llmStart = Date.now();
+  let response;
+
+  try {
+    response = await model.invoke(messages);
+  } catch (error) {
+    console.error('[AI Agent] LLM Invocation Failed:', error);
+
+    // Check for rate limit error
+    if (error.status === 429 || error.message?.includes('429')) {
+      const isDailyLimit =
+        JSON.stringify(error).includes('PerDay') ||
+        error.message?.includes('PerDay');
+
+      const message = isDailyLimit
+        ? `You have exhausted your DAILY quota for this model (${modelName}). Please switch to a different model (like Gemini 1.5 Flash) or wait until tomorrow.`
+        : "I'm currently receiving too many requests. Please wait about a minute and try again. (Google Gemini Free Tier Minute Limit Hit)";
+
+      return {
+        content: message,
+        customer: null,
+        performanceMs: Date.now() - totalStart,
+      };
+    }
+
+    // Fallback for other errors
+    return {
+      content:
+        'I encountered an error generating a response. Please check the server logs.',
+      customer: null,
+      performanceMs: Date.now() - totalStart,
+    };
+  }
+
+  console.log(`[PERF] LLM invocation: ${Date.now() - llmStart}ms`);
 
   let content = response.content;
   let detectedCustomer: any = null;
@@ -136,8 +178,11 @@ export const playgroundChat = async (
   }
   // --------------------------------------------------
 
+  console.log(`[PERF] TOTAL playgroundChat: ${Date.now() - totalStart}ms`);
+
   return {
     content: finalContent,
     customer: detectedCustomer, // Optional: return this to frontend if needed
+    performanceMs: Date.now() - totalStart,
   };
 };

@@ -1,46 +1,94 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { TrainingService } from '../training/training.service';
 import { GoogleGenerativeAIEmbeddings } from '@langchain/google-genai';
 import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class KnowledgeBaseService {
+  private readonly logger = new Logger(KnowledgeBaseService.name);
+  private embeddingsInstance: GoogleGenerativeAIEmbeddings | null = null;
+
   constructor(
     private readonly trainingService: TrainingService,
     private readonly configService: ConfigService,
   ) {}
 
   /**
+   * Get or create a singleton embeddings instance
+   */
+  private getEmbeddingsInstance(): GoogleGenerativeAIEmbeddings | null {
+    if (this.embeddingsInstance) {
+      return this.embeddingsInstance;
+    }
+
+    const apiKey = this.configService.get<string>('ai.geminiApiKey');
+    if (!apiKey) {
+      this.logger.warn('Gemini API key not configured');
+      return null;
+    }
+
+    this.embeddingsInstance = new GoogleGenerativeAIEmbeddings({
+      modelName: 'text-embedding-004',
+      apiKey,
+      maxRetries: 0, // Fail fast on rate limits instead of waiting 60s
+    });
+
+    this.logger.log('Created singleton embeddings instance');
+    return this.embeddingsInstance;
+  }
+
+  /**
    * Retrieve relevant knowledge base content for a given query
-   * This is a simple keyword-based retrieval. For production, use vector embeddings.
+   * Uses vector embeddings for semantic search.
    */
   async retrieveRelevantContent(
     query: string,
     organizationId: string,
     maxResults: number = 3,
   ): Promise<string> {
+    const startTime = Date.now();
+
     try {
-      const apiKey = this.configService.get<string>('ai.geminiApiKey');
-      if (!apiKey) {
-        console.warn('Gemini API key not configured');
+      const embeddings = this.getEmbeddingsInstance();
+      if (!embeddings) {
         return '';
       }
 
-      // Generate embedding for the query
-      const embeddings = new GoogleGenerativeAIEmbeddings({
-        modelName: 'embedding-001',
-        apiKey,
-      });
-      const queryEmbedding = await embeddings.embedQuery(query);
+      // Generate embedding for the query with a strict timeout
+      // If embedding takes too long (e.g. strict rate limit waits), skip KB
+      const embeddingStart = Date.now();
+
+      // Wrap in semaphore to prevent concurrency issues
+      const { geminiSemaphore } = require('./concurrency-semaphore');
+
+      const queryEmbedding = await geminiSemaphore.run(() =>
+        Promise.race([
+          embeddings.embedQuery(query),
+          new Promise<number[]>((_, reject) =>
+            setTimeout(() => reject(new Error('Embedding timeout')), 3000),
+          ),
+        ]),
+      );
+
+      this.logger.debug(
+        `[PERF] Embedding generation: ${Date.now() - embeddingStart}ms`,
+      );
 
       // Perform vector search
+      const vectorSearchStart = Date.now();
       const results = await this.trainingService.findSimilar(
         queryEmbedding,
         organizationId,
         maxResults,
       );
+      this.logger.debug(
+        `[PERF] Vector search: ${Date.now() - vectorSearchStart}ms`,
+      );
 
       if (results.length === 0) {
+        this.logger.debug(
+          `[PERF] Total retrieveRelevantContent: ${Date.now() - startTime}ms (no results)`,
+        );
         return '';
       }
 
@@ -54,10 +102,21 @@ export class KnowledgeBaseService {
         return `## ${source.name}\n${truncated}`;
       });
 
+      this.logger.debug(
+        `[PERF] Total retrieveRelevantContent: ${Date.now() - startTime}ms (${results.length} results)`,
+      );
       return contextParts.join('\n\n');
     } catch (error) {
-      console.error('Failed to retrieve knowledge base content:', error);
-      return '';
+      if (error.message === 'Embedding timeout') {
+        this.logger.warn(
+          `Knowledge base retrieval timed out. Skipping KB context.`,
+        );
+      } else {
+        this.logger.error(
+          `Failed to retrieve knowledge base content: ${error.message}`,
+        );
+      }
+      return ''; // Absolutely fail open (ignore error and continue without KB)
     }
   }
 }

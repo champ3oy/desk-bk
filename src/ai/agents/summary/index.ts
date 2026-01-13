@@ -1,5 +1,3 @@
-import * as z from 'zod';
-import { createAgent, tool } from 'langchain';
 import { AIModelFactory } from '../../ai-model.factory';
 import { ConfigService } from '@nestjs/config';
 import { TicketsService } from '../../../tickets/tickets.service';
@@ -7,108 +5,13 @@ import { ThreadsService } from '../../../threads/threads.service';
 import { CommentsService } from '../../../comments/comments.service';
 import { UserRole } from '../../../users/entities/user.entity';
 
-const systemPrompt = `You are an expert ticket summarizer. You are given a ticket and you need to summarize it in a way that is easy to understand and use for a customer support agent.`;
+const systemPrompt = `You are an expert ticket summarizer. You are given a ticket and you need to summarize it in a way that is easy to understand and use for a customer support agent.
 
-const createGetTicketTool = (
-  ticketsService: TicketsService,
-  threadsService: ThreadsService,
-  commentsService: CommentsService,
-  userId: string,
-  userRole: UserRole,
-  organizationId: string,
-) => {
-  return tool(
-    async ({ ticket_id }) => {
-      try {
-        // Fetch ticket with all populated fields
-        const ticket = await ticketsService.findOne(
-          ticket_id,
-          userId,
-          userRole,
-          organizationId,
-        );
-
-        // Fetch all threads for the ticket
-        const threads = await threadsService.findAll(
-          ticket_id,
-          organizationId,
-          userId,
-          userRole,
-        );
-
-        // Fetch messages for each thread
-        const threadsWithMessages = await Promise.all(
-          threads.map(async (thread) => {
-            const messages = await threadsService.getMessages(
-              thread._id.toString(),
-              organizationId,
-              userId,
-              userRole,
-            );
-            return {
-              ...thread.toObject(),
-              messages: messages.map((msg) => msg.toObject()),
-            };
-          }),
-        );
-
-        // Fetch comments for the ticket
-        const comments = await commentsService.findAll(
-          ticket_id,
-          userId,
-          userRole,
-        );
-
-        // Return comprehensive ticket information
-        // Serialize to plain objects for JSON compatibility
-        return {
-          ticket: ticket.toObject(),
-          threads: threadsWithMessages,
-          comments: JSON.parse(JSON.stringify(comments)),
-        };
-      } catch (error) {
-        return {
-          error: error.message || 'Failed to fetch ticket information',
-        };
-      }
-    },
-    {
-      name: 'get_ticket',
-      description:
-        'Get information and history of a ticket including threads, messages, and comments',
-      schema: z.object({
-        ticket_id: z.string(),
-      }),
-    },
-  );
-};
-
-export const createSummarizeAgent = (
-  ticketsService: TicketsService,
-  threadsService: ThreadsService,
-  commentsService: CommentsService,
-  configService: ConfigService,
-  userId: string,
-  userRole: UserRole,
-  organizationId: string,
-) => {
-  const getTicket = createGetTicketTool(
-    ticketsService,
-    threadsService,
-    commentsService,
-    userId,
-    userRole,
-    organizationId,
-  );
-
-  const model = AIModelFactory.create(configService);
-
-  return createAgent({
-    model,
-    tools: [getTicket],
-    systemPrompt,
-  });
-};
+Your summary should include:
+1. A brief overview of the issue
+2. Key points from the conversation
+3. Current status and any pending actions
+4. Customer's main concerns`;
 
 export const summarizeTicket = async (
   ticket_id: string,
@@ -120,26 +23,110 @@ export const summarizeTicket = async (
   userRole: UserRole,
   organizationId: string,
 ) => {
-  const agent = createSummarizeAgent(
-    ticketsService,
-    threadsService,
-    commentsService,
-    configService,
-    userId,
-    userRole,
-    organizationId,
+  const totalStart = Date.now();
+  console.log(`[PERF] summarizeTicket started for ticket ${ticket_id}`);
+
+  // ========== PARALLELIZED DATA FETCHING ==========
+  const parallelStart = Date.now();
+
+  const [ticket, threads, comments] = await Promise.all([
+    ticketsService.findOne(ticket_id, userId, userRole, organizationId),
+    threadsService.findAll(ticket_id, organizationId, userId, userRole),
+    commentsService.findAll(ticket_id, userId, userRole),
+  ]);
+
+  console.log(
+    `[PERF] Parallel fetch (ticket + threads + comments): ${Date.now() - parallelStart}ms`,
   );
 
-  const result = await agent.invoke({
-    messages: [{ role: 'user', content: `summarize this ticket ${ticket_id}` }],
-  });
+  // Fetch messages for all threads in parallel
+  const messagesStart = Date.now();
+  const threadsWithMessages = await Promise.all(
+    threads.map(async (thread) => {
+      const messages = await threadsService.getMessages(
+        thread._id.toString(),
+        organizationId,
+        userId,
+        userRole,
+      );
+      return {
+        ...thread.toObject(),
+        messages: messages.map((msg) => msg.toObject()),
+      };
+    }),
+  );
+  console.log(
+    `[PERF] Fetch messages for ${threads.length} threads: ${Date.now() - messagesStart}ms`,
+  );
 
-  // Extract the final AI message content
-  const messages = result.messages || [];
-  const lastMessage = messages[messages.length - 1];
-  const content = lastMessage?.content || '';
+  // ========== MODEL INITIALIZATION ==========
+  const modelStart = Date.now();
+  const model = AIModelFactory.create(configService);
+  console.log(`[PERF] Model initialization: ${Date.now() - modelStart}ms`);
 
-  // Handle both string and array content formats
+  // ========== BUILD CONTEXT WITH PRE-FETCHED DATA ==========
+  const ticketData = {
+    ticket: ticket.toObject(),
+    threads: threadsWithMessages,
+    comments: JSON.parse(JSON.stringify(comments)),
+  };
+
+  const contextPrompt = `# TICKET DATA FOR SUMMARIZATION
+
+## Ticket Details
+- ID: ${ticketData.ticket._id}
+- Subject: ${ticketData.ticket.subject}
+- Description: ${ticketData.ticket.description}
+- Status: ${ticketData.ticket.status}
+- Priority: ${ticketData.ticket.priority}
+- Created: ${ticketData.ticket.createdAt}
+
+## Conversation History
+${threadsWithMessages
+  .map(
+    (thread, idx) => `
+### Thread ${idx + 1}
+${thread.messages
+  .map(
+    (
+      msg: any,
+    ) => `[${msg.messageType === 'external' ? 'Customer' : 'Agent'}] (${new Date(msg.createdAt).toLocaleString()})
+${msg.content}`,
+  )
+  .join('\n\n')}
+`,
+  )
+  .join('\n')}
+
+## Internal Comments
+${
+  ticketData.comments.length > 0
+    ? ticketData.comments
+        .map(
+          (comment: any) =>
+            `[${comment.isInternal ? 'Internal' : 'Public'}] ${comment.content}`,
+        )
+        .join('\n')
+    : 'No comments'
+}
+
+# TASK
+Summarize this ticket in a way that is easy to understand and use for a customer support agent. Include:
+1. A brief overview of the issue
+2. Key points from the conversation
+3. Current status and any pending actions
+4. Customer's main concerns`;
+
+  // ========== LLM INVOCATION ==========
+  const llmStart = Date.now();
+  const response = await model.invoke([
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: contextPrompt },
+  ]);
+  console.log(`[PERF] LLM invocation: ${Date.now() - llmStart}ms`);
+
+  // Extract content
+  const content = response.content;
   const responseContent =
     typeof content === 'string'
       ? content
@@ -151,13 +138,16 @@ export const summarizeTicket = async (
             .join('')
         : '';
 
+  console.log(`[PERF] TOTAL summarizeTicket: ${Date.now() - totalStart}ms`);
+
   return {
     summary: responseContent,
     content: responseContent,
     metadata: {
       tokenUsage:
-        (lastMessage as any)?.usage_metadata ||
-        (lastMessage as any)?.response_metadata?.tokenUsage,
+        (response as any)?.usage_metadata ||
+        (response as any)?.response_metadata?.tokenUsage,
+      performanceMs: Date.now() - totalStart,
     },
   };
 };

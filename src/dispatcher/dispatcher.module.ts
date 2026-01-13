@@ -1,5 +1,4 @@
 import { Module, forwardRef } from '@nestjs/common';
-import { MongooseModule } from '@nestjs/mongoose';
 import { DispatcherService } from './dispatcher.service';
 import { EmailIntegrationModule } from '../integrations/email/email-integration.module';
 import { CustomersModule } from '../customers/customers.module';

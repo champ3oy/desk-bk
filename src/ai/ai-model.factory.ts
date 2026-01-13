@@ -7,6 +7,9 @@ import { CustomLLMClient } from './custom-llm.client';
 export class AIModelFactory {
   private static readonly logger = new Logger('AIModelFactory');
 
+  // Cache model instances to avoid recreation overhead
+  private static readonly modelCache = new Map<string, BaseChatModel>();
+
   static create(
     configService: ConfigService,
     options?: { provider?: string; model?: string },
@@ -21,7 +24,7 @@ export class AIModelFactory {
 
     // If not specified via options, infer from env/config
     if (!provider || !modelName) {
-      const defaultModel = envModel || configModel || 'gemini-2.0-flash-exp';
+      const defaultModel = envModel || configModel || 'gemini-1.5-flash';
       if (defaultModel.toLowerCase() === 'custom') {
         provider = 'custom';
         modelName =
@@ -43,15 +46,31 @@ export class AIModelFactory {
       modelName = 'gemma3:4b';
     }
 
-    this.logger.log(
-      `[AI Factory] Using Model: '${modelName}' Provider: '${provider}'`,
-    );
-
-    if (isCustom) {
-      return this.createCustomClient(configService, modelName);
+    // Check cache first
+    const cacheKey = `${provider}:${modelName}`;
+    const cachedModel = this.modelCache.get(cacheKey);
+    if (cachedModel) {
+      this.logger.debug(
+        `[AI Factory] Using cached model: '${modelName}' Provider: '${provider}'`,
+      );
+      return cachedModel;
     }
 
-    return this.createGeminiClient(configService, modelName);
+    this.logger.log(
+      `[AI Factory] Creating new model: '${modelName}' Provider: '${provider}'`,
+    );
+
+    let model: BaseChatModel;
+    if (isCustom) {
+      model = this.createCustomClient(configService, modelName);
+    } else {
+      model = this.createGeminiClient(configService, modelName);
+    }
+
+    // Cache the model instance
+    this.modelCache.set(cacheKey, model);
+
+    return model;
   }
 
   static getAvailableModels(configService: ConfigService): Array<{
@@ -178,7 +197,7 @@ export class AIModelFactory {
   ): ChatGoogleGenerativeAI {
     const apiKey =
       configService.get<string>('ai.geminiApiKey') ||
-      process.env.APPLE_API_KEY ||
+      process.env.GEMINI_API_KEY ||
       process.env.GOOGLE_API_KEY; // Fallback
 
     if (!apiKey) {
@@ -189,10 +208,23 @@ export class AIModelFactory {
 
     this.logger.log(`[AI Factory] Initializing Gemini Client: ${modelName}`);
 
-    return new ChatGoogleGenerativeAI({
+    const client = new ChatGoogleGenerativeAI({
       model: modelName,
       apiKey,
       temperature: 0.3,
+      maxRetries: 0, // Fail fast on rate limits
     });
+
+    // We override invoke to wrap it in our semaphore for the whole application
+    // This prevents background jobs from hitting concurrency limits
+    const originalInvoke = client.invoke.bind(client);
+    client.invoke = ((...args: any[]) => {
+      // Import here to avoid circular dependency or init order issues
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { geminiSemaphore } = require('./concurrency-semaphore');
+      return geminiSemaphore.run(() => originalInvoke(...args));
+    }) as any;
+
+    return client;
   }
 }

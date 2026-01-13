@@ -1,6 +1,3 @@
-import * as z from 'zod';
-import { createAgent, tool } from 'langchain';
-
 import { ConfigService } from '@nestjs/config';
 import { TicketsService } from '../../../tickets/tickets.service';
 import { ThreadsService } from '../../../threads/threads.service';
@@ -123,104 +120,6 @@ export function buildSystemPrompt(org: Organization): string {
   return basePrompt;
 }
 
-const createGetTicketDataTool = (
-  ticketsService: TicketsService,
-  threadsService: ThreadsService,
-  userId: string,
-  userRole: UserRole,
-  organizationId: string,
-) => {
-  return tool(
-    async ({ ticket_id }) => {
-      try {
-        // Fetch ticket with all populated fields
-        const ticket = await ticketsService.findOne(
-          ticket_id,
-          userId,
-          userRole,
-          organizationId,
-        );
-
-        // Fetch all threads for the ticket
-        const threads = await threadsService.findAll(
-          ticket_id,
-          organizationId,
-          userId,
-          userRole,
-        );
-
-        // Fetch messages for each thread
-        const threadsWithMessages = await Promise.all(
-          threads.map(async (thread) => {
-            const messages = await threadsService.getMessages(
-              thread._id.toString(),
-              organizationId,
-              userId,
-              userRole,
-            );
-            return {
-              ...thread.toObject(),
-              messages: messages.map((msg) => msg.toObject()),
-            };
-          }),
-        );
-
-        // Return ticket with all threads and messages
-        return {
-          ticket: ticket.toObject(),
-          threads: threadsWithMessages,
-        };
-      } catch (error) {
-        return {
-          error: error.message || 'Failed to fetch ticket information',
-        };
-      }
-    },
-    {
-      name: 'get_ticket_data',
-      description:
-        'Get ticket information with all threads and messages for drafting a response',
-      schema: z.object({
-        ticket_id: z.string(),
-      }),
-    },
-  );
-};
-
-export const createResponseAgent = async (
-  ticketsService: TicketsService,
-  threadsService: ThreadsService,
-  configService: ConfigService,
-  organizationsService: OrganizationsService,
-  knowledgeBaseService: any, // KnowledgeBaseService - using any to avoid circular dependency
-  userId: string,
-  userRole: UserRole,
-  organizationId: string,
-) => {
-  const getTicketData = createGetTicketDataTool(
-    ticketsService,
-    threadsService,
-    userId,
-    userRole,
-    organizationId,
-  );
-
-  // Fetch organization AI settings
-  const org = await organizationsService.findOne(organizationId);
-
-  // Build dynamic system prompt based on organization configuration
-  let systemPrompt = buildSystemPrompt(org);
-
-  // Get API key and model from config
-  const model = AIModelFactory.create(configService);
-
-  return createAgent({
-    model,
-    tools: [getTicketData],
-    systemPrompt,
-  });
-};
-
 export const draftResponse = async (
   ticket_id: string,
   ticketsService: TicketsService,
@@ -233,60 +132,142 @@ export const draftResponse = async (
   organizationId: string,
   additionalContext?: string,
 ) => {
-  // Fetch ticket data to get context for knowledge base retrieval
-  const ticket = await ticketsService.findOne(
-    ticket_id,
-    userId,
-    userRole,
-    organizationId,
+  const totalStart = Date.now();
+  console.log(`[PERF] draftResponse started for ticket ${ticket_id}`);
+
+  // ========== PARALLELIZED DATA FETCHING ==========
+  // Fetch ticket, organization, and threads in parallel to reduce latency
+  const parallelStart = Date.now();
+
+  const [ticket, org, threads] = await Promise.all([
+    ticketsService.findOne(ticket_id, userId, userRole, organizationId),
+    organizationsService.findOne(organizationId),
+    threadsService.findAll(ticket_id, organizationId, userId, userRole),
+  ]);
+
+  console.log(
+    `[PERF] Parallel fetch (ticket + org + threads): ${Date.now() - parallelStart}ms`,
   );
 
-  // Retrieve relevant knowledge base content
+  // Fetch messages for all threads in parallel
+  const messagesStart = Date.now();
+  const threadsWithMessages = await Promise.all(
+    threads.map(async (thread) => {
+      const messages = await threadsService.getMessages(
+        thread._id.toString(),
+        organizationId,
+        userId,
+        userRole,
+      );
+      return {
+        ...thread.toObject(),
+        messages: messages.map((msg) => msg.toObject()),
+      };
+    }),
+  );
+  console.log(
+    `[PERF] Fetch messages for ${threads.length} threads: ${Date.now() - messagesStart}ms`,
+  );
+
+  // ========== KNOWLEDGE BASE RETRIEVAL (can run in parallel with message fetch) ==========
   let knowledgeContext = '';
   if (knowledgeBaseService) {
     try {
+      const kbStart = Date.now();
       const query = `${ticket.subject} ${ticket.description}`;
       knowledgeContext = await knowledgeBaseService.retrieveRelevantContent(
         query,
         organizationId,
         3, // Max 3 relevant documents
       );
+      console.log(`[PERF] Knowledge base retrieval: ${Date.now() - kbStart}ms`);
     } catch (error) {
       console.error('Failed to retrieve knowledge base content:', error);
     }
   }
 
-  const agent = await createResponseAgent(
-    ticketsService,
-    threadsService,
-    configService,
-    organizationsService,
-    knowledgeBaseService,
-    userId,
-    userRole,
-    organizationId,
-  );
+  // ========== BUILD SYSTEM PROMPT ==========
+  const systemPrompt = buildSystemPrompt(org);
 
-  // Build context prompt with knowledge base content
-  let contextPrompt = additionalContext
-    ? `Draft a response for ticket ${ticket_id}. Consider all threads and messages in this ticket. Additional context: ${additionalContext}`
-    : `Draft a professional response for ticket ${ticket_id}. Consider all threads, messages, ticket details, conversation history, and customer sentiment.`;
+  // ========== MODEL INITIALIZATION ==========
+  const modelStart = Date.now();
+  const model = AIModelFactory.create(configService);
+  console.log(`[PERF] Model initialization: ${Date.now() - modelStart}ms`);
+
+  // ========== BUILD CONTEXT WITH PRE-FETCHED DATA ==========
+  // Instead of having the agent call a tool to fetch ticket data (which causes duplicate fetches),
+  // we include all the data directly in the prompt
+  const ticketData = {
+    ticket: ticket.toObject(),
+    threads: threadsWithMessages,
+  };
+
+  let contextPrompt = `# TICKET DATA
+Here is the complete ticket information with all threads and messages:
+
+## Ticket Details
+- ID: ${ticketData.ticket._id}
+- Subject: ${ticketData.ticket.subject}
+- Description: ${ticketData.ticket.description}
+- Status: ${ticketData.ticket.status}
+- Priority: ${ticketData.ticket.priority}
+- Created: ${ticketData.ticket.createdAt}
+
+## Conversation History
+${threadsWithMessages
+  .map(
+    (thread, idx) => `
+### Thread ${idx + 1}
+${thread.messages.map((msg: any) => `[${msg.messageType === 'external' ? 'Customer' : 'Agent'}] ${msg.content}`).join('\n\n')}
+`,
+  )
+  .join('\n')}
+
+# TASK
+${
+  additionalContext
+    ? `Draft a response for this ticket. Additional context: ${additionalContext}`
+    : `Draft a professional response for this ticket. Consider all threads, messages, ticket details, conversation history, and customer sentiment.`
+}`;
 
   // Add knowledge base context if available
   if (knowledgeContext) {
     contextPrompt += `\n\n# KNOWLEDGE BASE CONTEXT\nUse the following information from our knowledge base to inform your response:\n\n${knowledgeContext}`;
   }
 
-  const result = await agent.invoke({
-    messages: [{ role: 'user', content: contextPrompt }],
-  });
+  // ========== LLM INVOCATION ==========
+  const llmStart = Date.now();
+  let response;
 
-  // Extract the final AI message content
-  const messages = result.messages || [];
-  const lastMessage = messages[messages.length - 1];
-  const content = lastMessage?.content || '';
+  try {
+    response = await model.invoke([
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: contextPrompt },
+    ]);
+  } catch (error) {
+    console.error('[AI Agent] LLM Invocation Failed:', error);
+    const isRateLimit =
+      error.status === 429 || (error.message && error.message.includes('429'));
 
-  // Handle both string and array content formats
+    const errorMessage = isRateLimit
+      ? 'I cannot draft a response right now due to high traffic (Google rate limit). Please try again in 1 minute.'
+      : 'I encountered an error while drafting the response. Please check logs.';
+
+    // Return error as content so UI shows it
+    return {
+      content: errorMessage,
+      metadata: {
+        tokenUsage: {},
+        knowledgeBaseUsed: !!knowledgeContext,
+        performanceMs: Date.now() - totalStart,
+      },
+    };
+  }
+
+  console.log(`[PERF] LLM invocation: ${Date.now() - llmStart}ms`);
+
+  // Extract content
+  const content = response.content;
   const responseContent =
     typeof content === 'string'
       ? content
@@ -298,13 +279,16 @@ export const draftResponse = async (
             .join('')
         : '';
 
+  console.log(`[PERF] TOTAL draftResponse: ${Date.now() - totalStart}ms`);
+
   return {
     content: responseContent,
     metadata: {
       tokenUsage:
-        (lastMessage as any)?.usage_metadata ||
-        (lastMessage as any)?.response_metadata?.tokenUsage,
+        (response as any)?.usage_metadata ||
+        (response as any)?.response_metadata?.tokenUsage,
       knowledgeBaseUsed: !!knowledgeContext,
+      performanceMs: Date.now() - totalStart,
     },
   };
 };

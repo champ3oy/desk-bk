@@ -1,5 +1,3 @@
-import * as z from 'zod';
-import { createAgent, tool } from 'langchain';
 import { AIModelFactory } from '../../ai-model.factory';
 import { ConfigService } from '@nestjs/config';
 import { TicketsService } from '../../../tickets/tickets.service';
@@ -31,106 +29,6 @@ Provide your analysis in a structured format with:
 3. Brief explanation of why this sentiment was detected
 4. Key phrases or indicators that led to this conclusion`;
 
-const createGetTicketDataTool = (
-  ticketsService: TicketsService,
-  threadsService: ThreadsService,
-  commentsService: CommentsService,
-  userId: string,
-  userRole: UserRole,
-  organizationId: string,
-) => {
-  return tool(
-    async ({ ticket_id }) => {
-      try {
-        // Fetch ticket with all populated fields
-        const ticket = await ticketsService.findOne(
-          ticket_id,
-          userId,
-          userRole,
-          organizationId,
-        );
-
-        // Fetch all threads for the ticket
-        const threads = await threadsService.findAll(
-          ticket_id,
-          organizationId,
-          userId,
-          userRole,
-        );
-
-        // Fetch messages for each thread (focus on customer messages for sentiment)
-        const threadsWithMessages = await Promise.all(
-          threads.map(async (thread) => {
-            const messages = await threadsService.getMessages(
-              thread._id.toString(),
-              organizationId,
-              userId,
-              userRole,
-            );
-            return {
-              ...thread.toObject(),
-              messages: messages.map((msg) => msg.toObject()),
-            };
-          }),
-        );
-
-        // Fetch comments for the ticket
-        const comments = await commentsService.findAll(
-          ticket_id,
-          userId,
-          userRole,
-        );
-
-        // Return comprehensive ticket information for sentiment analysis
-        return {
-          ticket: ticket.toObject(),
-          threads: threadsWithMessages,
-          comments: JSON.parse(JSON.stringify(comments)),
-        };
-      } catch (error) {
-        return {
-          error: error.message || 'Failed to fetch ticket information',
-        };
-      }
-    },
-    {
-      name: 'get_ticket_data',
-      description:
-        'Get all ticket information including threads, messages, and comments for sentiment analysis',
-      schema: z.object({
-        ticket_id: z.string(),
-      }),
-    },
-  );
-};
-
-export const createSentimentAgent = (
-  ticketsService: TicketsService,
-  threadsService: ThreadsService,
-  commentsService: CommentsService,
-  configService: ConfigService,
-  userId: string,
-  userRole: UserRole,
-  organizationId: string,
-) => {
-  const getTicketData = createGetTicketDataTool(
-    ticketsService,
-    threadsService,
-    commentsService,
-    userId,
-    userRole,
-    organizationId,
-  );
-
-  const model = AIModelFactory.create(configService);
-
-  return createAgent({
-    model,
-    tools: [getTicketData],
-    systemPrompt,
-  });
-};
-
 export const analyzeSentiment = async (
   ticket_id: string,
   ticketsService: TicketsService,
@@ -141,31 +39,94 @@ export const analyzeSentiment = async (
   userRole: UserRole,
   organizationId: string,
 ) => {
-  const agent = createSentimentAgent(
-    ticketsService,
-    threadsService,
-    commentsService,
-    configService,
-    userId,
-    userRole,
-    organizationId,
+  const totalStart = Date.now();
+  console.log(`[PERF] analyzeSentiment started for ticket ${ticket_id}`);
+
+  // ========== PARALLELIZED DATA FETCHING ==========
+  const parallelStart = Date.now();
+
+  const [ticket, threads, comments] = await Promise.all([
+    ticketsService.findOne(ticket_id, userId, userRole, organizationId),
+    threadsService.findAll(ticket_id, organizationId, userId, userRole),
+    commentsService.findAll(ticket_id, userId, userRole),
+  ]);
+
+  console.log(
+    `[PERF] Parallel fetch (ticket + threads + comments): ${Date.now() - parallelStart}ms`,
   );
 
-  const result = await agent.invoke({
-    messages: [
-      {
-        role: 'user',
-        content: `Analyze the sentiment for ticket ${ticket_id}. Consider all customer communications, messages, and interactions. Return the sentiment analysis in a structured format.`,
-      },
-    ],
-  });
+  // Fetch messages for all threads in parallel
+  const messagesStart = Date.now();
+  const threadsWithMessages = await Promise.all(
+    threads.map(async (thread) => {
+      const messages = await threadsService.getMessages(
+        thread._id.toString(),
+        organizationId,
+        userId,
+        userRole,
+      );
+      return {
+        ...thread.toObject(),
+        messages: messages.map((msg) => msg.toObject()),
+      };
+    }),
+  );
+  console.log(
+    `[PERF] Fetch messages for ${threads.length} threads: ${Date.now() - messagesStart}ms`,
+  );
 
-  // Extract the final AI message content
-  const messages = result.messages || [];
-  const lastMessage = messages[messages.length - 1];
-  const content = lastMessage?.content || '';
+  // ========== MODEL INITIALIZATION ==========
+  const modelStart = Date.now();
+  const model = AIModelFactory.create(configService);
+  console.log(`[PERF] Model initialization: ${Date.now() - modelStart}ms`);
 
-  // Handle both string and array content formats
+  // ========== BUILD CONTEXT WITH PRE-FETCHED DATA ==========
+  const ticketData = {
+    ticket: ticket.toObject(),
+    threads: threadsWithMessages,
+    comments: JSON.parse(JSON.stringify(comments)),
+  };
+
+  const contextPrompt = `# TICKET DATA FOR SENTIMENT ANALYSIS
+
+## Ticket Details
+- ID: ${ticketData.ticket._id}
+- Subject: ${ticketData.ticket.subject}
+- Description: ${ticketData.ticket.description}
+- Status: ${ticketData.ticket.status}
+- Priority: ${ticketData.ticket.priority}
+- Created: ${ticketData.ticket.createdAt}
+
+## Conversation History (Focus on customer messages for sentiment)
+${threadsWithMessages
+  .map(
+    (thread, idx) => `
+### Thread ${idx + 1}
+${thread.messages.map((msg: any) => `[${msg.messageType === 'external' ? 'CUSTOMER' : 'Agent'}] ${msg.content}`).join('\n\n')}
+`,
+  )
+  .join('\n')}
+
+## Comments
+${ticketData.comments.map((comment: any) => `[${comment.isInternal ? 'Internal' : 'Public'}] ${comment.content}`).join('\n')}
+
+# TASK
+Analyze the sentiment of the customer communications in this ticket. Consider all customer messages, the ticket subject and description, and any relevant comments. Return the sentiment analysis in a structured format with:
+1. Primary sentiment
+2. Confidence level
+3. Brief explanation
+4. Key phrases or indicators`;
+
+  // ========== LLM INVOCATION ==========
+  const llmStart = Date.now();
+  const response = await model.invoke([
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: contextPrompt },
+  ]);
+  console.log(`[PERF] LLM invocation: ${Date.now() - llmStart}ms`);
+
+  // Extract content
+  const content = response.content;
   const responseContent =
     typeof content === 'string'
       ? content
@@ -178,30 +139,15 @@ export const analyzeSentiment = async (
         : '';
 
   // Parse the structured sentiment response
-  // Handle multiple formats:
-  // - "Primary sentiment:" or "Primarily sentiment:" (with or without markdown)
-  // - "Confidence level:" (with or without markdown)
-  // - "Explanation:" or "Brief explanation of why this sentiment was detected:"
-  // - "Key phrases or indicators:" or "Key phrases or indicators that led to this conclusion:"
-
-  // Match sentiment (Primary/Primarily sentiment: <value>)
   const sentimentMatch = responseContent.match(
     /(?:Primary|Primarily)\s+sentiment[:\s]+(\w+)/i,
   );
-
-  // Match confidence (Confidence level: <value>)
   const confidenceMatch = responseContent.match(
     /Confidence\s+level[:\s]+(\w+)/i,
   );
-
-  // Extract explanation - matches "Brief explanation of why this sentiment was detected: <text>"
-  // or "Explanation: <text>" - captures everything until "Key phrases" or end of string
   const explanationMatch = responseContent.match(
     /(?:Brief\s+)?explanation\s+(?:of\s+why\s+this\s+sentiment\s+was\s+detected|:)\s*:?\s*([\s\S]*?)(?=\nKey\s+phrases|$)/i,
   );
-
-  // Extract key phrases - matches "Key phrases or indicators that led to this conclusion:"
-  // or "Key phrases or indicators:" followed by bullet points or text
   const keyPhrasesMatch = responseContent.match(
     /Key\s+phrases\s+(?:or\s+indicators\s+)?(?:that\s+led\s+to\s+this\s+conclusion|:)\s*:?\s*([\s\S]*?)$/i,
   );
@@ -211,12 +157,9 @@ export const analyzeSentiment = async (
   const explanation = explanationMatch?.[1]?.trim() || '';
   const keyPhrasesText = keyPhrasesMatch?.[1]?.trim() || '';
 
-  // Extract key phrases (could be comma-separated, quoted, or bullet points)
-  // Handle bullet points like "- \"Unable to login\"" or "- \"keep getting an error message\""
   const keyPhrases = keyPhrasesText
     .split(/\n/)
     .map((line) => {
-      // Remove bullet points and quotes
       return line
         .trim()
         .replace(/^[-•*]\s*/, '')
@@ -224,6 +167,8 @@ export const analyzeSentiment = async (
         .trim();
     })
     .filter((phrase) => phrase.length > 0);
+
+  console.log(`[PERF] TOTAL analyzeSentiment: ${Date.now() - totalStart}ms`);
 
   return {
     sentiment,
@@ -236,5 +181,6 @@ export const analyzeSentiment = async (
           ? [keyPhrasesText]
           : [],
     content: responseContent,
+    performanceMs: Date.now() - totalStart,
   };
 };
