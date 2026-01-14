@@ -21,9 +21,16 @@ export class UsersService {
   ) {}
 
   async create(createUserDto: CreateUserDto): Promise<UserResponse> {
+    return this.createMembership(createUserDto);
+  }
+
+  async createMembership(
+    createUserDto: CreateUserDto & { isPasswordHashed?: boolean },
+  ): Promise<UserResponse> {
     // If organizationId is provided, check for uniqueness within that org
-    // Otherwise, check for global uniqueness (user without org)
-    const query: any = { email: createUserDto.email };
+    const query: any = {
+      email: { $regex: new RegExp(`^${createUserDto.email}$`, 'i') },
+    };
     if (createUserDto.organizationId) {
       query.organizationId = new Types.ObjectId(createUserDto.organizationId);
     } else {
@@ -42,10 +49,17 @@ export class UsersService {
       }
     }
 
-    const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
+    const password = createUserDto.isPasswordHashed
+      ? createUserDto.password
+      : await bcrypt.hash(createUserDto.password, 10);
+
+    console.log(
+      `UsersService.createMembership: creating record for ${createUserDto.email} with password length ${password?.length || 0}`,
+    );
+
     const userData: any = {
       ...createUserDto,
-      password: hashedPassword,
+      password,
     };
 
     if (createUserDto.organizationId) {
@@ -106,7 +120,7 @@ export class UsersService {
     email: string,
     organizationId?: string,
   ): Promise<UserDocument | null> {
-    const query: any = { email };
+    const query: any = { email: { $regex: new RegExp(`^${email}$`, 'i') } };
     if (organizationId) {
       // Check for both ObjectId and String format to handle potential data inconsistencies
       query.organizationId = {
@@ -131,6 +145,12 @@ export class UsersService {
       );
     }
     return user;
+  }
+
+  async findAllByEmail(email: string): Promise<UserDocument[]> {
+    return this.userModel
+      .find({ email: { $regex: new RegExp(`^${email}$`, 'i') } })
+      .exec();
   }
 
   async update(

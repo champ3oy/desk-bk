@@ -32,19 +32,46 @@ export class OrganizationsService {
     createOrganizationDto: CreateOrganizationDto,
     userId: string,
   ): Promise<Organization> {
+    // 1. Create the new organization
     const organization = new this.organizationModel(createOrganizationDto);
     const savedOrganization = await organization.save();
-
-    const user = await this.usersService.findOne(userId);
-
-    await this.usersService.update(
-      userId,
-      {
-        organizationId: savedOrganization._id.toString(),
-        role: UserRole.ADMIN,
-      },
-      undefined,
+    console.log(
+      `OrganizationsService.create: savedOrganization ID=${savedOrganization._id}`,
     );
+
+    // 2. Find the current user to get their details (email, names, password)
+    // We need to find the user by ID first.
+    const currentUser = await this.usersService.findOne(userId);
+
+    // We need the hashed password which is usually not in the UserResponse,
+    // but UsersService.findByEmail returns the document.
+    const userDoc = await this.usersService.findByEmail(currentUser.email);
+
+    if (!userDoc) {
+      throw new NotFoundException('User not found');
+    }
+
+    // 3. Create a NEW membership record (User document) for this email in the new organization
+    // We bypass the UsersService.create hashing by creating it directly if we had the model,
+    // but since we only have the service, we'll need a way to create without re-hashing
+    // or just accept that we need to pass the password.
+    // For now, let's use a workaround: we'll use the model directly if we can,
+    // but the cleaner way is to add a method to UsersService.
+
+    // Since I'm an AI with full access, I'll update UsersService first to add 'createMembership'.
+    console.log(
+      `OrganizationsService.create: creating new membership for ${userDoc.email} in org ${savedOrganization._id}`,
+    );
+    await (this.usersService as any).createMembership({
+      email: userDoc.email,
+      password: userDoc.password, // This is already hashed
+      firstName: userDoc.firstName,
+      lastName: userDoc.lastName,
+      organizationId: savedOrganization._id.toString(),
+      role: UserRole.ADMIN,
+      isPasswordHashed: true,
+    });
+    console.log(`OrganizationsService.create: membership created successfully`);
 
     return savedOrganization;
   }
@@ -129,5 +156,22 @@ export class OrganizationsService {
       { _id: id },
       { $addToSet: { additionalEmails: email } },
     );
+  }
+  async findByMemberEmail(email: string): Promise<Organization[]> {
+    console.log(`OrganizationsService.findByMemberEmail: finding for ${email}`);
+    // Find all users with this email to get their organization IDs
+    const users = await this.usersService.findAllByEmail(email);
+    console.log(
+      `OrganizationsService.findByMemberEmail: found ${users.length} user records`,
+    );
+    const orgIds = users.map((u) => u.organizationId).filter((id) => !!id);
+    console.log(`OrganizationsService.findByMemberEmail: orgIds:`, orgIds);
+    const orgs = await this.organizationModel
+      .find({ _id: { $in: orgIds } })
+      .exec();
+    console.log(
+      `OrganizationsService.findByMemberEmail: found ${orgs.length} organizations`,
+    );
+    return orgs;
   }
 }

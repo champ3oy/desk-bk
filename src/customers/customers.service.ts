@@ -343,7 +343,9 @@ export class CustomersService {
     }
 
     // Delete source customer
-    await this.remove(sourceCustomerId, organizationId);
+    await this.customerModel
+      .findByIdAndDelete(new Types.ObjectId(sourceCustomerId))
+      .exec();
 
     return targetCustomer;
   }

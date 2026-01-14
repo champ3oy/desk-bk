@@ -38,6 +38,10 @@ export class EmailIntegration {
   })
   status: EmailIntegrationStatus;
 
+  @ApiProperty({ description: 'Whether integration is active' })
+  @Prop({ required: true, default: true })
+  isActive: boolean;
+
   // Sensitive data (Tokens) - In a real prod app, these should be encrypted
   @Prop({ required: true })
   accessToken: string;

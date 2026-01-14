@@ -119,10 +119,49 @@ Summarize this ticket in a way that is easy to understand and use for a customer
 
   // ========== LLM INVOCATION ==========
   const llmStart = Date.now();
-  const response = await model.invoke([
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: contextPrompt },
-  ]);
+
+  let response;
+  try {
+    response = await model.invoke([
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: contextPrompt },
+    ]);
+  } catch (error: any) {
+    console.error(`[ERROR] summarizeTicket LLM invocation failed:`, error);
+
+    // Check for rate limit / quota errors
+    const errorMessage = error?.message || String(error);
+    if (
+      errorMessage.includes('429') ||
+      errorMessage.includes('quota') ||
+      errorMessage.includes('rate limit') ||
+      errorMessage.includes('RESOURCE_EXHAUSTED')
+    ) {
+      return {
+        summary: null,
+        content: null,
+        error:
+          'AI service is currently rate limited. Please try again in a few moments.',
+        metadata: {
+          performanceMs: Date.now() - totalStart,
+          errorType: 'rate_limit',
+        },
+      };
+    }
+
+    // Generic AI error
+    return {
+      summary: null,
+      content: null,
+      error:
+        'Failed to generate summary. The AI service may be temporarily unavailable.',
+      metadata: {
+        performanceMs: Date.now() - totalStart,
+        errorType: 'ai_error',
+      },
+    };
+  }
+
   console.log(`[PERF] LLM invocation: ${Date.now() - llmStart}ms`);
 
   // Extract content
@@ -143,6 +182,7 @@ Summarize this ticket in a way that is easy to understand and use for a customer
   return {
     summary: responseContent,
     content: responseContent,
+    error: null,
     metadata: {
       tokenUsage:
         (response as any)?.usage_metadata ||

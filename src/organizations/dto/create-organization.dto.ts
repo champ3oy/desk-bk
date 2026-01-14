@@ -9,13 +9,17 @@ export class CreateOrganizationDto {
   @IsString()
   name: string;
 
-  @ApiPropertyOptional({
-    description: 'Organization description',
-    example: 'A leading technology company',
-  })
   @IsString()
   @IsOptional()
   description?: string;
+
+  @ApiPropertyOptional({
+    description: 'Organization slug',
+    example: 'acme-corp',
+  })
+  @IsString()
+  @IsOptional()
+  slug?: string;
 
   @ApiPropertyOptional({
     description: 'Whether AI auto-reply using draft responses is enabled',

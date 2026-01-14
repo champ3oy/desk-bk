@@ -532,9 +532,12 @@ export class ThreadsService {
     }
 
     // Move messages
-    await this.messageModel.updateMany(
-      { threadId: sourceThreadId },
-      { $set: { threadId: targetThreadId } },
+    const updateResult = await this.messageModel.updateMany(
+      { threadId: new Types.ObjectId(sourceThreadId) },
+      { $set: { threadId: new Types.ObjectId(targetThreadId) } },
+    );
+    console.log(
+      `Merged ${updateResult.modifiedCount} messages from thread ${sourceThreadId} to ${targetThreadId}`,
     );
 
     // Merge participants

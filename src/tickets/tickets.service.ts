@@ -496,11 +496,8 @@ export class TicketsService {
       organizationId,
     );
 
-    // 4. Update source ticket status to 'Closed' (or equivalent)
-    // We assume 'Closed' is a valid status. If not, we might need to check.
-    // The previous code had 'Closed' mapping in the frontend so it's likely standard.
-    sourceTicket.status = TicketStatus.CLOSED;
-    await sourceTicket.save();
+    // 4. Delete the source ticket
+    await this.ticketModel.findByIdAndDelete(sourceTicketId).exec();
 
     // 5. Add system note to target ticket
     await this.threadsService.createMessage(

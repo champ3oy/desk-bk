@@ -11,35 +11,65 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     private configService: ConfigService,
     private usersService: UsersService,
   ) {
-    const secret = configService.get<string>('jwt.secret') || 'your-secret-key-change-in-production';
+    const secret =
+      configService.get<string>('jwt.secret') ||
+      'your-secret-key-change-in-production';
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
       secretOrKey: secret,
+      passReqToCallback: true,
     });
   }
 
-  async validate(payload: any) {
+  async validate(req: any, payload: any) {
     try {
+      // Check for Organization Switch Header
+      const switchOrgId = req.headers['x-organization-id'];
+
+      // Validate Org ID format if present (must be 24-char hex)
+      const isValidOrgId = (id: any) =>
+        typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id);
+
+      const targetOrgId = isValidOrgId(switchOrgId)
+        ? switchOrgId
+        : isValidOrgId(payload.organizationId)
+          ? payload.organizationId
+          : undefined;
+
       this.logger.log(
-        `Validating JWT for email=${payload.email} org=${payload.organizationId || 'none'}`,
+        `Validating JWT for email=${payload.email} targetOrg=${targetOrgId || 'none'}`,
       );
+
       let user = await this.usersService.findByEmail(
         payload.email,
-        payload.organizationId,
+        targetOrgId,
       );
-      
-      // Fallback: try without organizationId filter if user not found
-      if (!user && payload.organizationId) {
+
+      // Fallback: if switching failed or org filter yielded nothing, default to the one in payload
+      if (!user && switchOrgId && targetOrgId !== payload.organizationId) {
+        this.logger.warn(
+          `Switch to org ${switchOrgId} failed for ${payload.email}, falling back to payload org`,
+        );
+        user = await this.usersService.findByEmail(
+          payload.email,
+          isValidOrgId(payload.organizationId)
+            ? payload.organizationId
+            : undefined,
+        );
+      }
+
+      // Final fallback: try without organizationId filter if user not found at all
+      if (!user) {
         this.logger.debug(
           `User not found with org filter, trying without org filter for email=${payload.email}`,
         );
         user = await this.usersService.findByEmail(payload.email);
       }
-      
+
       if (!user) {
         this.logger.warn(
-          `User not found for email=${payload.email} org=${payload.organizationId || 'none'}`,
+          `User not found for email=${payload.email} org=${targetOrgId || 'none'}`,
         );
         throw new UnauthorizedException();
       }
@@ -53,10 +83,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       };
     } catch (error) {
       this.logger.error(
-        `JWT validation failed for email=${payload?.email ?? 'unknown'} org=${payload?.organizationId ?? 'none'}`,
+        `JWT validation failed for email=${payload?.email ?? 'unknown'}`,
       );
       throw new UnauthorizedException();
     }
   }
 }
-

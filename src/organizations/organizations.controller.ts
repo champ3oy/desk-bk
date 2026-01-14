@@ -38,12 +38,12 @@ export class OrganizationsController {
 
   @Post()
   @ApiOperation({
-    summary: 'Create a new organization (user becomes admin of the organization)',
+    summary:
+      'Create a new organization (user becomes admin of the organization)',
   })
   @ApiBody({ type: CreateOrganizationDto })
   @ApiCreatedResponse({
-    description:
-      'Organization successfully created and user assigned as admin',
+    description: 'Organization successfully created and user assigned as admin',
     type: Organization,
   })
   @ApiResponse({ status: 400, description: 'Invalid input data' })
@@ -54,11 +54,29 @@ export class OrganizationsController {
     );
   }
 
+  @Get('mine')
+  @ApiOperation({ summary: 'Get organizations for the current user' })
+  @ApiResponse({
+    status: 200,
+    description: 'List of organizations',
+    type: [Organization],
+  })
+  findMine(@Request() req) {
+    console.log(
+      `OrganizationsController.findMine: Finding orgs for user email=${req.user.email}`,
+    );
+    return this.organizationsService.findByMemberEmail(req.user.email);
+  }
+
   @Get()
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.AGENT)
   @ApiOperation({ summary: 'Get all organizations (Admin/Agent only)' })
-  @ApiResponse({ status: 200, description: 'List of organizations', type: [Organization] })
+  @ApiResponse({
+    status: 200,
+    description: 'List of organizations',
+    type: [Organization],
+  })
   @ApiForbiddenResponse({ description: 'Insufficient permissions' })
   findAll() {
     return this.organizationsService.findAll();
@@ -69,7 +87,11 @@ export class OrganizationsController {
   @Roles(UserRole.ADMIN, UserRole.AGENT)
   @ApiOperation({ summary: 'Get an organization by ID (Admin/Agent only)' })
   @ApiParam({ name: 'id', description: 'Organization ID' })
-  @ApiResponse({ status: 200, description: 'Organization details', type: Organization })
+  @ApiResponse({
+    status: 200,
+    description: 'Organization details',
+    type: Organization,
+  })
   @ApiNotFoundResponse({ description: 'Organization not found' })
   @ApiForbiddenResponse({ description: 'Insufficient permissions' })
   findOne(@Param('id') id: string) {
@@ -82,7 +104,11 @@ export class OrganizationsController {
   @ApiOperation({ summary: 'Update an organization (Admin only)' })
   @ApiParam({ name: 'id', description: 'Organization ID' })
   @ApiBody({ type: UpdateOrganizationDto })
-  @ApiResponse({ status: 200, description: 'Organization successfully updated', type: Organization })
+  @ApiResponse({
+    status: 200,
+    description: 'Organization successfully updated',
+    type: Organization,
+  })
   @ApiNotFoundResponse({ description: 'Organization not found' })
   @ApiForbiddenResponse({ description: 'Insufficient permissions' })
   update(
@@ -97,11 +123,13 @@ export class OrganizationsController {
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Delete an organization (Admin only)' })
   @ApiParam({ name: 'id', description: 'Organization ID' })
-  @ApiResponse({ status: 200, description: 'Organization successfully deleted' })
+  @ApiResponse({
+    status: 200,
+    description: 'Organization successfully deleted',
+  })
   @ApiNotFoundResponse({ description: 'Organization not found' })
   @ApiForbiddenResponse({ description: 'Insufficient permissions' })
   remove(@Param('id') id: string) {
     return this.organizationsService.remove(id);
   }
 }
-
