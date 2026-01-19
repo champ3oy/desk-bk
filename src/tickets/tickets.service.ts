@@ -698,6 +698,25 @@ Sentiment:`;
         }
       }
 
+      // Check if ticket is unassigned (agents can see unassigned tickets)
+      if (!ticketAssignedToId && !ticketAssignedToGroupId) {
+        return ticket;
+      }
+
+      // Check if user is a participant in the ticket's thread
+      const ticketIdsWithUserParticipation =
+        await this.threadsService.findTicketIdsByParticipant(
+          userId,
+          organizationId,
+        );
+      const isParticipant = ticketIdsWithUserParticipation.some(
+        (ticketId) => ticketId.toString() === id,
+      );
+
+      if (isParticipant) {
+        return ticket;
+      }
+
       // Not assigned to user or their groups
       throw new ForbiddenException(
         'You do not have permission to view this ticket',

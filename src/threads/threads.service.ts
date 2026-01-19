@@ -381,8 +381,15 @@ export class ThreadsService {
           );
 
           if (!isInGroup) {
-            // User is not a participant, only show external messages
-            query.messageType = MessageType.EXTERNAL;
+            // User is not a participant or in a participant group
+            // Show external messages OR internal messages authored by this user
+            query.$or = [
+              { messageType: MessageType.EXTERNAL },
+              {
+                messageType: MessageType.INTERNAL,
+                authorId: new Types.ObjectId(userId),
+              },
+            ];
           }
         }
       }

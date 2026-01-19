@@ -103,7 +103,7 @@ export class TicketsController {
   @ApiNotFoundResponse({ description: 'Ticket not found' })
   @ApiForbiddenResponse({ description: 'Access denied' })
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.AGENT)
+  @Roles(UserRole.ADMIN, UserRole.AGENT, UserRole.LIGHT_AGENT)
   update(
     @Param('id') id: string,
     @Body() updateTicketDto: UpdateTicketDto,

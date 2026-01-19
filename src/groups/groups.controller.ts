@@ -43,10 +43,14 @@ export class GroupsController {
   @Roles(UserRole.ADMIN)
   @ApiOperation({
     summary: 'Create a new group (Admin only)',
-    description: 'Tickets can be assigned to groups, making them visible to all group members',
+    description:
+      'Tickets can be assigned to groups, making them visible to all group members',
   })
   @ApiBody({ type: CreateGroupDto })
-  @ApiCreatedResponse({ description: 'Group successfully created', type: Group })
+  @ApiCreatedResponse({
+    description: 'Group successfully created',
+    type: Group,
+  })
   @ApiResponse({ status: 400, description: 'Invalid input data' })
   @ApiForbiddenResponse({ description: 'Insufficient permissions' })
   @ApiResponse({
@@ -54,16 +58,13 @@ export class GroupsController {
     description: 'Group with this name already exists',
   })
   create(@Body() createGroupDto: CreateGroupDto, @Request() req) {
-    return this.groupsService.create(
-      createGroupDto,
-      req.user.organizationId,
-    );
+    return this.groupsService.create(createGroupDto, req.user.organizationId);
   }
 
   @Get()
-  @Roles(UserRole.ADMIN, UserRole.AGENT)
+  @Roles(UserRole.ADMIN, UserRole.AGENT, UserRole.LIGHT_AGENT)
   @ApiOperation({
-    summary: 'Get all groups in organization (Admin/Agent only)',
+    summary: 'Get all groups in organization (Admin/Agent/Light Agent)',
   })
   @ApiResponse({ status: 200, description: 'List of groups', type: [Group] })
   @ApiForbiddenResponse({ description: 'Insufficient permissions' })
@@ -72,9 +73,9 @@ export class GroupsController {
   }
 
   @Get(':id')
-  @Roles(UserRole.ADMIN, UserRole.AGENT)
+  @Roles(UserRole.ADMIN, UserRole.AGENT, UserRole.LIGHT_AGENT)
   @ApiOperation({
-    summary: 'Get a group by ID (Admin/Agent only)',
+    summary: 'Get a group by ID (Admin/Agent/Light Agent)',
   })
   @ApiParam({ name: 'id', description: 'Group ID' })
   @ApiResponse({ status: 200, description: 'Group details', type: Group })
@@ -91,7 +92,11 @@ export class GroupsController {
   })
   @ApiParam({ name: 'id', description: 'Group ID' })
   @ApiBody({ type: UpdateGroupDto })
-  @ApiResponse({ status: 200, description: 'Group successfully updated', type: Group })
+  @ApiResponse({
+    status: 200,
+    description: 'Group successfully updated',
+    type: Group,
+  })
   @ApiNotFoundResponse({ description: 'Group not found' })
   @ApiForbiddenResponse({ description: 'Insufficient permissions' })
   update(
@@ -99,7 +104,11 @@ export class GroupsController {
     @Body() updateGroupDto: UpdateGroupDto,
     @Request() req,
   ) {
-    return this.groupsService.update(id, updateGroupDto, req.user.organizationId);
+    return this.groupsService.update(
+      id,
+      updateGroupDto,
+      req.user.organizationId,
+    );
   }
 
   @Post(':id/members')
@@ -170,4 +179,3 @@ export class GroupsController {
     return this.groupsService.remove(id, req.user.organizationId);
   }
 }
-

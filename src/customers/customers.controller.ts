@@ -58,9 +58,9 @@ export class CustomersController {
   }
 
   @Get()
-  @Roles(UserRole.ADMIN, UserRole.AGENT)
+  @Roles(UserRole.ADMIN, UserRole.AGENT, UserRole.LIGHT_AGENT)
   @ApiOperation({
-    summary: 'Get all customers in organization (Admin/Agent only)',
+    summary: 'Get all customers in organization (Admin/Agent/Light Agent)',
   })
   @ApiResponse({
     status: 200,
@@ -73,9 +73,9 @@ export class CustomersController {
   }
 
   @Get(':id')
-  @Roles(UserRole.ADMIN, UserRole.AGENT)
+  @Roles(UserRole.ADMIN, UserRole.AGENT, UserRole.LIGHT_AGENT)
   @ApiOperation({
-    summary: 'Get a customer by ID (Admin/Agent only)',
+    summary: 'Get a customer by ID (Admin/Agent/Light Agent)',
   })
   @ApiParam({ name: 'id', description: 'Customer ID' })
   @ApiResponse({ status: 200, description: 'Customer details', type: Customer })

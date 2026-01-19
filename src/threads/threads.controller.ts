@@ -49,7 +49,10 @@ export class ThreadsController {
       'Note: Threads are usually auto-created when tickets are created, so this endpoint is mainly for edge cases.',
   })
   @ApiBody({ type: CreateThreadDto })
-  @ApiCreatedResponse({ description: 'Thread successfully created or retrieved', type: Thread })
+  @ApiCreatedResponse({
+    description: 'Thread successfully created or retrieved',
+    type: Thread,
+  })
   @ApiResponse({ status: 400, description: 'Invalid input data' })
   @ApiForbiddenResponse({ description: 'Insufficient permissions' })
   create(@Body() createThreadDto: CreateThreadDto, @Request() req) {
@@ -62,9 +65,9 @@ export class ThreadsController {
   }
 
   @Get('ticket/:ticketId')
-  @Roles(UserRole.ADMIN, UserRole.AGENT)
+  @Roles(UserRole.ADMIN, UserRole.AGENT, UserRole.LIGHT_AGENT)
   @ApiOperation({
-    summary: 'Get thread for a ticket (Admin/Agent only)',
+    summary: 'Get thread for a ticket (Admin/Agent/Light Agent)',
     description:
       'Get the single thread for a ticket. Each ticket has exactly one thread.',
   })
@@ -81,9 +84,9 @@ export class ThreadsController {
   }
 
   @Get(':id')
-  @Roles(UserRole.ADMIN, UserRole.AGENT)
+  @Roles(UserRole.ADMIN, UserRole.AGENT, UserRole.LIGHT_AGENT)
   @ApiOperation({
-    summary: 'Get a thread by ID (Admin/Agent only)',
+    summary: 'Get a thread by ID (Admin/Agent/Light Agent)',
   })
   @ApiParam({ name: 'id', description: 'Thread ID' })
   @ApiResponse({ status: 200, description: 'Thread details', type: Thread })
@@ -99,13 +102,16 @@ export class ThreadsController {
   }
 
   @Post(':id/messages')
-  @Roles(UserRole.ADMIN, UserRole.AGENT)
+  @Roles(UserRole.ADMIN, UserRole.AGENT, UserRole.LIGHT_AGENT)
   @ApiOperation({
-    summary: 'Send a message in a thread (Admin/Agent only)',
+    summary: 'Send a message in a thread (Admin/Agent/Light Agent)',
   })
   @ApiParam({ name: 'id', description: 'Thread ID' })
   @ApiBody({ type: CreateMessageDto })
-  @ApiCreatedResponse({ description: 'Message successfully sent', type: Message })
+  @ApiCreatedResponse({
+    description: 'Message successfully sent',
+    type: Message,
+  })
   @ApiNotFoundResponse({ description: 'Thread not found' })
   @ApiForbiddenResponse({ description: 'Insufficient permissions' })
   createMessage(
@@ -123,9 +129,9 @@ export class ThreadsController {
   }
 
   @Get(':id/messages')
-  @Roles(UserRole.ADMIN, UserRole.AGENT)
+  @Roles(UserRole.ADMIN, UserRole.AGENT, UserRole.LIGHT_AGENT)
   @ApiOperation({
-    summary: 'Get all messages in a thread (Admin/Agent only)',
+    summary: 'Get all messages in a thread (Admin/Agent/Light Agent)',
     description:
       'Get messages in a thread. Optionally filter by message type (external/internal).',
   })
@@ -136,7 +142,11 @@ export class ThreadsController {
     enum: MessageType,
     description: 'Filter by message type (external or internal)',
   })
-  @ApiResponse({ status: 200, description: 'List of messages', type: [Message] })
+  @ApiResponse({
+    status: 200,
+    description: 'List of messages',
+    type: [Message],
+  })
   @ApiNotFoundResponse({ description: 'Thread not found' })
   @ApiForbiddenResponse({ description: 'Insufficient permissions' })
   getMessages(
@@ -154,9 +164,9 @@ export class ThreadsController {
   }
 
   @Patch('messages/:messageId/read')
-  @Roles(UserRole.ADMIN, UserRole.AGENT)
+  @Roles(UserRole.ADMIN, UserRole.AGENT, UserRole.LIGHT_AGENT)
   @ApiOperation({
-    summary: 'Mark a message as read (Admin/Agent only)',
+    summary: 'Mark a message as read (Admin/Agent/Light Agent)',
   })
   @ApiParam({ name: 'messageId', description: 'Message ID' })
   @ApiResponse({ status: 200, description: 'Message marked as read' })
@@ -255,7 +265,11 @@ export class ThreadsController {
       },
     },
   })
-  @ApiResponse({ status: 200, description: 'Participants removed', type: Thread })
+  @ApiResponse({
+    status: 200,
+    description: 'Participants removed',
+    type: Thread,
+  })
   @ApiNotFoundResponse({ description: 'Thread not found' })
   @ApiForbiddenResponse({ description: 'Insufficient permissions' })
   removeParticipants(
@@ -277,4 +291,3 @@ export class ThreadsController {
     );
   }
 }
-

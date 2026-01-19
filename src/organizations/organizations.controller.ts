@@ -70,8 +70,8 @@ export class OrganizationsController {
 
   @Get()
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.AGENT)
-  @ApiOperation({ summary: 'Get all organizations (Admin/Agent only)' })
+  @Roles(UserRole.ADMIN, UserRole.AGENT, UserRole.LIGHT_AGENT)
+  @ApiOperation({ summary: 'Get all organizations (Admin/Agent/Light Agent)' })
   @ApiResponse({
     status: 200,
     description: 'List of organizations',
@@ -84,8 +84,10 @@ export class OrganizationsController {
 
   @Get(':id')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.AGENT)
-  @ApiOperation({ summary: 'Get an organization by ID (Admin/Agent only)' })
+  @Roles(UserRole.ADMIN, UserRole.AGENT, UserRole.LIGHT_AGENT)
+  @ApiOperation({
+    summary: 'Get an organization by ID (Admin/Agent/Light Agent)',
+  })
   @ApiParam({ name: 'id', description: 'Organization ID' })
   @ApiResponse({
     status: 200,
