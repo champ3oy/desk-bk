@@ -8,6 +8,7 @@ export enum TicketStatus {
   IN_PROGRESS = 'in_progress',
   RESOLVED = 'resolved',
   CLOSED = 'closed',
+  ESCALATED = 'escalated',
 }
 
 export enum TicketPriority {
@@ -56,11 +57,52 @@ export class Ticket {
   })
   priority: TicketPriority;
 
-  @ApiProperty({ description: 'Organization ID', example: '507f1f77bcf86cd799439011' })
+  @ApiPropertyOptional({
+    description: 'Whether the ticket was escalated by AI',
+    example: true,
+  })
+  @Prop({ default: false })
+  isAiEscalated: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Reason for AI escalation',
+    example: 'Ambiguous user request',
+  })
+  @Prop({ required: false })
+  aiEscalationReason?: string;
+
+  @ApiPropertyOptional({
+    description: 'AI confidence score (0-100)',
+    example: 85,
+  })
+  @Prop({ required: false })
+  aiConfidenceScore?: number;
+
+  @ApiPropertyOptional({
+    description: 'Ticket sentiment/mood',
+    example: 'neutral',
+  })
+  @Prop({ required: false })
+  sentiment?: string;
+
+  @ApiPropertyOptional({
+    description: 'Whether AI auto-reply is disabled for this ticket',
+    example: false,
+  })
+  @Prop({ default: false })
+  aiAutoReplyDisabled?: boolean;
+
+  @ApiProperty({
+    description: 'Organization ID',
+    example: '507f1f77bcf86cd799439011',
+  })
   @Prop({ type: Types.ObjectId, ref: 'Organization', required: true })
   organizationId: Types.ObjectId;
 
-  @ApiProperty({ description: 'Customer ID', example: '507f1f77bcf86cd799439011' })
+  @ApiProperty({
+    description: 'Customer ID',
+    example: '507f1f77bcf86cd799439011',
+  })
   @Prop({ type: Types.ObjectId, ref: 'Customer', required: true })
   customerId: Types.ObjectId;
 
@@ -92,6 +134,14 @@ export class Ticket {
   })
   @Prop({ type: [{ type: Types.ObjectId, ref: 'Tag' }], default: [] })
   tagIds: Types.ObjectId[];
+
+  @ApiPropertyOptional({
+    description: 'Array of user IDs following this ticket',
+    type: [String],
+    example: ['507f1f77bcf86cd799439011'],
+  })
+  @Prop({ type: [{ type: Types.ObjectId, ref: 'User' }], default: [] })
+  followers: Types.ObjectId[];
 
   @ApiPropertyOptional({
     description: 'Creation timestamp',

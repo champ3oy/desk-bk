@@ -71,14 +71,14 @@ export class CustomerResolver {
    */
   private parseName(fullName: string): { firstName: string; lastName: string } {
     if (!fullName) {
-      return { firstName: 'Customer', lastName: 'Unknown' };
+      return { firstName: 'Customer', lastName: '' };
     }
 
     const trimmed = fullName.trim();
     const parts = trimmed.split(/\s+/);
 
     if (parts.length === 1) {
-      return { firstName: parts[0], lastName: 'Unknown' };
+      return { firstName: parts[0], lastName: '' };
     }
 
     if (parts.length === 2) {

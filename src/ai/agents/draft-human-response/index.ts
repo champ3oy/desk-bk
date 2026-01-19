@@ -5,79 +5,43 @@ import { UserRole } from '../../../users/entities/user.entity';
 import { OrganizationsService } from '../../../organizations/organizations.service';
 import { Organization } from '../../../organizations/entities/organization.entity';
 import { AIModelFactory } from '../../ai-model.factory';
-import { z } from 'zod';
-import { JsonOutputParser } from '@langchain/core/output_parsers';
 
-const DEFAULT_SYSTEM_PROMPT = `You are an expert customer support agent for our company. Your goal is to resolve customer issues efficiently and professionally.
+const DRAFT_SYSTEM_PROMPT = `You are an AI assistant helping a human customer support agent draft a response to a customer.
 
-# DECISION MAKING: REPLY OR ESCALATE?
+# YOUR ROLE
+- You are ASSISTING a human agent, not replacing them
+- Provide a helpful, professional draft that the agent can review, edit, and send
+- The agent will review and potentially modify your draft before sending
 
-You have two options:
-1. **REPLY**: If you are confident you can help the customer based on the provided context (Knowledge Base, conversation history).
-2. **ESCALATE**: If you cannot resolve the issue.
+# RESPONSE GUIDELINES
+- Write a clear, helpful response that addresses the customer's issue
+- Be professional, empathetic, and solution-oriented
+- Match the tone to the customer's sentiment
+- Keep the response focused and actionable
+- DO NOT make decisions about escalation - the human agent will handle that
+- DO NOT refuse to help - always provide a draft response
 
-**WHEN TO ESCALATE:**
-- The Knowledge Base does not contain the answer. (Do NOT guess company policies).
-- The customer is angry, abusive, or threatening legal action.
-- The request requires performing an action you cannot do (e.g., "Reset my password", "Process a refund", "Delete my account").
-- The confidence in your answer is low (< 70%).
+# KNOWLEDGE BASE
+- You will be provided with relevant context from the knowledge base
+- Use this information to inform your response
+- NEVER say "According to our records" or "Based on the knowledge base"
+- Present information naturally as if you're the company representative
+
+# FORMATTING
+- NEVER include sign-offs like "Best regards", "Sincerely", etc.
+- NEVER include agent names or signatures
+- End your response after providing the solution or next steps
+- Signatures are handled separately by the system
 
 # OUTPUT FORMAT
-
-You must output a single valid JSON object. Do not include markdown formatting like \`\`\`json.
-The JSON must follow this structure:
-
-{
-  "action": "REPLY" | "ESCALATE",
-  "content": "string (The message to send to the customer. Required if action is REPLY. Omit if ESCALATE)",
-  "escalationReason": "string (Why you are escalating. Required if action is ESCALATE. Omit if REPLY)",
-  "confidence": number (0-100 indicating your confidence level)
-}
-
-# KNOWLEDGE BASE INSTRUCTIONS
-- You will be provided with relevant context from our knowledge base.
-- ALWAYS prioritize information from the knowledge base over your general training.
-- If the knowledge base contains the answer, use it to solve the customer's problem.
-- Cite specific policies or guides if they appear in the knowledge base context.
-
-# INTERNAL AGENT PERSONA
-- You ARE the company. Speak with authority and ownership.
-- NEVER say "According to our records", "According to our resources", "Based on the knowledge base", or similar phrases.
-- Present information as facts you know.
-
-# CRITICAL: NO SIGNATURES OR SIGN-OFFS
-- NEVER include sign-offs like "Best regards", "Sincerely", "Thank you", etc.
-- NEVER include agent names, AI names, or company names at the end of responses
-- NEVER add signatures like "Morpheus AI", "Your Intelligent Support Assistant", etc.
-- End your response immediately after providing the solution or next steps
-- Signatures and sign-offs are handled separately by the system
-
-# GENERAL GUIDELINES
-- Be clear, concise, and professional
-- Show empathy and understanding
-- Address the customer's concerns directly
-- Provide actionable solutions when possible
-- Match the tone to the customer's sentiment
-- OUTPUT ONLY THE JSON. NO OTHER TEXT.`;
+You must output ONLY a plain text response. Do not use JSON or any special formatting.
+Just write the message that should be sent to the customer.`;
 
 /**
- * Build a dynamic system prompt based on organization AI configuration
+ * Build a system prompt for drafting human responses based on organization settings
  */
-export function buildSystemPrompt(org: Organization): string {
-  // Use custom prompt if provided, otherwise use default
-  let basePrompt = org.aiPersonalityPrompt || DEFAULT_SYSTEM_PROMPT;
-
-  // Append JSON instruction if user overwrote the default prompt
-  if (org.aiPersonalityPrompt && !basePrompt.includes('OUTPUT FORMAT')) {
-    basePrompt += `\n\n# OUTPUT FORMAT
-You must output a single valid JSON object. Do not include markdown formatting.
-{
-  "action": "REPLY" | "ESCALATE",
-  "content": "string",
-  "escalationReason": "string",
-  "confidence": number
-}`;
-  }
+function buildDraftSystemPrompt(org: Organization): string {
+  let prompt = DRAFT_SYSTEM_PROMPT;
 
   const toneInstructions: string[] = [];
 
@@ -87,9 +51,7 @@ You must output a single valid JSON object. Do not include markdown formatting.
       toneInstructions.push('- Use casual, conversational language');
       toneInstructions.push('- Feel free to use contractions naturally');
     } else if (org.aiFormality > 70) {
-      toneInstructions.push(
-        '- Maintain formal, professional tone at all times',
-      );
+      toneInstructions.push('- Maintain formal, professional tone');
       toneInstructions.push(
         '- Avoid contractions (use "do not" instead of "don\'t")',
       );
@@ -128,24 +90,14 @@ You must output a single valid JSON object. Do not include markdown formatting.
     toneInstructions.push('- Do not use emojis in responses');
   }
 
-  // Greetings - ONLY APPLY if replying
+  // Greetings
   if (org.aiIncludeGreetings === false) {
     toneInstructions.push(
       '- Skip greetings, get straight to addressing the issue',
     );
   } else {
-    toneInstructions.push('- Start with friendly greetings (if replying)');
+    toneInstructions.push('- Start with a friendly greeting');
   }
-
-  // Sign-off - IMPORTANT: Never include signatures/sign-offs in live chat or social media
-  // Email signatures are handled separately by the system
-  toneInstructions.push(
-    '- NEVER include sign-offs, signatures, or "Best regards" type endings',
-  );
-  toneInstructions.push('- End responses with the solution or next steps only');
-  toneInstructions.push(
-    '- Do NOT add "Best regards", "Sincerely", agent names, or company names at the end',
-  );
 
   // Vocabulary preferences
   if (org.aiWordsToUse) {
@@ -157,17 +109,14 @@ You must output a single valid JSON object. Do not include markdown formatting.
 
   // Combine everything
   if (toneInstructions.length > 0) {
-    return `${basePrompt}\n\n# TONE GUIDELINES\n${toneInstructions.join('\n')}`;
+    return `${prompt}\n\n# TONE GUIDELINES\n${toneInstructions.join('\n')}`;
   }
 
-  return basePrompt;
+  return prompt;
 }
 
-export type AgentResponse = {
-  content?: string;
-  action: 'REPLY' | 'ESCALATE';
-  escalationReason?: string;
-  confidence: number;
+export type DraftHumanResponseResult = {
+  content: string;
   metadata: {
     tokenUsage: any;
     knowledgeBaseUsed: boolean;
@@ -175,22 +124,27 @@ export type AgentResponse = {
   };
 };
 
-export const draftResponse = async (
+/**
+ * Draft a response for a human agent to review and send
+ * This is simpler than the auto-reply function - it just generates a helpful draft
+ * without making decisions about escalation
+ */
+export const draftHumanResponse = async (
   ticket_id: string,
   ticketsService: TicketsService,
   threadsService: ThreadsService,
   configService: ConfigService,
   organizationsService: OrganizationsService,
-  knowledgeBaseService: any, // KnowledgeBaseService
+  knowledgeBaseService: any,
   userId: string,
   userRole: UserRole,
   organizationId: string,
   additionalContext?: string,
-): Promise<AgentResponse> => {
+): Promise<DraftHumanResponseResult> => {
   const totalStart = Date.now();
-  console.log(`[PERF] draftResponse started for ticket ${ticket_id}`);
+  console.log(`[PERF] draftHumanResponse started for ticket ${ticket_id}`);
 
-  // ========== PARALLELIZED DATA FETCHING ==========
+  // ========== FETCH DATA IN PARALLEL ==========
   const parallelStart = Date.now();
 
   const [ticket, org, threads] = await Promise.all([
@@ -241,7 +195,7 @@ export const draftResponse = async (
   }
 
   // ========== BUILD SYSTEM PROMPT ==========
-  const systemPrompt = buildSystemPrompt(org);
+  const systemPrompt = buildDraftSystemPrompt(org);
 
   // ========== MODEL INITIALIZATION ==========
   const modelStart = Date.now();
@@ -276,11 +230,11 @@ ${thread.messages.map((msg: any) => `[${msg.messageType === 'external' ? 'Custom
   .join('\n')}
 
 # TASK
-${
-  additionalContext
-    ? `Analyze this ticket and decide whether to reply or escalate. Additional context: ${additionalContext}`
-    : `Analyze this ticket and decide whether to reply or escalate. Consider all threads, messages, ticket details, conversation history, and customer sentiment.`
-}
+Draft a helpful response for the human agent to send to the customer.${
+    additionalContext ? ` Additional context: ${additionalContext}` : ''
+  }
+
+Remember: You are helping a human agent draft a response. Provide a clear, professional message that addresses the customer's needs. The agent will review and may edit your draft before sending.
 `;
 
   // Add knowledge base context if available
@@ -299,26 +253,13 @@ ${
     ]);
   } catch (error) {
     console.error('[AI Agent] LLM Invocation Failed:', error);
-
-    // Return escalation on error
-    return {
-      action: 'ESCALATE',
-      escalationReason: 'AI Service Unavailable or Error',
-      confidence: 0,
-      metadata: {
-        tokenUsage: {},
-        knowledgeBaseUsed: !!knowledgeContext,
-        performanceMs: Date.now() - totalStart,
-      },
-    };
+    throw new Error('Failed to generate draft response');
   }
 
   console.log(`[PERF] LLM invocation: ${Date.now() - llmStart}ms`);
 
-  // Extract content and parse JSON
-  let result: any = { action: 'ESCALATE', confidence: 0 };
+  // Extract content
   let responseText = '';
-
   try {
     const content = response.content;
     responseText =
@@ -331,41 +272,15 @@ ${
               )
               .join('')
           : '';
-
-    // Clean markdown code blocks if present
-    const cleanJson = responseText.replace(/```json\n?|\n?```/g, '').trim();
-
-    result = JSON.parse(cleanJson);
-
-    // Validate action
-    if (!['REPLY', 'ESCALATE'].includes(result.action)) {
-      throw new Error('Invalid action returned by AI');
-    }
   } catch (e) {
-    console.error('Failed to parse AI response as JSON:', e);
-    console.log('Raw response:', responseText);
-
-    // Fallback: If we can't parse JSON, treat it as a REPLY if it looks like text, or ESCALATE if it fails
-    // But since we asked for JSON, a failure usually means we should escalate
-    return {
-      action: 'ESCALATE',
-      escalationReason: 'AI response malformed',
-      confidence: 0,
-      metadata: {
-        tokenUsage: (response as any)?.response_metadata?.tokenUsage,
-        knowledgeBaseUsed: !!knowledgeContext,
-        performanceMs: Date.now() - totalStart,
-      },
-    };
+    console.error('Failed to extract response content:', e);
+    throw new Error('Failed to parse AI response');
   }
 
-  console.log(`[PERF] TOTAL draftResponse: ${Date.now() - totalStart}ms`);
+  console.log(`[PERF] TOTAL draftHumanResponse: ${Date.now() - totalStart}ms`);
 
   return {
-    content: result.content,
-    action: result.action,
-    escalationReason: result.escalationReason,
-    confidence: result.confidence || 0,
+    content: responseText.trim(),
     metadata: {
       tokenUsage:
         (response as any)?.usage_metadata ||

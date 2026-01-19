@@ -20,7 +20,11 @@ import {
 } from '@nestjs/swagger';
 import { IngestionService } from './ingestion.service';
 import { WebhookPayloadDto } from './dto/webhook-payload.dto';
-import { MessageChannel } from '../threads/entities/message.entity';
+import {
+  MessageChannel,
+  MessageType,
+} from '../threads/entities/message.entity';
+
 import { OrganizationsService } from '../organizations/organizations.service';
 import { CustomersService } from '../customers/customers.service';
 import { KnowledgeBaseService } from '../ai/knowledge-base.service';
@@ -257,7 +261,7 @@ export class WebhooksController {
   @ApiOperation({
     summary: 'Widget webhook endpoint',
     description:
-      'Receives messages from the web widget and returns AI response',
+      'Receives messages from the web widget. AI responses are handled by auto-reply logic.',
   })
   @ApiResponse({ status: 200, description: 'Message processed successfully' })
   async handleWidget(
@@ -287,67 +291,8 @@ export class WebhooksController {
       return result;
     }
 
-    // Generate AI response
-    let aiResponse: string | null = null;
-    try {
-      const userMessage = payload.content || '';
-      const customerEmail = payload.email;
-
-      // Get chat history for context (last 10 messages)
-      const thread = await this.ingestionService.findThreadBySessionId(
-        payload.sessionId,
-        channelId,
-      );
-
-      let history: Array<{ role: 'user' | 'assistant'; content: string }> = [];
-      if (thread) {
-        const messages = await this.ingestionService.getThreadMessages(
-          thread._id.toString(),
-          channelId,
-        );
-        // Convert to history format, excluding the current message
-        history = messages
-          .slice(-10) // Last 10 messages
-          .filter((m) => m.content && m.content.trim() !== '')
-          .map((m) => ({
-            role:
-              m.authorType === 'customer'
-                ? ('user' as const)
-                : ('assistant' as const),
-            content: m.content,
-          }));
-      }
-
-      // Call AI to generate response
-      const response = await playgroundChat(
-        userMessage,
-        this.configService,
-        this.organizationsService,
-        this.knowledgeBaseService,
-        this.customersService,
-        channelId,
-        history.length > 0 ? history : undefined,
-        undefined, // Use default provider
-        undefined, // Use default model
-        customerEmail,
-      );
-
-      aiResponse = response.content;
-      this.logger.debug(
-        `AI response generated for widget: ${aiResponse?.substring(0, 100)}...`,
-      );
-    } catch (error) {
-      this.logger.error(
-        `Failed to generate AI response: ${error.message}`,
-        error.stack,
-      );
-      // Don't fail the request, just return without AI response
-    }
-
-    return {
-      ...result,
-      aiResponse,
-    };
+    // AI response is handled by auto-reply logic in threads service
+    return result;
   }
 
   @Get('widget/history')
@@ -393,19 +338,53 @@ export class WebhooksController {
       return { messages: [] };
     }
 
-    // Get messages for this thread
+    // Get external messages only for this thread
     const messages = await this.ingestionService.getThreadMessages(
       thread._id.toString(),
       channelId,
+      MessageType.EXTERNAL,
     );
 
     return {
-      messages: messages.map((msg) => ({
-        id: msg._id.toString(),
-        text: msg.content,
-        sender: msg.authorType === 'customer' ? 'user' : 'agent',
-        timestamp: msg.createdAt?.getTime() || Date.now(),
-      })),
+      messages: messages.map((msg) => {
+        // Extract author name if populated
+        let authorName: string | undefined;
+        if (msg.authorType === 'user' && msg.authorId) {
+          // authorId is populated with User document
+          const author = msg.authorId as any;
+
+          // Log to debug
+          this.logger.debug(
+            `Message ${msg._id}: authorType=${msg.authorType}, authorId type=${typeof author}, has firstName=${!!author.firstName}`,
+          );
+
+          // Check if it's a populated object (has firstName/lastName) or just an ObjectId
+          if (author.firstName || author.lastName) {
+            authorName =
+              `${author.firstName || ''} ${author.lastName || ''}`.trim();
+            this.logger.debug(`Extracted author name: ${authorName}`);
+          } else if (author._id) {
+            // It's populated but might not have name fields
+            this.logger.debug(
+              `Author is populated but missing name fields: ${JSON.stringify(author)}`,
+            );
+          } else {
+            // It's just an ObjectId, not populated
+            this.logger.debug(
+              `Author is not populated, it's an ObjectId: ${author}`,
+            );
+          }
+        }
+
+        return {
+          id: msg._id.toString(),
+          text: msg.content,
+          sender: msg.authorType === 'customer' ? 'user' : 'agent',
+          authorType: msg.authorType, // Include authorType to differentiate AI vs human agents
+          authorName, // Include author name for human agents
+          timestamp: msg.createdAt?.getTime() || Date.now(),
+        };
+      }),
     };
   }
 

@@ -4,6 +4,7 @@ import {
   IsOptional,
   IsMongoId,
   IsArray,
+  IsBoolean,
 } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { TicketStatus, TicketPriority } from '../entities/ticket.entity';
@@ -19,7 +20,8 @@ export class UpdateTicketDto {
 
   @ApiPropertyOptional({
     description: 'Ticket description',
-    example: 'I am unable to login to my account. I keep getting an error message.',
+    example:
+      'I am unable to login to my account. I keep getting an error message.',
   })
   @IsString()
   @IsOptional()
@@ -52,7 +54,8 @@ export class UpdateTicketDto {
   assignedToId?: string;
 
   @ApiPropertyOptional({
-    description: 'ID of the group assigned to this ticket (all group members will see it)',
+    description:
+      'ID of the group assigned to this ticket (all group members will see it)',
     example: '507f1f77bcf86cd799439015',
   })
   @IsMongoId()
@@ -76,5 +79,22 @@ export class UpdateTicketDto {
   @IsMongoId({ each: true })
   @IsOptional()
   tagIds?: string[];
-}
 
+  @ApiPropertyOptional({
+    description: 'Array of user IDs following this ticket',
+    example: ['507f1f77bcf86cd799439011'],
+    type: [String],
+  })
+  @IsArray()
+  @IsMongoId({ each: true })
+  @IsOptional()
+  followers?: string[];
+
+  @ApiPropertyOptional({
+    description: 'Whether AI auto-reply is disabled for this ticket',
+    example: false,
+  })
+  @IsBoolean()
+  @IsOptional()
+  aiAutoReplyDisabled?: boolean;
+}

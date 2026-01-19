@@ -22,4 +22,16 @@ export class TicketPaginationDto extends PaginationDto {
   @IsOptional()
   @IsMongoId()
   customerId?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by sentiment' })
+  @IsOptional()
+  @IsString()
+  sentiment?: string;
+
+  @ApiPropertyOptional({
+    description: 'Search tickets by subject, description or customer',
+  })
+  @IsOptional()
+  @IsString()
+  search?: string;
 }

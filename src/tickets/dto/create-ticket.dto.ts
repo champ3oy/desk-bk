@@ -18,7 +18,8 @@ export class CreateTicketDto {
 
   @ApiProperty({
     description: 'Ticket description',
-    example: 'I am unable to login to my account. I keep getting an error message.',
+    example:
+      'I am unable to login to my account. I keep getting an error message.',
   })
   @IsString()
   description: string;
@@ -51,6 +52,14 @@ export class CreateTicketDto {
   priority?: TicketPriority;
 
   @ApiPropertyOptional({
+    description: 'Ticket sentiment/mood',
+    example: 'neutral',
+  })
+  @IsString()
+  @IsOptional()
+  sentiment?: string;
+
+  @ApiPropertyOptional({
     description: 'ID of the user assigned to this ticket',
     example: '507f1f77bcf86cd799439011',
   })
@@ -59,7 +68,8 @@ export class CreateTicketDto {
   assignedToId?: string;
 
   @ApiPropertyOptional({
-    description: 'ID of the group assigned to this ticket (all group members will see it)',
+    description:
+      'ID of the group assigned to this ticket (all group members will see it)',
     example: '507f1f77bcf86cd799439015',
   })
   @IsMongoId()
@@ -84,4 +94,3 @@ export class CreateTicketDto {
   @IsOptional()
   tagIds?: string[];
 }
-

@@ -168,6 +168,30 @@ export class CustomersService {
   }
 
   /**
+   * Find customer IDs matching a search term (name or email)
+   */
+  async findIdsBySearch(
+    search: string,
+    organizationId: string,
+  ): Promise<Types.ObjectId[]> {
+    const regex = new RegExp(search, 'i');
+    const customers = await this.customerModel
+      .find({
+        organizationId: new Types.ObjectId(organizationId),
+        $or: [
+          { firstName: regex },
+          { lastName: regex },
+          { email: regex },
+          { company: regex },
+        ],
+      })
+      .select('_id')
+      .exec();
+
+    return customers.map((c) => c._id as Types.ObjectId);
+  }
+
+  /**
    * Find or create a customer within an organization
    * Matches by email, phone, or externalId (if any match, returns existing customer)
    * Updates customer info if found but data differs
@@ -280,7 +304,7 @@ export class CustomersService {
         customerData.firstName =
           customerData.firstName || nameParts[0] || 'Customer';
         customerData.lastName =
-          customerData.lastName || nameParts.slice(1).join(' ') || 'Unknown';
+          customerData.lastName || nameParts.slice(1).join(' ') || '';
       } else {
         // Widget customer without email
         customerData.firstName = customerData.firstName || 'Website';

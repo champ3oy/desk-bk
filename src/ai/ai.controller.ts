@@ -20,8 +20,10 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { draftResponse } from './agents/response';
+import { draftHumanResponse } from './agents/draft-human-response';
 import { analyzeSentiment } from './agents/sentiment';
 import { summarizeTicket } from './agents/summary';
+import { briefSummary } from './agents/summary/brief';
 import { TicketsService } from '../tickets/tickets.service';
 import { ThreadsService } from '../threads/threads.service';
 import { CommentsService } from '../comments/comments.service';
@@ -98,20 +100,20 @@ export class AiController {
   @Post('draft-response')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Draft a response',
+    summary: 'Draft a response for human agent',
     description:
-      'Uses AI to draft a professional customer support response based on ticket context, including all threads and messages',
+      'Uses AI to draft a helpful customer support response for a human agent to review and send. This does not make auto-reply decisions - it simply provides a draft message.',
   })
   @ApiBody({ type: DraftResponseDto })
   @ApiResponse({
     status: 200,
-    description: 'AI-generated response draft',
+    description: 'AI-generated response draft for human review',
     type: DraftResponseResponseDto,
   })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 404, description: 'Ticket not found' })
   async draftResponse(@Body() body: DraftResponseDto, @Request() req) {
-    return await draftResponse(
+    return await draftHumanResponse(
       body.ticketId,
       this.ticketsService,
       this.threadsService,
@@ -174,6 +176,31 @@ export class AiController {
       this.ticketsService,
       this.threadsService,
       this.commentsService,
+      this.configService,
+      req.user.userId,
+      req.user.role,
+      req.user.organizationId,
+    );
+  }
+
+  @Post('brief-summary')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get a brief one-sentence summary of a ticket',
+    description: 'Uses AI to generate a very short, one-sentence summary',
+  })
+  @ApiBody({ type: SummarizeTicketDto })
+  @ApiResponse({
+    status: 200,
+    description: 'AI-generated brief summary',
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 404, description: 'Ticket not found' })
+  async briefSummary(@Body() body: SummarizeTicketDto, @Request() req) {
+    return await briefSummary(
+      body.ticketId,
+      this.ticketsService,
+      this.threadsService,
       this.configService,
       req.user.userId,
       req.user.role,
@@ -269,6 +296,7 @@ export class AiController {
       aiAutoReplyLiveChat: org.aiAutoReplyLiveChat,
       aiConfidenceThreshold: org.aiConfidenceThreshold,
       aiRestrictedTopics: org.aiRestrictedTopics,
+      aiEmailSignature: org.aiEmailSignature,
     };
   }
 
@@ -300,6 +328,7 @@ export class AiController {
       aiAutoReplyLiveChat: updatedOrg.aiAutoReplyLiveChat,
       aiConfidenceThreshold: updatedOrg.aiConfidenceThreshold,
       aiRestrictedTopics: updatedOrg.aiRestrictedTopics,
+      aiEmailSignature: updatedOrg.aiEmailSignature,
     };
   }
   @Get('models')

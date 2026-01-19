@@ -59,8 +59,15 @@ export class UpdateResponseConfigDto {
     example: ['Billing', 'Legal Issues', 'Refunds'],
     type: [String],
   })
-  @IsOptional()
   @IsArray()
   @IsString({ each: true })
   aiRestrictedTopics?: string[];
+
+  @ApiPropertyOptional({
+    description: 'Email signature for AI auto-replies',
+    example: 'Best regards,\nAI Support Agent',
+  })
+  @IsOptional()
+  @IsString()
+  aiEmailSignature?: string;
 }

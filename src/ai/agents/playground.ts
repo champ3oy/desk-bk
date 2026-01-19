@@ -125,6 +125,22 @@ export const playgroundChat = async (
       };
     }
 
+    // Check for Langchain/Gemini parsing error (empty candidates)
+    if (
+      error.name === 'TypeError' &&
+      error.message?.includes("reading 'reduce'")
+    ) {
+      console.warn(
+        '[AI Agent] Empty response from Gemini (Safety Filter or Network)',
+      );
+      return {
+        content:
+          "I'm sorry, I couldn't generate a response. This might be due to safety filters on the AI model or a temporary connection issue. Please try rephrasing your request.",
+        customer: null,
+        performanceMs: Date.now() - totalStart,
+      };
+    }
+
     // Fallback for other errors
     return {
       content:
@@ -140,7 +156,8 @@ export const playgroundChat = async (
   let detectedCustomer: any = null;
 
   // Handle potential complex content types (array of text/image)
-  const responseContent =
+  // Handle potential complex content types (array of text/image)
+  let responseText =
     typeof content === 'string'
       ? content
       : Array.isArray(content)
@@ -150,6 +167,27 @@ export const playgroundChat = async (
             )
             .join('')
         : '';
+
+  // Parse structured JSON response (Reply vs Escalate) logic
+  // Since we share the system prompt with draftResponse, the model will output JSON.
+  try {
+    const cleanJson = responseText.replace(/```json\n?|\n?```/g, '').trim();
+    if (cleanJson.startsWith('{') && cleanJson.endsWith('}')) {
+      const parsed = JSON.parse(cleanJson);
+
+      if (parsed.action === 'ESCALATE') {
+        responseText =
+          "I'm passing this conversation to a human agent who can better assist you. They will be with you shortly.";
+      } else if (parsed.action === 'REPLY' && parsed.content) {
+        responseText = parsed.content;
+      }
+    }
+  } catch (e) {
+    // If parsing fails, just use the raw text (fallback)
+    console.warn('[Playground] Failed to parse JSON response, using raw text');
+  }
+
+  const responseContent = responseText;
 
   // --- Post-Processing: Check for Customer Extraction ---
   const extractionRegex = /\[\[CUSTOMER_INFO: ({.*?})\]\]/s;

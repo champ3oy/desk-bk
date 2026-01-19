@@ -18,7 +18,7 @@ export class Customer {
   firstName: string;
 
   @ApiProperty({ description: 'Last name', example: 'Doe' })
-  @Prop({ required: true })
+  @Prop({ required: false })
   lastName: string;
 
   @ApiProperty({

@@ -5,13 +5,21 @@ import { ThreadsService } from '../../../threads/threads.service';
 import { CommentsService } from '../../../comments/comments.service';
 import { UserRole } from '../../../users/entities/user.entity';
 
-const systemPrompt = `You are an expert ticket summarizer. You are given a ticket and you need to summarize it in a way that is easy to understand and use for a customer support agent.
+const systemPrompt = `You are an expert ticket summarizer and analyst. You must analyze the provided ticket data and return a JSON object containing a comprehensive summary, sentiment analysis, urgency level, main topic, and recommended actions.
 
-Your summary should include:
+Do not mention ticket ID
+
+JSON Structure:
+{
+  "summary": "the summary should be properly formatted markdown and put it in this sections:
 1. A brief overview of the issue
 2. Key points from the conversation
 3. Current status and any pending actions
-4. Customer's main concerns`;
+4. Customer's main concerns.",
+  "sentiment": "One of: Frustrated, Neutral, Happy, Angry, Concerned",
+  "urgency": "One of: Low, Medium, High, Urgent",
+  "topic": "Brief topic label (e.g., Billing, Bug, Feature Request, Question)"
+}`;
 
 export const summarizeTicket = async (
   ticket_id: string,
@@ -71,8 +79,8 @@ export const summarizeTicket = async (
     comments: JSON.parse(JSON.stringify(comments)),
   };
 
-  const contextPrompt = `# TICKET DATA FOR SUMMARIZATION
-
+  const contextPrompt = `# TICKET DATA FOR ANALYZATION
+  
 ## Ticket Details
 - ID: ${ticketData.ticket._id}
 - Subject: ${ticketData.ticket.subject}
@@ -90,7 +98,7 @@ ${thread.messages
   .map(
     (
       msg: any,
-    ) => `[${msg.messageType === 'external' ? 'Customer' : 'Agent'}] (${new Date(msg.createdAt).toLocaleString()})
+    ) => `[${msg.authorType === 'customer' ? 'Customer' : 'Agent'}] (${new Date(msg.createdAt).toLocaleString()})
 ${msg.content}`,
   )
   .join('\n\n')}
@@ -111,11 +119,11 @@ ${
 }
 
 # TASK
-Summarize this ticket in a way that is easy to understand and use for a customer support agent. Include:
-1. A brief overview of the issue
-2. Key points from the conversation
-3. Current status and any pending actions
-4. Customer's main concerns`;
+Respond ONLY with a JSON object. Analyze the ticket and provide:
+1. summary: A rich markdown summary of the issue and conversation.
+2. sentiment: The primary emotional tone of the customer.
+3. urgency: The priority from a customer satisfaction and business impact perspective.
+4. topic: A short, representative tag for the issue.`;
 
   // ========== LLM INVOCATION ==========
   const llmStart = Date.now();
@@ -128,8 +136,7 @@ Summarize this ticket in a way that is easy to understand and use for a customer
     ]);
   } catch (error: any) {
     console.error(`[ERROR] summarizeTicket LLM invocation failed:`, error);
-
-    // Check for rate limit / quota errors
+    // ... rest of error handling same ...
     const errorMessage = error?.message || String(error);
     if (
       errorMessage.includes('429') ||
@@ -149,7 +156,6 @@ Summarize this ticket in a way that is easy to understand and use for a customer
       };
     }
 
-    // Generic AI error
     return {
       summary: null,
       content: null,
@@ -164,24 +170,45 @@ Summarize this ticket in a way that is easy to understand and use for a customer
 
   console.log(`[PERF] LLM invocation: ${Date.now() - llmStart}ms`);
 
-  // Extract content
-  const content = response.content;
-  const responseContent =
-    typeof content === 'string'
-      ? content
-      : Array.isArray(content)
-        ? content
+  // Extract and Parse JSON
+  const rawContent =
+    typeof response.content === 'string'
+      ? response.content
+      : Array.isArray(response.content)
+        ? response.content
             .map((item: any) =>
               typeof item === 'string' ? item : item.text || '',
             )
             .join('')
         : '';
 
+  let parsedData: any = {};
+  try {
+    // Attempt to extract JSON if LLM returned markdown blocks
+    const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
+    const jsonString = jsonMatch ? jsonMatch[0] : rawContent;
+    parsedData = JSON.parse(jsonString);
+  } catch (e) {
+    console.warn(
+      '[WARN] Failed to parse JSON from AI response, falling back',
+      e,
+    );
+    parsedData = {
+      summary: rawContent,
+      sentiment: 'Neutral',
+      urgency: 'Medium',
+      topic: 'General',
+    };
+  }
+
   console.log(`[PERF] TOTAL summarizeTicket: ${Date.now() - totalStart}ms`);
 
   return {
-    summary: responseContent,
-    content: responseContent,
+    summary: parsedData.summary || rawContent,
+    content: rawContent,
+    sentiment: parsedData.sentiment || 'Neutral',
+    urgency: parsedData.urgency || 'Medium',
+    topic: parsedData.topic || 'General',
     error: null,
     metadata: {
       tokenUsage:

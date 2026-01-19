@@ -26,7 +26,6 @@ export class WidgetParser {
       senderEmail: senderEmail,
       senderPhone: undefined,
       senderName: payload.name || 'Website Visitor',
-      subject: 'Chat Conversation',
       content: payload.content || '',
       threadId: payload.sessionId, // Use session ID as thread ID for strict matching
       attachments: [],

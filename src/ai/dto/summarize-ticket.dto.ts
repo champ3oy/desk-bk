@@ -13,7 +13,8 @@ export class SummarizeTicketDto {
 export class SummarizeTicketResponseDto {
   @ApiProperty({
     description: 'AI-generated ticket summary',
-    example: 'This ticket involves a customer unable to login to their account...',
+    example:
+      'This ticket involves a customer unable to login to their account...',
   })
   summary: string;
 
@@ -24,11 +25,26 @@ export class SummarizeTicketResponseDto {
   content: string;
 
   @ApiProperty({
+    description: 'Detected sentiment',
+    example: 'Frustrated',
+  })
+  sentiment?: string;
+
+  @ApiProperty({
+    description: 'Detected urgency',
+    example: 'High',
+  })
+  urgency?: string;
+
+  @ApiProperty({
+    description: 'Detected topic',
+    example: 'Billing',
+  })
+  topic?: string;
+
+  @ApiProperty({
     description: 'Additional metadata from the AI agent',
     example: {},
   })
   metadata?: any;
 }
-
-
-

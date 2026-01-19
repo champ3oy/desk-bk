@@ -23,6 +23,7 @@ import { Thread, ThreadDocument } from '../threads/entities/thread.entity';
 import {
   TicketStatus,
   TicketDocument,
+  TicketPriority,
 } from '../tickets/entities/ticket.entity';
 
 @Injectable()
@@ -300,6 +301,34 @@ export class IngestionService {
     this.logger.log(
       `Reply processed: ticket=${ticketId}, message=${createdMessage._id}`,
     );
+
+    // Re-examine ticket mood and trigger auto-reply
+    this.ticketsService
+      .analyzeTicketMood(ticketId, message.content, organizationId)
+      .catch((e) =>
+        this.logger.error(
+          `Failed to re-analyze mood for ticket ${ticketId}`,
+          e,
+        ),
+      );
+
+    // Trigger AI Auto-reply
+    // We don't await this to avoid blocking ingestion response
+    this.ticketsService
+      .handleAutoReply(
+        ticketId,
+        message.content,
+        organizationId,
+        customerId,
+        'email',
+      )
+      .catch((e) =>
+        this.logger.error(
+          `Failed to trigger auto-reply for ticket ${ticketId}`,
+          e,
+        ),
+      );
+
     return {
       success: true,
       ticketId,
@@ -363,13 +392,43 @@ export class IngestionService {
       };
     }
 
+    // Determine subject, sentiment, and priority
+    let subject = message.subject;
+    let sentiment = 'neutral';
+    let priority = TicketPriority.MEDIUM;
+
+    if (
+      !subject ||
+      subject === 'Chat Conversation' ||
+      subject === 'New message'
+    ) {
+      // Use AI to generate title, sentiment, and priority from content
+      const analysis = await this.ticketsService.analyzeInitialContent(
+        message.content,
+        organizationId,
+      );
+      subject = analysis.title;
+      sentiment = analysis.sentiment;
+      priority = analysis.priority;
+    } else {
+      // Even if subject exists, we might want to analyze sentiment/priority
+      const analysis = await this.ticketsService.analyzeInitialContent(
+        message.content,
+        organizationId,
+      );
+      sentiment = analysis.sentiment;
+      priority = analysis.priority;
+    }
+
     // Create ticket
     const ticket = (await this.ticketsService.create(
       {
-        subject: message.subject || this.generateSubject(message),
+        subject: subject,
         description: message.content,
         customerId,
         status: TicketStatus.OPEN,
+        sentiment,
+        priority,
       },
       organizationId,
     )) as TicketDocument;
@@ -472,13 +531,67 @@ export class IngestionService {
   async getThreadMessages(
     threadId: string,
     organizationId: string,
+    messageType?: MessageType,
   ): Promise<MessageDocument[]> {
-    return this.messageModel
-      .find({
-        threadId: new Types.ObjectId(threadId),
-        organizationId: new Types.ObjectId(organizationId),
-      })
+    const query: any = {
+      threadId: new Types.ObjectId(threadId),
+      organizationId: new Types.ObjectId(organizationId),
+    };
+
+    if (messageType) {
+      query.messageType = messageType;
+    }
+
+    const messages = await this.messageModel
+      .find(query)
       .sort({ createdAt: 1 })
+      .lean() // Use lean() to get plain objects
       .exec();
+
+    // Manually populate authorId based on authorType
+    const populatedMessages = await Promise.all(
+      messages.map(async (msg: any) => {
+        this.logger.debug(
+          `Processing message ${msg._id}: authorType=${msg.authorType}, authorId=${msg.authorId}`,
+        );
+
+        if (
+          msg.authorType === 'user' ||
+          msg.authorType === 'ai' ||
+          msg.authorType === 'system'
+        ) {
+          // Populate from User collection
+          const user = await this.messageModel.db.collection('users').findOne({
+            _id: msg.authorId,
+          });
+
+          this.logger.debug(
+            `Found user for message ${msg._id}: ${user ? `${user.firstName} ${user.lastName}` : 'NOT FOUND'}`,
+          );
+
+          if (user) {
+            msg.authorId = user;
+          }
+        } else if (msg.authorType === 'customer') {
+          // Populate from Customer collection
+          const customer = await this.messageModel.db
+            .collection('customers')
+            .findOne({
+              _id: msg.authorId,
+            });
+
+          this.logger.debug(
+            `Found customer for message ${msg._id}: ${customer ? `${customer.firstName} ${customer.lastName}` : 'NOT FOUND'}`,
+          );
+
+          if (customer) {
+            msg.authorId = customer;
+          }
+        }
+        return msg;
+      }),
+    );
+
+    return populatedMessages as any;
   }
 }

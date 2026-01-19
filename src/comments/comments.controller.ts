@@ -9,6 +9,7 @@ import {
   UseGuards,
   Request,
   Query,
+  ForbiddenException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -27,29 +28,52 @@ import { CreateCommentDto } from './dto/create-comment.dto';
 import { UpdateCommentDto } from './dto/update-comment.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Comment } from './entities/comment.entity';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { UserRole } from '../users/entities/user.entity';
 
 @ApiTags('Comments')
 @ApiBearerAuth('JWT-auth')
 @Controller('comments')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.ADMIN, UserRole.AGENT, UserRole.LIGHT_AGENT)
 export class CommentsController {
   constructor(private readonly commentsService: CommentsService) {}
 
   @Post()
   @ApiOperation({ summary: 'Create a new comment' })
   @ApiBody({ type: CreateCommentDto })
-  @ApiCreatedResponse({ description: 'Comment successfully created', type: Comment })
+  @ApiCreatedResponse({
+    description: 'Comment successfully created',
+    type: Comment,
+  })
   @ApiResponse({ status: 400, description: 'Invalid input data' })
   create(@Body() createCommentDto: CreateCommentDto, @Request() req) {
+    if (
+      req.user.role === UserRole.LIGHT_AGENT &&
+      !createCommentDto.isInternal
+    ) {
+      throw new ForbiddenException(
+        'Light agents can only create internal comments',
+      );
+    }
     return this.commentsService.create(createCommentDto, req.user.userId);
   }
 
   @Get()
   @ApiOperation({ summary: 'Get all comments for a ticket' })
   @ApiQuery({ name: 'ticketId', required: true, description: 'Ticket ID' })
-  @ApiResponse({ status: 200, description: 'List of comments', type: [Comment] })
+  @ApiResponse({
+    status: 200,
+    description: 'List of comments',
+    type: [Comment],
+  })
   findAll(@Query('ticketId') ticketId: string, @Request() req) {
-    return this.commentsService.findAll(ticketId, req.user.userId, req.user.role);
+    return this.commentsService.findAll(
+      ticketId,
+      req.user.userId,
+      req.user.role,
+    );
   }
 
   @Get(':id')
@@ -66,7 +90,11 @@ export class CommentsController {
   @ApiOperation({ summary: 'Update a comment' })
   @ApiParam({ name: 'id', description: 'Comment ID' })
   @ApiBody({ type: UpdateCommentDto })
-  @ApiResponse({ status: 200, description: 'Comment successfully updated', type: Comment })
+  @ApiResponse({
+    status: 200,
+    description: 'Comment successfully updated',
+    type: Comment,
+  })
   @ApiNotFoundResponse({ description: 'Comment not found' })
   @ApiForbiddenResponse({ description: 'Access denied' })
   update(
@@ -92,4 +120,3 @@ export class CommentsController {
     return this.commentsService.remove(id, req.user.userId, req.user.role);
   }
 }
-

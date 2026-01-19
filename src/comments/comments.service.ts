@@ -20,8 +20,13 @@ export class CommentsService {
     private ticketModel: Model<TicketDocument>,
   ) {}
 
-  async create(createCommentDto: CreateCommentDto, userId: string): Promise<Comment> {
-    const ticket = await this.ticketModel.findById(createCommentDto.ticketId).exec();
+  async create(
+    createCommentDto: CreateCommentDto,
+    userId: string,
+  ): Promise<Comment> {
+    const ticket = await this.ticketModel
+      .findById(createCommentDto.ticketId)
+      .exec();
 
     if (!ticket) {
       throw new NotFoundException(
@@ -39,7 +44,11 @@ export class CommentsService {
     return comment.save();
   }
 
-  async findAll(ticketId: string, userId: string, userRole: UserRole): Promise<Comment[]> {
+  async findAll(
+    ticketId: string,
+    userId: string,
+    userRole: UserRole,
+  ): Promise<Comment[]> {
     const ticket = await this.ticketModel.findById(ticketId).exec();
 
     if (!ticket) {
@@ -51,9 +60,10 @@ export class CommentsService {
     const query: any = { ticketId: new Types.ObjectId(ticketId) };
 
     // Agents can only see non-internal comments, admins see all
-    if (userRole === UserRole.AGENT) {
-      query.isInternal = false;
-    }
+    // Agents/Light Agents see all comments (internal and external)
+    // if (userRole === UserRole.AGENT) {
+    //   query.isInternal = false;
+    // }
 
     return this.commentModel
       .find(query)
@@ -61,7 +71,11 @@ export class CommentsService {
       .exec();
   }
 
-  async findOne(id: string, userId: string, userRole: UserRole): Promise<CommentDocument> {
+  async findOne(
+    id: string,
+    userId: string,
+    userRole: UserRole,
+  ): Promise<CommentDocument> {
     const comment = await this.commentModel
       .findById(id)
       .populate('authorId', 'email firstName lastName')
@@ -74,9 +88,9 @@ export class CommentsService {
 
     // Only agents and admins can view comments
     // Customers are external parties and don't have platform accounts
-    if (userRole === UserRole.AGENT && comment.isInternal) {
-      throw new ForbiddenException('You do not have permission to view this comment');
-    }
+    // if (userRole === UserRole.AGENT && comment.isInternal) {
+    //   throw new ForbiddenException('You do not have permission to view this comment');
+    // }
 
     return comment;
   }
@@ -107,4 +121,3 @@ export class CommentsService {
     await this.commentModel.findByIdAndDelete(id).exec();
   }
 }
-

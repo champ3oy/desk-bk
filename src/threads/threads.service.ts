@@ -183,6 +183,103 @@ export class ThreadsService {
 
     const savedMessage = await message.save();
 
+    // Auto-reply Logic for existing threads (Customer messages)
+    if (
+      savedMessage.messageType === MessageType.EXTERNAL &&
+      savedMessage.authorType === MessageAuthorType.USER &&
+      savedMessage.channel !== MessageChannel.EMAIL // Avoid double-replying if email dispatcher handles it (though email dispatcher is usually outbound)
+    ) {
+      if (userRole === UserRole.CUSTOMER) {
+        // Trigger AI check
+        // We shouldn't await this to keep the API fast
+        this.findOne(threadId, organizationId, userId, userRole)
+          .then((thread) => {
+            if (thread && thread.ticketId) {
+              this.ticketsService
+                .handleAutoReply(
+                  thread.ticketId.toString(),
+                  createMessageDto.content,
+                  organizationId,
+                  userId,
+                  savedMessage.channel || 'chat',
+                )
+                .catch((e) =>
+                  console.error(
+                    `[AutoReply] Failed for message ${savedMessage._id}`,
+                    e,
+                  ),
+                );
+            }
+          })
+          .catch((e) =>
+            console.error('Failed to fetch thread for auto-reply', e),
+          );
+      } else {
+        // Agent replied - Check if we need to de-escalate and auto-assign
+        // This runs for agents/admins
+        this.findOne(threadId, organizationId, userId, userRole).then(
+          async (thread) => {
+            if (thread && thread.ticketId) {
+              // De-escalate the ticket
+              await this.ticketsService.deEscalateTicket(
+                thread.ticketId.toString(),
+              );
+
+              // Auto-assign ticket to the replying agent if not already assigned
+              // Also disable AI auto-reply if ticket was escalated
+              try {
+                const ticket = await this.ticketsService.findOne(
+                  thread.ticketId.toString(),
+                  userId,
+                  userRole,
+                  organizationId,
+                );
+
+                const updateData: any = {};
+                let shouldUpdate = false;
+
+                // Auto-assign if not already assigned to a specific user
+                if (!ticket.assignedToId) {
+                  updateData.assignedToId = userId;
+                  shouldUpdate = true;
+                  console.log(
+                    `[Auto-Assign] Ticket ${thread.ticketId} assigned to agent ${userId}`,
+                  );
+                }
+
+                // Disable AI auto-reply if ticket was escalated
+                if (
+                  (ticket.isAiEscalated || ticket.status === 'escalated') &&
+                  !ticket.aiAutoReplyDisabled
+                ) {
+                  updateData.aiAutoReplyDisabled = true;
+                  shouldUpdate = true;
+                  console.log(
+                    `[Auto-Assign] AI auto-reply disabled for escalated ticket ${thread.ticketId}`,
+                  );
+                }
+
+                if (shouldUpdate) {
+                  await this.ticketsService.update(
+                    thread.ticketId.toString(),
+                    updateData,
+                    userId,
+                    userRole,
+                    organizationId,
+                  );
+                }
+              } catch (error) {
+                console.error(
+                  `[Auto-Assign] Failed to auto-assign ticket ${thread.ticketId}:`,
+                  error,
+                );
+              }
+            }
+          },
+        );
+      }
+    }
+
     // Dispatch external messages to customers (e.g. via Email)
     if (
       savedMessage.messageType === MessageType.EXTERNAL &&

@@ -142,6 +142,13 @@ export class Organization {
   aiWordsToAvoid?: string;
 
   @ApiPropertyOptional({
+    description: 'Email signature for AI auto-replies',
+    example: 'Best regards,\nAI Support Agent',
+  })
+  @Prop({ required: false })
+  aiEmailSignature?: string;
+
+  @ApiPropertyOptional({
     description: 'Support email address for routing incoming messages',
     example: 'support@acme.com',
   })

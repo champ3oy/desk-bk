@@ -9,7 +9,12 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { ConfigService } from '@nestjs/config';
 import { Model, Types } from 'mongoose';
-import { Ticket, TicketDocument, TicketStatus } from './entities/ticket.entity';
+import {
+  Ticket,
+  TicketDocument,
+  TicketStatus,
+  TicketPriority,
+} from './entities/ticket.entity';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { UpdateTicketDto } from './dto/update-ticket.dto';
 import { UserRole } from '../users/entities/user.entity';
@@ -24,6 +29,8 @@ import {
 } from '../threads/entities/message.entity';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { TicketPaginationDto } from './dto/ticket-pagination.dto';
+import { AIModelFactory } from '../ai/ai-model.factory';
+import { CustomersService } from '../customers/customers.service';
 
 @Injectable()
 export class TicketsService {
@@ -37,6 +44,8 @@ export class TicketsService {
     private threadsService: ThreadsService,
     private organizationsService: OrganizationsService,
     private configService: ConfigService,
+    @Inject(forwardRef(() => CustomersService))
+    private customersService: CustomersService,
   ) {}
 
   /**
@@ -56,6 +65,380 @@ export class TicketsService {
     return restrictedTopics.some((topic) =>
       content.includes(topic.toLowerCase()),
     );
+  }
+
+  /**
+   * Analyze initial content to generate title, sentiment, and priority
+   */
+  async analyzeInitialContent(
+    content: string,
+    organizationId: string,
+  ): Promise<{ title: string; sentiment: string; priority: TicketPriority }> {
+    try {
+      if (!content || content.length < 2) {
+        return {
+          title: 'New Conversation',
+          sentiment: 'neutral',
+          priority: TicketPriority.MEDIUM,
+        };
+      }
+
+      const model = AIModelFactory.create(this.configService);
+      const prompt = `Analyze the following customer support message and provide:
+1. A very short, precise 3-5 word title (no quotes, no "ID", just the title).
+2. The sentiment/mood of the customer (one of: angry, sad, happy, frustrated, neutral, concerned, grateful, confused).
+3. The priority level (one of: low, medium, high, urgent).
+
+Return ONLY a JSON object with keys: "title", "sentiment", "priority".
+
+Message: "${content.substring(0, 1000)}"`;
+
+      const response = await model.invoke(prompt);
+      let rawContent =
+        typeof response.content === 'string' ? response.content : '';
+
+      if (Array.isArray(response.content)) {
+        rawContent = (response.content as any)
+          .map((c: any) => c.text || '')
+          .join('');
+      }
+
+      // Extract JSON
+      const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
+      const jsonString = jsonMatch ? jsonMatch[0] : rawContent;
+      const parsed = JSON.parse(jsonString);
+
+      return {
+        title: (parsed.title || 'New Conversation')
+          .trim()
+          .replace(/^"|"$/g, ''),
+        sentiment: (parsed.sentiment || 'neutral').toLowerCase(),
+        priority:
+          (parsed.priority?.toLowerCase() as TicketPriority) ||
+          TicketPriority.MEDIUM,
+      };
+    } catch (e) {
+      console.error('Failed to analyze initial AI content', e);
+      return {
+        title: content.substring(0, 30) + '...',
+        sentiment: 'neutral',
+        priority: TicketPriority.MEDIUM,
+      };
+    }
+  }
+
+  /**
+   * Re-examine the mood of the chat and update the ticket
+   */
+  async analyzeTicketMood(
+    ticketId: string,
+    messageContent: string,
+    organizationId: string,
+  ): Promise<void> {
+    try {
+      const ticket = await this.ticketModel.findById(ticketId);
+      if (!ticket) return;
+
+      // Get recent messages for context
+      const thread = await this.threadsService.findByTicket(
+        ticketId,
+        organizationId,
+        organizationId, // Dummy userId for admin bypass
+        UserRole.ADMIN, // Use admin role to bypass checks
+      );
+
+      if (!thread) return;
+
+      const messages = await this.threadsService.getMessages(
+        thread._id.toString(),
+        organizationId,
+        organizationId, // Dummy userId for admin bypass
+        UserRole.ADMIN,
+      );
+
+      // Focus on recent customer messages
+      const customerMessages = messages
+        .filter((m) => m.authorType === MessageAuthorType.CUSTOMER)
+        .slice(-5)
+        .map((m) => m.content)
+        .join('\n---\n');
+
+      const model = AIModelFactory.create(this.configService);
+      const prompt = `Analyze the sentiment/mood of the customer based on their recent messages. 
+Return ONLY one of the following words in lowercase: angry, sad, happy, frustrated, neutral, concerned, grateful, confused.
+
+Recent messages:
+${customerMessages}
+
+New message:
+${messageContent}
+
+Sentiment:`;
+
+      const response = await model.invoke(prompt);
+      let sentiment = (
+        typeof response.content === 'string' ? response.content : 'neutral'
+      )
+        .trim()
+        .toLowerCase();
+
+      // Clean up sentiment (sometimes LLM returns more than one word)
+      const validSentiments = [
+        'angry',
+        'sad',
+        'happy',
+        'frustrated',
+        'neutral',
+        'concerned',
+        'grateful',
+        'confused',
+      ];
+      const detected = validSentiments.find((s) => sentiment.includes(s));
+
+      if (detected) {
+        await this.ticketModel.updateOne(
+          { _id: ticketId },
+          { $set: { sentiment: detected } },
+        );
+        console.log(`Updated ticket ${ticketId} sentiment to: ${detected}`);
+      }
+    } catch (e) {
+      console.error('Failed to re-analyze ticket mood', e);
+    }
+  }
+
+  async handleAutoReply(
+    ticketId: string,
+    messageContent: string,
+    organizationId: string,
+    customerId: string,
+    channel?: string, // 'email' | 'chat' | 'social'
+  ): Promise<void> {
+    try {
+      const org = await this.organizationsService.findOne(organizationId);
+
+      // Check detailed channel settings
+      // If channel is provided, respect that specific toggle.
+      // If no channel is provided (legacy calls), we might default to checking 'email' or just general active state?
+      // Given the previous code just checked aiAutoReplyEmail, let's enable strict checks now.
+
+      let shouldAutoReply = false;
+
+      if (!channel) {
+        // If no channel specified, default fallback (e.g. assume email or check any? Safe to assume email if not specified in legacy)
+        shouldAutoReply = org.aiAutoReplyEmail;
+      } else {
+        switch (channel.toLowerCase()) {
+          case 'email':
+            shouldAutoReply = org.aiAutoReplyEmail;
+            break;
+          case 'widget':
+          case 'chat':
+            shouldAutoReply = org.aiAutoReplyLiveChat;
+            break;
+          case 'whatsapp':
+          case 'sms':
+          case 'social':
+            shouldAutoReply = org.aiAutoReplySocialMedia;
+            break;
+          default:
+            // Fallback for unknown channels
+            shouldAutoReply = org.aiAutoReplyEmail;
+            break;
+        }
+      }
+
+      if (!shouldAutoReply) return;
+
+      const ticket = await this.ticketModel.findById(ticketId);
+      if (!ticket) return;
+
+      // Check if AI auto-reply is disabled for this ticket
+      if (ticket.aiAutoReplyDisabled) {
+        console.log(
+          `Skipping auto-reply for ticket ${ticketId}: AI auto-reply disabled (human agent took over)`,
+        );
+        return;
+      }
+
+      // Check if ticket is already escalated or closed
+      if (
+        ticket.status === TicketStatus.CLOSED ||
+        ticket.status === TicketStatus.RESOLVED ||
+        ticket.status === TicketStatus.ESCALATED ||
+        ticket.isAiEscalated
+      )
+        return;
+
+      const isRestricted = this.checkRestrictedTopics(
+        ticket.subject,
+        messageContent, // Check new message content too
+        org.aiRestrictedTopics || [],
+      );
+
+      if (isRestricted) {
+        console.log(
+          `Skipping auto-reply for ticket ${ticketId}: matches restricted topic`,
+        );
+        return;
+      }
+
+      // Use timeout to not block
+      setTimeout(async () => {
+        try {
+          const response = await draftResponse(
+            ticketId,
+            this,
+            this.threadsService,
+            this.configService,
+            this.organizationsService,
+            null,
+            customerId,
+            UserRole.CUSTOMER,
+            organizationId,
+          );
+
+          const confidence = response.confidence || 0;
+          const threshold = org.aiConfidenceThreshold || 85;
+
+          if (response.action === 'ESCALATE' || confidence < threshold) {
+            const reason =
+              response.escalationReason ||
+              (confidence < threshold
+                ? `Confidence ${confidence}% below threshold ${threshold}%`
+                : 'AI decided to escalate');
+            console.log(
+              `[Auto-Reply] Escalating ticket ${ticketId}: ${reason}`,
+            );
+
+            await this.ticketModel
+              .updateOne(
+                { _id: ticketId },
+                {
+                  $set: {
+                    isAiEscalated: true,
+                    aiEscalationReason: reason,
+                    aiConfidenceScore: confidence,
+                    // Set status to ESCALATED
+                    status: TicketStatus.ESCALATED,
+                  },
+                },
+              )
+              .exec();
+
+            // Send friendly escalation message to customer
+            const thread = await this.threadsService.getOrCreateThread(
+              ticketId,
+              customerId,
+              organizationId,
+            );
+
+            await this.threadsService.createMessage(
+              thread._id.toString(),
+              {
+                content:
+                  "I'm passing this conversation to a human agent who can better assist you. They will be with you shortly.",
+                messageType: MessageType.EXTERNAL,
+              },
+              organizationId,
+              customerId,
+              UserRole.CUSTOMER,
+              MessageAuthorType.AI,
+            );
+          } else if (response.action === 'REPLY' && response.content) {
+            const thread = await this.threadsService.getOrCreateThread(
+              ticketId,
+              customerId,
+              organizationId,
+            );
+
+            let finalContent = response.content;
+
+            // Debug logging
+            console.log(
+              `[AutoReply] Channel: ${channel}, aiEmailSignature exists: ${!!org.aiEmailSignature}`,
+            );
+
+            // Only append signature for EMAIL channel
+            if (
+              org.aiEmailSignature &&
+              channel &&
+              channel.toLowerCase() === 'email'
+            ) {
+              console.log(`[AutoReply] Appending email signature to response`);
+              finalContent += `\n\n${org.aiEmailSignature}`;
+            } else {
+              console.log(
+                `[AutoReply] NOT appending signature. Channel: ${channel}`,
+              );
+            }
+
+            await this.threadsService.createMessage(
+              thread._id.toString(),
+              {
+                content: finalContent,
+                messageType: MessageType.EXTERNAL,
+              },
+              organizationId,
+              customerId,
+              UserRole.CUSTOMER,
+              MessageAuthorType.AI,
+            );
+
+            await this.ticketModel
+              .updateOne(
+                { _id: ticketId },
+                {
+                  $set: { aiConfidenceScore: confidence },
+                  // Clear escalation status if AI can now handle it
+                  $unset: { isAiEscalated: '', aiEscalationReason: '' },
+                },
+              )
+              .exec();
+
+            console.log(
+              `AI auto-reply sent for ticket ${ticketId} (confidence: ${confidence}%)`,
+            );
+          }
+        } catch (err) {
+          console.error('Failed to generate AI auto-reply:', err);
+        }
+      }, 1000);
+    } catch (error) {
+      console.error('Failed to check auto-reply settings:', error);
+    }
+  }
+
+  async deEscalateTicket(ticketId: string): Promise<void> {
+    const ticket = await this.ticketModel.findById(ticketId);
+    if (!ticket) return;
+
+    if (ticket.status === TicketStatus.ESCALATED) {
+      // Set back to OPEN
+      await this.ticketModel.updateOne(
+        { _id: ticketId },
+        {
+          $set: { status: TicketStatus.OPEN },
+          $unset: {
+            isAiEscalated: '',
+            aiEscalationReason: '',
+            aiConfidenceScore: '',
+          },
+        },
+      );
+    } else if (ticket.isAiEscalated) {
+      // Just remove flags if status wasn't strictly ESCALATED (e.g. user changed it manualy)
+      await this.ticketModel.updateOne(
+        { _id: ticketId },
+        {
+          $unset: {
+            isAiEscalated: '',
+            aiEscalationReason: '',
+            aiConfidenceScore: '',
+          },
+        },
+      );
+    }
   }
 
   async create(
@@ -94,7 +477,6 @@ export class TicketsService {
     const savedTicket = await ticket.save();
 
     // Auto-create thread for ticket (one thread per ticket)
-    // This allows agents to immediately send messages without creating a thread first
     try {
       await this.threadsService.getOrCreateThread(
         savedTicket._id.toString(),
@@ -102,91 +484,20 @@ export class TicketsService {
         organizationId,
       );
     } catch (error) {
-      // If thread creation fails, log but don't fail ticket creation
-      // This ensures ticket creation is resilient
       console.error('Failed to auto-create thread:', error);
     }
 
-    // Enhanced Auto-reply with full configuration support
-    try {
-      const org = await this.organizationsService.findOne(organizationId);
-
-      // Check if auto-reply is enabled for this channel
-      // For now, we assume email channel. In future, check ticket.channel
-      const shouldAutoReply = org.aiAutoReplyEmail; // Could be org.aiAutoReplySocialMedia or org.aiAutoReplyLiveChat based on channel
-
-      if (shouldAutoReply) {
-        // Check restricted topics
-        const isRestricted = this.checkRestrictedTopics(
-          savedTicket.subject,
-          savedTicket.description,
-          org.aiRestrictedTopics || [],
-        );
-
-        if (isRestricted) {
-          console.log(
-            `Skipping auto-reply for ticket ${savedTicket._id}: matches restricted topic`,
-          );
-          return savedTicket;
-        }
-
-        // Use timeout to not block the main request
-        setTimeout(async () => {
-          try {
-            const response = await draftResponse(
-              savedTicket._id.toString(),
-              this,
-              this.threadsService,
-              this.configService,
-              this.organizationsService,
-              null, // knowledgeBaseService - not injected in tickets service yet
-              createTicketDto.customerId, // Use customer ID for context permissions
-              UserRole.CUSTOMER, // Assume customer role for the context
-              organizationId,
-            );
-
-            if (response.content) {
-              // Check confidence threshold (if available in response metadata)
-              // For now, we'll assume the AI is confident enough
-              // In future, implement confidence scoring
-              const confidence = 85; // Placeholder - should come from AI response
-
-              if (confidence >= (org.aiConfidenceThreshold || 85)) {
-                const thread = await this.threadsService.getOrCreateThread(
-                  savedTicket._id.toString(),
-                  createTicketDto.customerId,
-                  organizationId,
-                );
-
-                await this.threadsService.createMessage(
-                  thread._id.toString(),
-                  {
-                    content: response.content,
-                    messageType: MessageType.EXTERNAL,
-                  },
-                  organizationId,
-                  createTicketDto.customerId,
-                  UserRole.CUSTOMER,
-                  MessageAuthorType.AI,
-                );
-
-                console.log(
-                  `AI auto-reply sent for ticket ${savedTicket._id} (confidence: ${confidence}%)`,
-                );
-              } else {
-                console.log(
-                  `Skipping auto-reply for ticket ${savedTicket._id}: confidence ${confidence}% below threshold ${org.aiConfidenceThreshold}%`,
-                );
-              }
-            }
-          } catch (err) {
-            console.error('Failed to generate AI auto-reply:', err);
-          }
-        }, 1000);
-      }
-    } catch (error) {
-      console.error('Failed to check auto-reply settings:', error);
-    }
+    // Call shared Auto-reply logic
+    // Default to 'email' if no channel specified in creation, but typically create comes from email or widget.
+    // Ideally createTicketDto should have channel. If not, we might assume email or widget.
+    // For now, let's assume email as safest default for "ticket creation" unless we add channel to DTO.
+    this.handleAutoReply(
+      savedTicket._id.toString(),
+      savedTicket.description,
+      organizationId,
+      createTicketDto.customerId,
+      'email',
+    );
 
     return savedTicket;
   }
@@ -210,6 +521,7 @@ export class TicketsService {
       priority,
       assignedToId: filterAssignedToId,
       customerId,
+      sentiment,
     } = paginationDto;
     const skip = (page - 1) * limit;
 
@@ -217,12 +529,21 @@ export class TicketsService {
       organizationId: new Types.ObjectId(organizationId),
     };
 
-    // Apply filters
+    // Apply filters - support multiple values (comma-separated)
     if (status) {
-      query.status = status;
+      const statusList = status.split(',');
+      query.status =
+        statusList.length > 1 ? { $in: statusList } : statusList[0];
     }
     if (priority) {
-      query.priority = priority;
+      const priorityList = priority.split(',');
+      query.priority =
+        priorityList.length > 1 ? { $in: priorityList } : priorityList[0];
+    }
+    if (sentiment) {
+      const sentimentList = sentiment.split(',');
+      query.sentiment =
+        sentimentList.length > 1 ? { $in: sentimentList } : sentimentList[0];
     }
     if (filterAssignedToId) {
       query.assignedToId = new Types.ObjectId(filterAssignedToId);
@@ -231,9 +552,38 @@ export class TicketsService {
       query.customerId = new Types.ObjectId(customerId);
     }
 
+    if (paginationDto.search) {
+      const searchRegex = new RegExp(paginationDto.search, 'i');
+
+      // Find matching customers
+      const matchingCustomerIds = await this.customersService.findIdsBySearch(
+        paginationDto.search,
+        organizationId,
+      );
+
+      const searchConditions: any[] = [
+        { subject: searchRegex },
+        { description: searchRegex },
+      ];
+
+      if (matchingCustomerIds.length > 0) {
+        searchConditions.push({ customerId: { $in: matchingCustomerIds } });
+      }
+
+      // Check if search term looks like a MongoId (for direct ID search)
+      if (Types.ObjectId.isValid(paginationDto.search)) {
+        searchConditions.push({
+          _id: new Types.ObjectId(paginationDto.search),
+        });
+      }
+
+      query.$and = query.$and || [];
+      query.$and.push({ $or: searchConditions });
+    }
+
     // Agents see tickets assigned to them, their groups, or unassigned tickets
     // Admins see all tickets in org
-    if (userRole === UserRole.AGENT) {
+    if (userRole === UserRole.AGENT || userRole === UserRole.LIGHT_AGENT) {
       // Get groups the user belongs to
       const userGroups = await this.groupsService.findByMember(
         userId,
@@ -243,6 +593,7 @@ export class TicketsService {
 
       query.$or = [
         { assignedToId: new Types.ObjectId(userId) },
+        { followers: new Types.ObjectId(userId) },
         { assignedToGroupId: { $in: groupIds } },
         {
           assignedToId: { $exists: false },
@@ -271,7 +622,9 @@ export class TicketsService {
         .populate('assignedToId', 'email firstName lastName')
         .populate('assignedToGroupId', 'name description')
         .populate('categoryId', 'name description')
+
         .populate('tagIds', 'name color')
+        .populate('followers', 'email firstName lastName')
         .exec(),
       this.ticketModel.countDocuments(query).exec(),
     ]);
@@ -303,7 +656,9 @@ export class TicketsService {
       .populate('assignedToId', 'email firstName lastName')
       .populate('assignedToGroupId', 'name description')
       .populate('categoryId', 'name description')
+
       .populate('tagIds', 'name color')
+      .populate('followers', 'email firstName lastName')
       .exec();
 
     if (!ticket) {
@@ -314,9 +669,17 @@ export class TicketsService {
     const ticketAssignedToGroupId = ticket.assignedToGroupId?.toString();
 
     // Agents can see tickets assigned to them or their groups
-    if (userRole === UserRole.AGENT) {
+    if (userRole === UserRole.AGENT || userRole === UserRole.LIGHT_AGENT) {
       if (ticketAssignedToId === userId) {
         // Assigned directly to user
+        return ticket;
+      }
+
+      // Check if user is a follower
+      const followers = ticket.followers?.map((f: any) =>
+        f._id ? f._id.toString() : f.toString(),
+      );
+      if (followers && followers.includes(userId)) {
         return ticket;
       }
 
@@ -401,6 +764,12 @@ export class TicketsService {
       );
     }
 
+    if (updateTicketDto.followers) {
+      updateData.followers = updateTicketDto.followers.map(
+        (id) => new Types.ObjectId(id),
+      );
+    }
+
     // Use findByIdAndUpdate to avoid validation errors on existing valid/invalid documents involved in full save()
     // and to handle atomic updates better.
     const updatedTicket = await this.ticketModel
@@ -415,6 +784,7 @@ export class TicketsService {
       .populate('assignedToGroupId', 'name description')
       .populate('categoryId', 'name description')
       .populate('tagIds', 'name color')
+      .populate('followers', 'email firstName lastName')
       .exec();
 
     if (!updatedTicket) {

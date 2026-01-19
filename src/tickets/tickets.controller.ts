@@ -9,6 +9,7 @@ import {
   UseGuards,
   Request,
   BadRequestException,
+  ForbiddenException,
   Query,
 } from '@nestjs/common';
 import {
@@ -101,6 +102,8 @@ export class TicketsController {
   })
   @ApiNotFoundResponse({ description: 'Ticket not found' })
   @ApiForbiddenResponse({ description: 'Access denied' })
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.AGENT)
   update(
     @Param('id') id: string,
     @Body() updateTicketDto: UpdateTicketDto,
@@ -121,6 +124,8 @@ export class TicketsController {
   @ApiResponse({ status: 200, description: 'Ticket successfully deleted' })
   @ApiNotFoundResponse({ description: 'Ticket not found' })
   @ApiForbiddenResponse({ description: 'Access denied' })
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.AGENT)
   remove(@Param('id') id: string, @Request() req) {
     return this.ticketsService.remove(
       id,
@@ -132,12 +137,11 @@ export class TicketsController {
 
   @Post(':id/messages')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.AGENT)
+  @Roles(UserRole.ADMIN, UserRole.AGENT, UserRole.LIGHT_AGENT)
   @ApiOperation({
-    summary: 'Send a message to a ticket (Admin/Agent only)',
+    summary: 'Send a message to a ticket',
     description:
-      "Sends a message to the ticket's thread. Each ticket has exactly one thread. " +
-      'Specify messageType as "external" (visible to customer) or "internal" (not visible to customer).',
+      "Sends a message to the ticket's thread. Light Agents can only send internal notes.",
   })
   @ApiParam({ name: 'id', description: 'Ticket ID' })
   @ApiBody({ type: CreateTicketMessageDto })
@@ -152,6 +156,13 @@ export class TicketsController {
     @Body() createTicketMessageDto: CreateTicketMessageDto,
     @Request() req,
   ) {
+    // Check for LIGHT_AGENT restrictions
+    if (
+      req.user.role === UserRole.LIGHT_AGENT &&
+      createTicketMessageDto.messageType !== 'internal'
+    ) {
+      throw new ForbiddenException('Light agents can only add internal notes.');
+    }
     // Verify ticket access and get ticket details
     const ticket = await this.ticketsService.findOne(
       id,
@@ -195,6 +206,8 @@ export class TicketsController {
   })
   @ApiNotFoundResponse({ description: 'Ticket not found' })
   @ApiForbiddenResponse({ description: 'Access denied' })
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.AGENT)
   merge(
     @Param('id') id: string,
     @Body() mergeTicketDto: MergeTicketDto,
