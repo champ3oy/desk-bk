@@ -8,6 +8,7 @@ import { TicketsModule } from '../tickets/tickets.module';
 import { CustomersModule } from '../customers/customers.module';
 import { GroupsModule } from '../groups/groups.module';
 import { DispatcherModule } from '../dispatcher/dispatcher.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { DispatcherModule } from '../dispatcher/dispatcher.module';
     forwardRef(() => CustomersModule),
     GroupsModule,
     DispatcherModule,
+    NotificationsModule,
   ],
   controllers: [ThreadsController],
   providers: [ThreadsService],

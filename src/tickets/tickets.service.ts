@@ -31,6 +31,8 @@ import { PaginationDto } from '../common/dto/pagination.dto';
 import { TicketPaginationDto } from './dto/ticket-pagination.dto';
 import { AIModelFactory } from '../ai/ai-model.factory';
 import { CustomersService } from '../customers/customers.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationType } from '../notifications/entities/notification.entity';
 
 @Injectable()
 export class TicketsService {
@@ -46,6 +48,7 @@ export class TicketsService {
     private configService: ConfigService,
     @Inject(forwardRef(() => CustomersService))
     private customersService: CustomersService,
+    private notificationsService: NotificationsService,
   ) {}
 
   /**
@@ -296,6 +299,8 @@ Sentiment:`;
             customerId,
             UserRole.CUSTOMER,
             organizationId,
+            undefined,
+            channel,
           );
 
           const confidence = response.confidence || 0;
@@ -333,11 +338,54 @@ Sentiment:`;
               organizationId,
             );
 
+            // Generate AI escalation message
+            let escalationMessage =
+              "I'm passing this conversation to a human agent who can better assist you. They will be with you shortly.";
+
+            try {
+              const messages = await this.threadsService.getMessages(
+                thread._id.toString(),
+                organizationId,
+                organizationId, // Use org ID as user for admin access
+                UserRole.ADMIN,
+              );
+
+              const contextMessages = messages
+                .slice(-5)
+                .map((m) => `${m.authorType}: ${m.content}`)
+                .join('\n');
+
+              const model = AIModelFactory.create(this.configService);
+              const prompt = `You are a helpful customer support AI. 
+The current conversation needs to be escalated to a human agent.
+Reason: ${reason}
+
+Context:
+Ticket Subject: ${ticket.subject}
+Recent Messages:
+${contextMessages}
+
+Task: Write a polite, concise message to the customer explaining that you are passing the conversation to a human agent. 
+Do not apologize unless necessary. Be professional and reassuring.
+Return ONLY the message text.`;
+
+              const aiResult = await model.invoke(prompt);
+              const generatedText =
+                typeof aiResult.content === 'string' ? aiResult.content : '';
+              if (generatedText && generatedText.length > 5) {
+                escalationMessage = generatedText.trim().replace(/^"|"$/g, '');
+              }
+            } catch (e) {
+              console.error(
+                'Failed to generate AI escalation message, using default.',
+                e,
+              );
+            }
+
             await this.threadsService.createMessage(
               thread._id.toString(),
               {
-                content:
-                  "I'm passing this conversation to a human agent who can better assist you. They will be with you shortly.",
+                content: escalationMessage,
                 messageType: MessageType.EXTERNAL,
               },
               organizationId,
@@ -455,6 +503,15 @@ Sentiment:`;
       ticketData.assignedToId = new Types.ObjectId(
         createTicketDto.assignedToId,
       );
+    } else {
+      // Auto-assign to default agent if no assignee specified
+      const organization =
+        await this.organizationsService.findOne(organizationId);
+      if (organization?.defaultAgentId) {
+        ticketData.assignedToId = new Types.ObjectId(
+          organization.defaultAgentId,
+        );
+      }
     }
 
     if (createTicketDto.assignedToGroupId) {
@@ -498,6 +555,17 @@ Sentiment:`;
       createTicketDto.customerId,
       'email',
     );
+
+    // Notify assigned agent
+    if (savedTicket.assignedToId) {
+      await this.notificationsService.create({
+        userId: savedTicket.assignedToId.toString(),
+        type: NotificationType.NEW_TICKET,
+        title: 'New Ticket Assigned',
+        body: `You have been assigned to ticket #${savedTicket._id}: ${savedTicket.subject}`,
+        metadata: { ticketId: savedTicket._id.toString() },
+      });
+    }
 
     return savedTicket;
   }
@@ -805,6 +873,24 @@ Sentiment:`;
       .populate('tagIds', 'name color')
       .populate('followers', 'email firstName lastName')
       .exec();
+
+    // Check for assignment changes and notify new assignee
+    if (
+      updatedTicket &&
+      updatedTicket.assignedToId &&
+      (!existingTicket.assignedToId ||
+        (existingTicket.assignedToId &&
+          updatedTicket.assignedToId._id.toString() !==
+            existingTicket.assignedToId.toString()))
+    ) {
+      await this.notificationsService.create({
+        userId: updatedTicket.assignedToId._id.toString(),
+        type: NotificationType.SYSTEM,
+        title: 'Ticket Assigned',
+        body: `Ticket #${updatedTicket._id} has been assigned to you`,
+        metadata: { ticketId: updatedTicket._id.toString() },
+      });
+    }
 
     if (!updatedTicket) {
       throw new NotFoundException(`Ticket with ID ${id} not found`);

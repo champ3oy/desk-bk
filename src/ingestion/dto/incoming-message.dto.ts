@@ -9,31 +9,58 @@ export class IncomingMessageDto {
   })
   channel: MessageChannel;
 
-  @ApiProperty({ description: 'Sender email address', example: 'customer@example.com' })
+  @ApiProperty({
+    description: 'Sender email address',
+    example: 'customer@example.com',
+  })
   senderEmail?: string;
 
-  @ApiPropertyOptional({ description: 'Sender phone number', example: '+1234567890' })
+  @ApiPropertyOptional({
+    description: 'Sender phone number',
+    example: '+1234567890',
+  })
   senderPhone?: string;
 
   @ApiPropertyOptional({ description: 'Sender name', example: 'John Doe' })
   senderName?: string;
 
-  @ApiProperty({ description: 'Recipient email address', example: 'support@acme.com' })
+  @ApiProperty({
+    description: 'Recipient email address',
+    example: 'support@acme.com',
+  })
   recipientEmail?: string;
 
-  @ApiPropertyOptional({ description: 'Recipient phone number', example: '+1987654321' })
+  @ApiPropertyOptional({
+    description: 'Recipient phone number',
+    example: '+1987654321',
+  })
   recipientPhone?: string;
 
-  @ApiPropertyOptional({ description: 'Message subject', example: 'Need help with login' })
+  @ApiPropertyOptional({
+    description: 'Message subject',
+    example: 'Need help with login',
+  })
   subject?: string;
 
-  @ApiProperty({ description: 'Message body/content', example: 'I cannot log in to my account' })
+  @ApiProperty({
+    description: 'Message body/content',
+    example: 'I cannot log in to my account',
+  })
   content: string;
+
+  @ApiPropertyOptional({
+    description: 'Raw message body (e.g. HTML)',
+    example: '<p>I cannot log in...</p>',
+  })
+  rawBody?: string;
 
   @ApiPropertyOptional({
     description: 'Email headers (for email messages)',
     additionalProperties: true,
-    example: { 'in-reply-to': '<message-id@example.com>', 'references': '<message-id@example.com>' },
+    example: {
+      'in-reply-to': '<message-id@example.com>',
+      references: '<message-id@example.com>',
+    },
   })
   headers?: Record<string, string | string[]>;
 
@@ -73,4 +100,3 @@ export class IncomingMessageDto {
   })
   attachments?: string[];
 }
-

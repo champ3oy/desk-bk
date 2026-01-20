@@ -80,6 +80,13 @@ export class Message {
   @Prop({ required: true })
   content: string;
 
+  @ApiPropertyOptional({
+    description: 'Raw message content (e.g. HTML for emails)',
+    example: '<p>Hello...</p>',
+  })
+  @Prop({ required: false })
+  rawBody?: string;
+
   @ApiProperty({
     description: 'Communication channel used to send/receive this message',
     enum: MessageChannel,

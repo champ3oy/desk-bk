@@ -42,7 +42,8 @@ export class EmailParser {
       senderName,
       recipientEmail,
       subject: payload.subject || '',
-      content: this.extractContent(payload),
+      content: this.extractTextBody(payload),
+      rawBody: this.extractHtmlBody(payload),
       headers: this.parseHeaders(payload.headers || payload),
       messageId: payload['message-id'] || payload.messageId,
       inReplyTo: payload['in-reply-to'] || payload.inReplyTo,
@@ -56,7 +57,8 @@ export class EmailParser {
     // Mailgun webhook format
     const sender = payload.sender || payload.from || '';
     const [senderEmail, senderName] = this.parseEmailAddress(sender);
-    const recipientEmail = payload.recipient || payload['message-headers']?.['To'] || '';
+    const recipientEmail =
+      payload.recipient || payload['message-headers']?.['To'] || '';
 
     return {
       channel: MessageChannel.EMAIL,
@@ -64,11 +66,15 @@ export class EmailParser {
       senderName,
       recipientEmail,
       subject: payload.subject || payload['message-headers']?.['Subject'] || '',
-      content: this.extractContent(payload),
+      content: this.extractTextBody(payload),
+      rawBody: this.extractHtmlBody(payload),
       headers: payload['message-headers'] || {},
-      messageId: payload['Message-Id'] || payload['message-headers']?.['Message-Id'],
-      inReplyTo: payload['In-Reply-To'] || payload['message-headers']?.['In-Reply-To'],
-      references: payload['References'] || payload['message-headers']?.['References'],
+      messageId:
+        payload['Message-Id'] || payload['message-headers']?.['Message-Id'],
+      inReplyTo:
+        payload['In-Reply-To'] || payload['message-headers']?.['In-Reply-To'],
+      references:
+        payload['References'] || payload['message-headers']?.['References'],
       metadata: payload,
       attachments: this.extractAttachments(payload),
     };
@@ -78,7 +84,8 @@ export class EmailParser {
     // Generic parser for unknown formats
     const sender = payload.from || payload.sender || payload.email || '';
     const [senderEmail, senderName] = this.parseEmailAddress(sender);
-    const recipientEmail = payload.to || payload.recipient || payload.destination || '';
+    const recipientEmail =
+      payload.to || payload.recipient || payload.destination || '';
 
     return {
       channel: MessageChannel.EMAIL,
@@ -86,10 +93,12 @@ export class EmailParser {
       senderName,
       recipientEmail,
       subject: payload.subject || payload.title || '',
-      content: this.extractContent(payload),
+      content: this.extractTextBody(payload),
+      rawBody: this.extractHtmlBody(payload),
       headers: payload.headers || {},
       messageId: payload.messageId || payload['message-id'] || payload.id,
-      inReplyTo: payload.inReplyTo || payload['in-reply-to'] || payload['In-Reply-To'],
+      inReplyTo:
+        payload.inReplyTo || payload['in-reply-to'] || payload['In-Reply-To'],
       references: payload.references || payload.References,
       metadata: payload,
       attachments: this.extractAttachments(payload),
@@ -124,17 +133,26 @@ export class EmailParser {
   /**
    * Extract message content from various payload formats
    */
-  private extractContent(payload: Record<string, any>): string {
-    // Try different common fields
+  /**
+   * Extract plain text content
+   */
+  private extractTextBody(payload: Record<string, any>): string {
     return (
       payload.text ||
       payload['text-plain'] ||
+      payload['body-plain'] ||
       payload.body ||
       payload.content ||
       payload.message ||
-      payload['body-plain'] ||
       ''
     );
+  }
+
+  /**
+   * Extract HTML content
+   */
+  private extractHtmlBody(payload: Record<string, any>): string {
+    return payload.html || payload['body-html'] || payload['text-html'] || '';
   }
 
   /**
@@ -202,4 +220,3 @@ export class EmailParser {
     return attachments;
   }
 }
-

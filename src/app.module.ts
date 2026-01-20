@@ -20,6 +20,8 @@ import { TrainingModule } from './training/training.module';
 import { SessionsModule } from './sessions/sessions.module';
 import { InvoicesModule } from './invoices/invoices.module';
 import { IntegrationsModule } from './integrations/integrations.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { MacrosModule } from './macros/macros.module';
 
 import databaseConfig from './config/database.config';
 import aiConfig from './config/ai.config';
@@ -58,6 +60,8 @@ import { EmailModule } from './email/email.module';
     IntegrationsModule,
     SessionsModule,
     InvoicesModule,
+    NotificationsModule,
+    MacrosModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -23,6 +23,8 @@ import { CustomersService } from '../customers/customers.service';
 import { GroupsService } from '../groups/groups.service';
 import { UserRole } from '../users/entities/user.entity';
 import { DispatcherService } from '../dispatcher/dispatcher.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationType } from '../notifications/entities/notification.entity';
 
 @Injectable()
 export class ThreadsService {
@@ -37,6 +39,7 @@ export class ThreadsService {
     private customersService: CustomersService,
     private groupsService: GroupsService,
     private dispatcherService: DispatcherService,
+    private notificationsService: NotificationsService,
   ) {}
 
   /**
@@ -329,6 +332,104 @@ export class ThreadsService {
         console.error('Failed to dispatch message:', error);
         // Don't fail the request, just log
       }
+    }
+
+    // Notifications logic
+    try {
+      if (
+        savedMessage.messageType === MessageType.EXTERNAL &&
+        savedMessage.authorType === MessageAuthorType.CUSTOMER
+      ) {
+        // Customer replied -> Notify assigned agent or followers
+        const ticket = await this.ticketsService.findOne(
+          thread.ticketId.toString(),
+          userId, // userId might be customer's ID here, permissions checked in ticketsService
+          userRole,
+          organizationId,
+        );
+
+        if (ticket) {
+          const recipients = new Set<string>();
+          if (ticket.assignedToId) {
+            const assignedToId = ticket.assignedToId as any;
+            recipients.add(
+              assignedToId._id
+                ? assignedToId._id.toString()
+                : assignedToId.toString(),
+            );
+          }
+          if (ticket.followers && ticket.followers.length > 0) {
+            ticket.followers.forEach((f: any) =>
+              recipients.add(f._id ? f._id.toString() : f.toString()),
+            );
+          }
+
+          // Create notifications
+          const promises = Array.from(recipients).map((recipientId) =>
+            this.notificationsService.create({
+              userId: recipientId,
+              type: NotificationType.REPLY,
+              title: `New Reply on Ticket #${ticket._id}`,
+              body: `${createMessageDto.content.substring(0, 50)}${
+                createMessageDto.content.length > 50 ? '...' : ''
+              }`,
+              metadata: { ticketId: ticket._id.toString() },
+            }),
+          );
+          await Promise.all(promises);
+        }
+      } else if (
+        savedMessage.messageType === MessageType.INTERNAL &&
+        createMessageDto.content.includes('@')
+      ) {
+        // Internal message with potential mention
+        // Simple regex for @mentions - assumes format @Name or similar.
+        // For distinct user matching, we'd need more logic, but let's notify thread participants who are mentioned.
+        // For now, let's just notify all OTHER participants if it's an internal note (simplified "notify all" for collaboration)
+        // OR better: Just notify assignees/followers who are NOT the author.
+
+        const ticket = await this.ticketsService.findOne(
+          thread.ticketId.toString(),
+          userId,
+          userRole,
+          organizationId,
+        );
+
+        if (ticket) {
+          const recipients = new Set<string>();
+          if (ticket.assignedToId) {
+            const assignedToId = ticket.assignedToId as any;
+            recipients.add(
+              assignedToId._id
+                ? assignedToId._id.toString()
+                : assignedToId.toString(),
+            );
+          }
+          if (ticket.followers) {
+            ticket.followers.forEach((f: any) =>
+              recipients.add(f._id ? f._id.toString() : f.toString()),
+            );
+          }
+
+          // Remove author from recipients
+          recipients.delete(userId);
+
+          const promises = Array.from(recipients).map((recipientId) =>
+            this.notificationsService.create({
+              userId: recipientId,
+              type: NotificationType.MENTION,
+              title: `New Internal Note on Ticket #${ticket._id}`,
+              body: `${createMessageDto.content.substring(0, 50)}${
+                createMessageDto.content.length > 50 ? '...' : ''
+              }`,
+              metadata: { ticketId: ticket._id.toString() },
+            }),
+          );
+          await Promise.all(promises);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to create notifications for message:', error);
     }
 
     return savedMessage;

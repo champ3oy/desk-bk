@@ -16,6 +16,14 @@ export class DraftResponseDto {
   @IsString()
   @IsOptional()
   context?: string;
+
+  @ApiPropertyOptional({
+    description: 'Channel context for the response (e.g. email, chat)',
+    example: 'email',
+  })
+  @IsString()
+  @IsOptional()
+  channel?: string;
 }
 
 export class DraftResponseResponseDto {

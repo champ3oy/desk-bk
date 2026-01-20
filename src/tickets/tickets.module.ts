@@ -9,6 +9,7 @@ import { CustomersModule } from '../customers/customers.module';
 import { GroupsModule } from '../groups/groups.module';
 import { ThreadsModule } from '../threads/threads.module';
 import { OrganizationsModule } from '../organizations/organizations.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { OrganizationsModule } from '../organizations/organizations.module';
     OrganizationsModule,
     ConfigModule,
     forwardRef(() => ThreadsModule),
+    NotificationsModule,
   ],
   controllers: [TicketsController],
   providers: [TicketsService],

@@ -124,6 +124,7 @@ export class AiController {
       req.user.role,
       req.user.organizationId,
       body.context,
+      body.channel,
     );
   }
 

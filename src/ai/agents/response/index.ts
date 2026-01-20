@@ -63,7 +63,11 @@ The JSON must follow this structure:
 /**
  * Build a dynamic system prompt based on organization AI configuration
  */
-export function buildSystemPrompt(org: Organization): string {
+export function buildSystemPrompt(
+  org: Organization,
+  channel?: string,
+  customerName?: string,
+): string {
   // Use custom prompt if provided, otherwise use default
   let basePrompt = org.aiPersonalityPrompt || DEFAULT_SYSTEM_PROMPT;
 
@@ -129,23 +133,38 @@ You must output a single valid JSON object. Do not include markdown formatting.
   }
 
   // Greetings - ONLY APPLY if replying
-  if (org.aiIncludeGreetings === false) {
+  if (org.aiIncludeGreetings === false && channel !== 'email') {
     toneInstructions.push(
       '- Skip greetings, get straight to addressing the issue',
     );
   } else {
-    toneInstructions.push('- Start with friendly greetings (if replying)');
+    if (channel === 'email' && customerName) {
+      toneInstructions.push(`- Start the email with "Dear ${customerName},"`);
+    } else {
+      toneInstructions.push('- Start with friendly greetings (if replying)');
+    }
   }
 
   // Sign-off - IMPORTANT: Never include signatures/sign-offs in live chat or social media
   // Email signatures are handled separately by the system
-  toneInstructions.push(
-    '- NEVER include sign-offs, signatures, or "Best regards" type endings',
-  );
-  toneInstructions.push('- End responses with the solution or next steps only');
-  toneInstructions.push(
-    '- Do NOT add "Best regards", "Sincerely", agent names, or company names at the end',
-  );
+  if (channel === 'email') {
+    toneInstructions.push(
+      '- End the email with a closing like "Best regards,"',
+    );
+    toneInstructions.push(
+      '- Do NOT add a signature block, name, or company name (it is appended automatically)',
+    );
+  } else {
+    toneInstructions.push(
+      '- NEVER include sign-offs, signatures, or "Best regards" type endings',
+    );
+    toneInstructions.push(
+      '- End responses with the solution or next steps only',
+    );
+    toneInstructions.push(
+      '- Do NOT add "Best regards", "Sincerely", agent names, or company names at the end',
+    );
+  }
 
   // Vocabulary preferences
   if (org.aiWordsToUse) {
@@ -186,6 +205,7 @@ export const draftResponse = async (
   userRole: UserRole,
   organizationId: string,
   additionalContext?: string,
+  channel?: string,
 ): Promise<AgentResponse> => {
   const totalStart = Date.now();
   console.log(`[PERF] draftResponse started for ticket ${ticket_id}`);
@@ -241,7 +261,12 @@ export const draftResponse = async (
   }
 
   // ========== BUILD SYSTEM PROMPT ==========
-  const systemPrompt = buildSystemPrompt(org);
+  const customerName =
+    typeof ticket.customerId === 'object' && 'firstName' in ticket.customerId
+      ? (ticket.customerId as any).firstName
+      : undefined;
+
+  const systemPrompt = buildSystemPrompt(org, channel, customerName);
 
   // ========== MODEL INITIALIZATION ==========
   const modelStart = Date.now();

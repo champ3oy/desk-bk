@@ -40,7 +40,11 @@ Just write the message that should be sent to the customer.`;
 /**
  * Build a system prompt for drafting human responses based on organization settings
  */
-function buildDraftSystemPrompt(org: Organization): string {
+function buildDraftSystemPrompt(
+  org: Organization,
+  channel?: string,
+  customerName?: string,
+): string {
   let prompt = DRAFT_SYSTEM_PROMPT;
 
   const toneInstructions: string[] = [];
@@ -91,12 +95,37 @@ function buildDraftSystemPrompt(org: Organization): string {
   }
 
   // Greetings
-  if (org.aiIncludeGreetings === false) {
+  if (org.aiIncludeGreetings === false && channel !== 'email') {
     toneInstructions.push(
       '- Skip greetings, get straight to addressing the issue',
     );
   } else {
-    toneInstructions.push('- Start with a friendly greeting');
+    if (channel === 'email' && customerName) {
+      toneInstructions.push(`- Start the email with "Dear ${customerName},"`);
+    } else {
+      toneInstructions.push('- Start with a friendly greeting');
+    }
+  }
+
+  // Sign-off - IMPORTANT: Never include signatures/sign-offs in live chat or social media
+  // Email signatures are handled separately by the system
+  if (channel === 'email') {
+    toneInstructions.push(
+      '- End the email with a closing like "Best regards,"',
+    );
+    toneInstructions.push(
+      '- Do NOT add a signature block, name, or company name (it is appended automatically)',
+    );
+  } else {
+    toneInstructions.push(
+      '- NEVER include sign-offs, signatures, or "Best regards" type endings',
+    );
+    toneInstructions.push(
+      '- End responses with the solution or next steps only',
+    );
+    toneInstructions.push(
+      '- Do NOT add "Best regards", "Sincerely", agent names, or company names at the end',
+    );
   }
 
   // Vocabulary preferences
@@ -140,6 +169,7 @@ export const draftHumanResponse = async (
   userRole: UserRole,
   organizationId: string,
   additionalContext?: string,
+  channel?: string,
 ): Promise<DraftHumanResponseResult> => {
   const totalStart = Date.now();
   console.log(`[PERF] draftHumanResponse started for ticket ${ticket_id}`);
@@ -195,7 +225,12 @@ export const draftHumanResponse = async (
   }
 
   // ========== BUILD SYSTEM PROMPT ==========
-  const systemPrompt = buildDraftSystemPrompt(org);
+  const customerName =
+    typeof ticket.customerId === 'object' && 'firstName' in ticket.customerId
+      ? (ticket.customerId as any).firstName
+      : undefined;
+
+  const systemPrompt = buildDraftSystemPrompt(org, channel, customerName);
 
   // ========== MODEL INITIALIZATION ==========
   const modelStart = Date.now();
