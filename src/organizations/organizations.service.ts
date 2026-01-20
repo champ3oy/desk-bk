@@ -157,6 +157,13 @@ export class OrganizationsService {
       { $addToSet: { additionalEmails: email } },
     );
   }
+  async removeSupportEmail(id: string, email: string): Promise<void> {
+    await this.organizationModel.updateOne(
+      { _id: id },
+      { $pull: { additionalEmails: email } },
+    );
+  }
+
   async findByMemberEmail(email: string): Promise<Organization[]> {
     console.log(`OrganizationsService.findByMemberEmail: finding for ${email}`);
     // Find all users with this email to get their organization IDs

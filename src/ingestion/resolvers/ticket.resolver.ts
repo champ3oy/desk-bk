@@ -5,6 +5,7 @@ import { IncomingMessageDto } from '../dto/incoming-message.dto';
 import {
   Message,
   MessageDocument,
+  MessageChannel,
 } from '../../threads/entities/message.entity';
 import { Thread, ThreadDocument } from '../../threads/entities/thread.entity';
 import { TicketsService } from '../../tickets/tickets.service';
@@ -69,6 +70,7 @@ export class TicketResolver {
           message.threadId,
           organizationId,
           customerId,
+          message.channel,
         );
         if (ticketId) {
           this.logger.debug(`Found reply ticket ${ticketId} by thread ID`);
@@ -138,6 +140,7 @@ export class TicketResolver {
     threadId: string,
     organizationId: string,
     customerId: string,
+    channel?: MessageChannel,
   ): Promise<string | null> {
     if (!threadId) {
       return null;
@@ -162,6 +165,13 @@ export class TicketResolver {
         );
         return threadBySession.ticketId.toString();
       }
+    }
+
+    // For Widget channel, we strictly require the session ID to match.
+    // If it doesn't match, it's a new session, so we should create a new ticket
+    // rather than attaching to an old one.
+    if (channel === MessageChannel.WIDGET) {
+      return null;
     }
 
     // Alternative: Find most recent thread for this customer and check if threadId matches

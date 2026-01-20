@@ -29,15 +29,15 @@ export class AuthController {
   @ApiBody({ type: CreateUserDto })
   @ApiResponse({
     status: 201,
-    description: 'User successfully registered (as customer)',
+    description: 'User successfully registered',
     type: UserResponseDto,
   })
   @ApiBadRequestResponse({ description: 'Invalid input data' })
   async register(@Body() createUserDto: CreateUserDto) {
-    // Force role to customer - users become admin when they create an organization
+    // Create user as ADMIN by default so they can create organizations
     const user = await this.usersService.create({
       ...createUserDto,
-      role: UserRole.CUSTOMER,
+      role: UserRole.ADMIN,
       organizationId: createUserDto.organizationId, // Optional - can be set later
     });
     return user;

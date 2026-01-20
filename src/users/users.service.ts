@@ -27,26 +27,13 @@ export class UsersService {
   async createMembership(
     createUserDto: CreateUserDto & { isPasswordHashed?: boolean },
   ): Promise<UserResponse> {
-    // If organizationId is provided, check for uniqueness within that org
-    const query: any = {
+    // Check for global uniqueness of email
+    const existingUser = await this.userModel.findOne({
       email: { $regex: new RegExp(`^${createUserDto.email}$`, 'i') },
-    };
-    if (createUserDto.organizationId) {
-      query.organizationId = new Types.ObjectId(createUserDto.organizationId);
-    } else {
-      query.organizationId = { $exists: false };
-    }
-
-    const existingUser = await this.userModel.findOne(query);
+    });
 
     if (existingUser) {
-      if (createUserDto.organizationId) {
-        throw new ConflictException(
-          'User with this email already exists in this organization',
-        );
-      } else {
-        throw new ConflictException('User with this email already exists');
-      }
+      throw new ConflictException('User with this email already exists');
     }
 
     const password = createUserDto.isPasswordHashed
@@ -178,27 +165,13 @@ export class UsersService {
     }
 
     if (updateUserDto.email && updateUserDto.email !== userDoc.email) {
-      const orgId = organizationId || userDoc.organizationId?.toString();
-      if (!orgId) {
-        // User doesn't have an org yet, check globally
-        const existingUser = await this.userModel.findOne({
-          email: updateUserDto.email,
-          organizationId: { $exists: false },
-        });
-        if (existingUser) {
-          throw new ConflictException('User with this email already exists');
-        }
-      } else {
-        const existingUser = await this.userModel.findOne({
-          email: updateUserDto.email,
-          organizationId: new Types.ObjectId(orgId),
-        });
+      // Check for global uniqueness of email
+      const existingUser = await this.userModel.findOne({
+        email: { $regex: new RegExp(`^${updateUserDto.email}$`, 'i') },
+      });
 
-        if (existingUser) {
-          throw new ConflictException(
-            'User with this email already exists in this organization',
-          );
-        }
+      if (existingUser) {
+        throw new ConflictException('User with this email already exists');
       }
     }
 

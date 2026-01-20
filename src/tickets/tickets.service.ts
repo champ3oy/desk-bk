@@ -339,8 +339,7 @@ Sentiment:`;
             );
 
             // Generate AI escalation message
-            let escalationMessage =
-              "I'm passing this conversation to a human agent who can better assist you. They will be with you shortly.";
+            let escalationMessage = '';
 
             try {
               const messages = await this.threadsService.getMessages(
@@ -380,6 +379,12 @@ Return ONLY the message text.`;
                 'Failed to generate AI escalation message, using default.',
                 e,
               );
+            }
+
+            // Fallback if AI fails
+            if (!escalationMessage) {
+              escalationMessage =
+                "I'll connect you with a human agent to assist you further.";
             }
 
             await this.threadsService.createMessage(
@@ -492,6 +497,7 @@ Return ONLY the message text.`;
   async create(
     createTicketDto: CreateTicketDto,
     organizationId: string,
+    channel?: string, // Optional: 'email' | 'widget' | 'whatsapp' | 'sms' - defaults to 'email'
   ): Promise<Ticket> {
     const ticketData: any = {
       ...createTicketDto,
@@ -544,16 +550,13 @@ Return ONLY the message text.`;
       console.error('Failed to auto-create thread:', error);
     }
 
-    // Call shared Auto-reply logic
-    // Default to 'email' if no channel specified in creation, but typically create comes from email or widget.
-    // Ideally createTicketDto should have channel. If not, we might assume email or widget.
-    // For now, let's assume email as safest default for "ticket creation" unless we add channel to DTO.
+    // Call shared Auto-reply logic using the provided channel or defaulting to 'email'
     this.handleAutoReply(
       savedTicket._id.toString(),
       savedTicket.description,
       organizationId,
       createTicketDto.customerId,
-      'email',
+      channel || 'email',
     );
 
     // Notify assigned agent

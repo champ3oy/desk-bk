@@ -616,4 +616,30 @@ export class EmailIntegrationService {
     // For now, return a placeholder.
     return 'sent-via-outlook-' + Date.now();
   }
+
+  /**
+   * Remove email integration
+   */
+  async remove(id: string, organizationId: string): Promise<void> {
+    const integration = await this.emailIntegrationModel.findOne({
+      _id: new Types.ObjectId(id),
+      organizationId: new Types.ObjectId(organizationId),
+    });
+
+    if (!integration) {
+      throw new NotFoundException('Integration not found');
+    }
+
+    await this.emailIntegrationModel.deleteOne({ _id: integration._id });
+
+    // Also remove from support emails in organization
+    await this.organizationsService.removeSupportEmail(
+      organizationId,
+      integration.email,
+    );
+
+    this.logger.log(
+      `Removed email integration ${id} for org ${organizationId}`,
+    );
+  }
 }

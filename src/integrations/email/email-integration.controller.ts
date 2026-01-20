@@ -10,6 +10,7 @@ import {
   HttpStatus,
   Patch,
   Param,
+  Delete,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -141,5 +142,12 @@ export class EmailIntegrationController {
       id,
       req.user.organizationId,
     );
+  }
+
+  @Delete(':id')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Remove email integration' })
+  async remove(@Param('id') id: string, @Request() req) {
+    return this.emailIntegrationService.remove(id, req.user.organizationId);
   }
 }

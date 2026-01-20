@@ -313,15 +313,16 @@ export class IngestionService {
         ),
       );
 
-    // Trigger AI Auto-reply
+    // Trigger AI Auto-reply using the actual message channel
     // We don't await this to avoid blocking ingestion response
+    const channelName = this.getChannelName(message.channel);
     this.ticketsService
       .handleAutoReply(
         ticketId,
         message.content,
         organizationId,
         customerId,
-        'email',
+        channelName,
       )
       .catch((e) =>
         this.logger.error(
@@ -421,7 +422,8 @@ export class IngestionService {
       priority = analysis.priority;
     }
 
-    // Create ticket
+    // Create ticket with the correct channel for auto-reply
+    const channelName = this.getChannelName(message.channel);
     const ticket = (await this.ticketsService.create(
       {
         subject: subject,
@@ -432,6 +434,7 @@ export class IngestionService {
         priority,
       },
       organizationId,
+      channelName, // Pass channel for correct auto-reply routing
     )) as TicketDocument;
 
     // Get or create thread (should be auto-created, but ensure it exists)
@@ -464,6 +467,10 @@ export class IngestionService {
     this.logger.log(
       `New ticket created: ticket=${(ticket as any)._id}, message=${createdMessage._id}`,
     );
+
+    // Note: Auto-reply is already triggered by ticketsService.create() above
+    // so we don't need to call handleAutoReply here again
+
     return {
       success: true,
       ticketId: (ticket as any)._id.toString(),
@@ -595,5 +602,23 @@ export class IngestionService {
     );
 
     return populatedMessages as any;
+  }
+
+  /**
+   * Convert MessageChannel enum to channel name string for auto-reply
+   */
+  private getChannelName(channel: MessageChannel): string {
+    switch (channel) {
+      case MessageChannel.EMAIL:
+        return 'email';
+      case MessageChannel.WIDGET:
+        return 'widget';
+      case MessageChannel.WHATSAPP:
+        return 'whatsapp';
+      case MessageChannel.SMS:
+        return 'sms';
+      default:
+        return 'email';
+    }
   }
 }
