@@ -74,12 +74,23 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         throw new UnauthorizedException();
       }
       const userId = user._id.toString();
-      const organizationId = user.organizationId?.toString();
+      const userOrgId = user.organizationId?.toString();
+
+      // Use the X-Organization-Id header if valid, otherwise fall back to user's org
+      // This allows users who belong to multiple orgs to switch context
+      const effectiveOrgId = isValidOrgId(switchOrgId)
+        ? switchOrgId
+        : userOrgId;
+
+      this.logger.debug(
+        `User ${userId} effective org: ${effectiveOrgId} (header: ${switchOrgId || 'none'}, user: ${userOrgId || 'none'})`,
+      );
+
       return {
         userId,
         email: user.email,
         role: user.role,
-        organizationId: organizationId || null,
+        organizationId: effectiveOrgId || null,
       };
     } catch (error) {
       this.logger.error(
