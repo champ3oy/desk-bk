@@ -85,9 +85,11 @@ export class OutlookPollingService {
     if (integration.lastSyncedAt) {
       queryDate = integration.lastSyncedAt.toISOString();
     } else {
-      // First sync: last 24h
-      const date = new Date();
-      date.setDate(date.getDate() - 1);
+      // First sync: start from when the integration was added/created
+      // This prevents ingesting old emails prior to connection
+      const date = integration['createdAt']
+        ? new Date(integration['createdAt'])
+        : new Date();
       queryDate = date.toISOString();
     }
 

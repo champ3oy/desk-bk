@@ -160,9 +160,13 @@ export class GmailPollingService {
       const after = Math.floor(integration.lastSyncedAt.getTime() / 1000);
       query = `after:${after}`;
     } else {
-      // First sync: maybe just last 24h
-      const yesterday = Math.floor((Date.now() - 24 * 60 * 60 * 1000) / 1000);
-      query = `after:${yesterday}`;
+      // First sync: start from when the integration was added/created
+      // This prevents ingesting old emails prior to connection
+      const startTime = integration['createdAt']
+        ? new Date(integration['createdAt']).getTime()
+        : Date.now();
+      const after = Math.floor(startTime / 1000);
+      query = `after:${after}`;
     }
 
     await this.fetchMessages(integration, query);
