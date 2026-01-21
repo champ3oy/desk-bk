@@ -113,6 +113,29 @@ export class Message {
   isRead: boolean;
 
   @ApiPropertyOptional({
+    description: 'Array of attachments',
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: {
+        filename: { type: 'string' },
+        originalName: { type: 'string' },
+        mimeType: { type: 'string' },
+        size: { type: 'number' },
+        path: { type: 'string' },
+      },
+    },
+  })
+  @Prop({ type: [Object], default: [] })
+  attachments?: Array<{
+    filename: string;
+    originalName: string;
+    mimeType: string;
+    size: number;
+    path: string;
+  }>;
+
+  @ApiPropertyOptional({
     description:
       'External message ID from provider (for email threading, SMS/WhatsApp IDs)',
     example: '<message-id@example.com>',

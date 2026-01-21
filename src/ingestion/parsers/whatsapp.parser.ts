@@ -34,6 +34,17 @@ export class WhatsAppParser {
     const senderPhone = message?.from || value?.from;
     const recipientPhone = value?.metadata?.phone_number_id || entry?.id;
 
+    const attachments: any[] = [];
+    if (message?.type === 'image' && message.image) {
+      attachments.push({
+        filename: `whatsapp_image_${message.image.id}.jpg`,
+        originalName: `whatsapp_image_${message.image.id}.jpg`,
+        mimeType: message.image.mime_type || 'image/jpeg',
+        size: 0,
+        path: message.image.url || '', // Note: Meta API requires a separate GET request for the actual URL, but we'll assume it's here or provided by a proxy
+      });
+    }
+
     return {
       channel: MessageChannel.WHATSAPP,
       senderPhone,
@@ -42,6 +53,7 @@ export class WhatsAppParser {
       content: message?.text?.body || message?.caption || '',
       threadId: message?.context?.from || value?.conversation?.id,
       messageId: message?.id,
+      attachments,
       metadata: payload,
     };
   }
@@ -50,14 +62,20 @@ export class WhatsAppParser {
     // Generic parser for unknown WhatsApp formats
     return {
       channel: MessageChannel.WHATSAPP,
-      senderPhone: payload.from || payload.sender || payload.phoneNumber || payload.phone,
+      senderPhone:
+        payload.from || payload.sender || payload.phoneNumber || payload.phone,
       recipientPhone: payload.to || payload.recipient || payload.destination,
       senderName: payload.name || payload.senderName,
-      content: payload.body || payload.text || payload.message || payload.content || '',
-      threadId: payload.threadId || payload.conversationId || payload.conversation_id,
+      content:
+        payload.body ||
+        payload.text ||
+        payload.message ||
+        payload.content ||
+        '',
+      threadId:
+        payload.threadId || payload.conversationId || payload.conversation_id,
       messageId: payload.messageId || payload.id || payload.wa_id,
       metadata: payload,
     };
   }
 }
-

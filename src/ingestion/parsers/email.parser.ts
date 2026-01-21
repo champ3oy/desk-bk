@@ -192,16 +192,31 @@ export class EmailParser {
   /**
    * Extract attachment information
    */
-  private extractAttachments(payload: Record<string, any>): string[] {
-    const attachments: string[] = [];
+  /**
+   * Extract attachment information
+   */
+  private extractAttachments(payload: Record<string, any>): any[] {
+    const attachments: any[] = [];
 
     if (payload.attachments) {
       if (Array.isArray(payload.attachments)) {
         payload.attachments.forEach((att: any) => {
           if (typeof att === 'string') {
-            attachments.push(att);
+            attachments.push({
+              filename: 'attachment',
+              originalName: 'attachment',
+              mimeType: 'application/octet-stream',
+              size: 0,
+              path: att,
+            });
           } else if (att.url || att.id || att.filename) {
-            attachments.push(att.url || att.id || att.filename);
+            attachments.push({
+              filename: att.filename || att.id || 'attachment',
+              originalName: att.filename || att.id || 'attachment',
+              mimeType: att.contentType || 'application/octet-stream',
+              size: att.size || 0,
+              path: att.url || '',
+            });
           }
         });
       }
@@ -212,7 +227,13 @@ export class EmailParser {
       for (let i = 1; i <= payload['attachment-count']; i++) {
         const attUrl = payload[`attachment-${i}`] || payload[`attachment${i}`];
         if (attUrl) {
-          attachments.push(attUrl);
+          attachments.push({
+            filename: `attachment-${i}`,
+            originalName: `attachment-${i}`,
+            mimeType: 'application/octet-stream',
+            size: 0,
+            path: attUrl,
+          });
         }
       }
     }

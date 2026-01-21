@@ -95,8 +95,24 @@ export class IncomingMessageDto {
   metadata?: Record<string, any>;
 
   @ApiPropertyOptional({
-    description: 'Array of attachment URLs or IDs',
-    type: [String],
+    description: 'Array of attachment objects',
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: {
+        filename: { type: 'string' },
+        originalName: { type: 'string' },
+        mimeType: { type: 'string' },
+        size: { type: 'number' },
+        path: { type: 'string' },
+      },
+    },
   })
-  attachments?: string[];
+  attachments?: Array<{
+    filename: string;
+    originalName: string;
+    mimeType: string;
+    size: number;
+    path: string;
+  }>;
 }

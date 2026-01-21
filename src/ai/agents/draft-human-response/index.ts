@@ -1,10 +1,12 @@
 import { ConfigService } from '@nestjs/config';
 import { TicketsService } from '../../../tickets/tickets.service';
 import { ThreadsService } from '../../../threads/threads.service';
+import { CommentsService } from '../../../comments/comments.service';
 import { UserRole } from '../../../users/entities/user.entity';
 import { OrganizationsService } from '../../../organizations/organizations.service';
 import { Organization } from '../../../organizations/entities/organization.entity';
 import { AIModelFactory } from '../../ai-model.factory';
+import { SystemMessage, HumanMessage } from '@langchain/core/messages';
 
 const DRAFT_SYSTEM_PROMPT = `You are an AI assistant helping a human customer support agent draft a response to a customer.
 
@@ -35,7 +37,10 @@ const DRAFT_SYSTEM_PROMPT = `You are an AI assistant helping a human customer su
 
 # OUTPUT FORMAT
 You must output ONLY a plain text response. Do not use JSON or any special formatting.
-Just write the message that should be sent to the customer.`;
+Just write the message that should be sent to the customer.
+
+# IMAGES
+If images (screenshots) are provided in the context, you MUST use the information from them (error messages, codes, visual details) to provide a more accurate and helpful response.`;
 
 /**
  * Build a system prompt for drafting human responses based on organization settings
@@ -162,6 +167,7 @@ export const draftHumanResponse = async (
   ticket_id: string,
   ticketsService: TicketsService,
   threadsService: ThreadsService,
+  commentsService: CommentsService,
   configService: ConfigService,
   organizationsService: OrganizationsService,
   knowledgeBaseService: any,
@@ -177,14 +183,15 @@ export const draftHumanResponse = async (
   // ========== FETCH DATA IN PARALLEL ==========
   const parallelStart = Date.now();
 
-  const [ticket, org, threads] = await Promise.all([
+  const [ticket, org, threads, comments] = await Promise.all([
     ticketsService.findOne(ticket_id, userId, userRole, organizationId),
     organizationsService.findOne(organizationId),
     threadsService.findAll(ticket_id, organizationId, userId, userRole),
+    commentsService.findAll(ticket_id, userId, userRole),
   ]);
 
   console.log(
-    `[PERF] Parallel fetch (ticket + org + threads): ${Date.now() - parallelStart}ms`,
+    `[PERF] Parallel fetch (ticket + org + threads + comments): ${Date.now() - parallelStart}ms`,
   );
 
   // Fetch messages for all threads in parallel
@@ -259,10 +266,29 @@ ${threadsWithMessages
   .map(
     (thread, idx) => `
 ### Thread ${idx + 1}
-${thread.messages.map((msg: any) => `[${msg.messageType === 'external' ? 'Customer' : 'Agent'}] ${msg.content}`).join('\n\n')}
+${thread.messages
+  .map(
+    (
+      msg: any,
+    ) => `[${msg.authorType === 'customer' ? 'Customer' : 'Agent'}] (${new Date(msg.createdAt).toLocaleString()})
+${msg.content}`,
+  )
+  .join('\n\n')}
 `,
   )
   .join('\n')}
+
+## Internal Comments
+${
+  comments && comments.length > 0
+    ? comments
+        .map(
+          (comment: any) =>
+            `[${comment.isInternal ? 'Internal' : 'Public'}] ${comment.content}`,
+        )
+        .join('\n')
+    : 'No comments'
+}
 
 # TASK
 Draft a helpful response for the human agent to send to the customer.${
@@ -277,14 +303,165 @@ Remember: You are helping a human agent draft a response. Provide a clear, profe
     contextPrompt += `\n\n# KNOWLEDGE BASE CONTEXT\nUse the following information from our knowledge base to inform your response:\n\n${knowledgeContext}`;
   }
 
+  // ========== PREPARE IMAGES FOR AI CONTEXT ==========
+  // Extract images from messages to provide visual context
+  const images: any[] = [];
+  try {
+    const base64Regex = /data:image\/([a-zA-Z+]*);base64,([^"'\s>]+)/g;
+    const urlRegex =
+      /(https?:\/\/[^\s]+?\.(?:png|jpe?g|gif|webp)(?:\?[^\s]*)?)/gi;
+
+    // Scan ticket description and raw body for images
+    const ticketSearchContent =
+      (ticketData.ticket.description || '') + (ticketData.ticket.rawBody || '');
+
+    let tMatch;
+    while ((tMatch = base64Regex.exec(ticketSearchContent)) !== null) {
+      images.push({
+        mimeType: `image/${tMatch[1] === 'jpeg' ? 'jpeg' : tMatch[1] || 'png'}`,
+        base64Data: tMatch[2],
+        isBase64: true,
+        filename: 'ticket_embedded_image',
+      });
+    }
+
+    const tUrls = ticketSearchContent.match(urlRegex);
+    if (tUrls) {
+      tUrls.forEach((url: string) => {
+        images.push({
+          path: url,
+          mimeType: url.toLowerCase().endsWith('.png')
+            ? 'image/png'
+            : 'image/jpeg',
+          filename: 'ticket_url_image',
+        });
+      });
+    }
+
+    console.log(
+      `[AI Draft] Scanning ${threadsWithMessages.length} threads for images...`,
+    );
+    threadsWithMessages.forEach((thread: any, tIdx: number) => {
+      if (thread.messages && Array.isArray(thread.messages)) {
+        thread.messages.forEach((msg: any, mIdx: number) => {
+          if (msg.attachments && msg.attachments.length > 0) {
+            msg.attachments.forEach((att: any) => {
+              const mime = att.mimeType || att.mime_type || att.mimetype;
+              if (mime && mime.startsWith('image/')) {
+                if (att.path) {
+                  images.push({ ...att, mimeType: mime });
+                } else if (att.base64 || att.data) {
+                  images.push({
+                    mimeType: mime,
+                    base64Data: att.base64 || att.data,
+                    isBase64: true,
+                    filename: att.filename || 'attachment_image',
+                  });
+                }
+              }
+            });
+          }
+
+          // Check for base64 images in rawBody or content
+          const msgSearchContent = (msg.rawBody || '') + (msg.content || '');
+          let bMatch;
+          while ((bMatch = base64Regex.exec(msgSearchContent)) !== null) {
+            images.push({
+              mimeType: `image/${bMatch[1] === 'jpeg' ? 'jpeg' : bMatch[1] || 'png'}`,
+              base64Data: bMatch[2],
+              isBase64: true,
+              filename: 'embedded_image',
+            });
+          }
+
+          const foundUrls = msgSearchContent.match(urlRegex);
+          if (foundUrls) {
+            foundUrls.forEach((url: string) => {
+              if (!images.find((img) => img.path === url)) {
+                images.push({
+                  path: url,
+                  mimeType: url.toLowerCase().endsWith('.png')
+                    ? 'image/png'
+                    : 'image/jpeg',
+                  filename: 'url_image',
+                });
+              }
+            });
+          }
+        });
+      }
+    });
+  } catch (e) {
+    console.warn('Error extracting images for AI draft:', e);
+  }
+
+  // Take most recent 3 images
+  const recentImages = images.slice(-3);
+  const imageContents: any[] = [];
+
+  if (recentImages.length > 0) {
+    console.log(
+      `[AI Draft] Fetching ${recentImages.length} images for context...`,
+    );
+    await Promise.all(
+      recentImages.map(async (img) => {
+        try {
+          let base64Data = '';
+          if (img.isBase64) {
+            base64Data = img.base64Data;
+          } else if (
+            typeof img.path === 'string' &&
+            img.path.startsWith('http')
+          ) {
+            const res = await fetch(img.path);
+            if (res.ok) {
+              const arrayBuffer = await res.arrayBuffer();
+              base64Data = Buffer.from(arrayBuffer).toString('base64');
+            }
+          }
+
+          if (base64Data) {
+            imageContents.push({
+              type: 'image',
+              source_type: 'base64',
+              mime_type: img.mimeType,
+              data: base64Data,
+            });
+          }
+        } catch (e) {
+          console.error(`Failed to fetch image for AI draft: ${img.path}`, e);
+        }
+      }),
+    );
+  }
+
   // ========== LLM INVOCATION ==========
   const llmStart = Date.now();
   let response;
 
   try {
-    response = await model.invoke([
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: contextPrompt },
+    const userMessageContent: any[] = [{ type: 'text', text: contextPrompt }];
+
+    // Inject images if available
+    if (imageContents.length > 0) {
+      console.log(
+        `[AI Draft] Injecting ${imageContents.length} images into prompt`,
+      );
+      imageContents.forEach((img) => {
+        userMessageContent.push({
+          type: 'image',
+          source_type: 'base64',
+          mime_type: img.mime_type,
+          data: img.data,
+        });
+      });
+    }
+
+    response = await (model as any).invoke([
+      new SystemMessage(systemPrompt),
+      new HumanMessage({
+        content: userMessageContent,
+      }),
     ]);
   } catch (error) {
     console.error('[AI Agent] LLM Invocation Failed:', error);

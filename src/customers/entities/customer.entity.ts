@@ -32,6 +32,23 @@ export class Customer {
   @Prop({ required: false })
   phone?: string;
 
+  @ApiPropertyOptional({
+    description: 'Secondary email addresses',
+    example: ['work@example.com', 'backup@example.com'],
+  })
+  @Prop({ type: [String], default: [] })
+  secondaryEmails?: string[];
+
+  @ApiPropertyOptional({
+    description: 'Additional phone numbers with WhatsApp flag',
+    example: [{ number: '+1234567890', isWhatsApp: true }],
+  })
+  @Prop({
+    type: [{ number: String, isWhatsApp: Boolean }],
+    default: [],
+  })
+  phones?: { number: string; isWhatsApp: boolean }[];
+
   @ApiPropertyOptional({ description: 'Company name', example: 'Acme Corp' })
   @Prop({ required: false })
   company?: string;
@@ -39,6 +56,13 @@ export class Customer {
   @ApiProperty({ description: 'Whether customer is active', example: true })
   @Prop({ default: true })
   isActive: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Internal notes about the customer',
+    example: 'VIP customer, prefers email communication',
+  })
+  @Prop({ required: false })
+  notes?: string;
 
   @ApiPropertyOptional({
     description: 'External ID for widget sessions',

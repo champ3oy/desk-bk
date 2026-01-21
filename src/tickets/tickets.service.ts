@@ -688,7 +688,10 @@ Return ONLY the message text.`;
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
-        .populate('customerId', 'email firstName lastName company')
+        .populate(
+          'customerId',
+          'email firstName lastName company notes secondaryEmails phones avatar',
+        )
         .populate('organizationId', 'name')
         .populate('assignedToId', 'email firstName lastName')
         .populate('assignedToGroupId', 'name description')
@@ -722,7 +725,10 @@ Return ONLY the message text.`;
         _id: id,
         organizationId: new Types.ObjectId(organizationId),
       })
-      .populate('customerId', 'email firstName lastName company')
+      .populate(
+        'customerId',
+        'email firstName lastName company notes secondaryEmails phones avatar',
+      )
       .populate('organizationId', 'name')
       .populate('assignedToId', 'email firstName lastName')
       .populate('assignedToGroupId', 'name description')

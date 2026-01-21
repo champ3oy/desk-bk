@@ -1,5 +1,22 @@
-import { IsEmail, IsString, IsOptional, IsBoolean } from 'class-validator';
+import {
+  IsEmail,
+  IsString,
+  IsOptional,
+  IsBoolean,
+  IsArray,
+  ValidateNested,
+} from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
+
+class PhoneEntryDto {
+  @IsString()
+  number: string;
+
+  @IsBoolean()
+  @IsOptional()
+  isWhatsApp?: boolean;
+}
 
 export class UpdateCustomerDto {
   @ApiPropertyOptional({
@@ -35,6 +52,25 @@ export class UpdateCustomerDto {
   phone?: string;
 
   @ApiPropertyOptional({
+    description: 'Secondary email addresses',
+    example: ['work@example.com', 'backup@example.com'],
+  })
+  @IsArray()
+  @IsEmail({}, { each: true })
+  @IsOptional()
+  secondaryEmails?: string[];
+
+  @ApiPropertyOptional({
+    description: 'Additional phone numbers with WhatsApp flag',
+    example: [{ number: '+1234567890', isWhatsApp: true }],
+  })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PhoneEntryDto)
+  @IsOptional()
+  phones?: PhoneEntryDto[];
+
+  @ApiPropertyOptional({
     description: 'Customer company name',
     example: 'Acme Corp',
   })
@@ -49,5 +85,12 @@ export class UpdateCustomerDto {
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
-}
 
+  @ApiPropertyOptional({
+    description: 'Internal notes about the customer',
+    example: 'VIP customer',
+  })
+  @IsString()
+  @IsOptional()
+  notes?: string;
+}

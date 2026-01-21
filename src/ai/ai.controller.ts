@@ -117,6 +117,7 @@ export class AiController {
       body.ticketId,
       this.ticketsService,
       this.threadsService,
+      this.commentsService,
       this.configService,
       this.organizationsService,
       this.knowledgeBaseService,

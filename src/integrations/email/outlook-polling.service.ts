@@ -9,6 +9,7 @@ import {
 } from './entities/email-integration.entity';
 import { MessageChannel } from '../../threads/entities/message.entity';
 import { IncomingMessageDto } from '../../ingestion/dto/incoming-message.dto';
+import { StorageService } from '../../storage/storage.service';
 
 @Injectable()
 export class OutlookPollingService {
@@ -19,6 +20,7 @@ export class OutlookPollingService {
     private emailIntegrationService: EmailIntegrationService,
     @Inject(forwardRef(() => IngestionService))
     private ingestionService: IngestionService,
+    private storageService: StorageService,
   ) {}
 
   /**
@@ -140,9 +142,10 @@ export class OutlookPollingService {
 
       for (const msg of messagesToProcess) {
         try {
-          const mappedMessage = this.mapOutlookMessageToDto(
+          const mappedMessage = await this.mapOutlookMessageToDto(
             msg,
             integration.email,
+            client,
           );
 
           // Ingest with organizationId from the integration
@@ -175,10 +178,11 @@ export class OutlookPollingService {
     }
   }
 
-  private mapOutlookMessageToDto(
+  private async mapOutlookMessageToDto(
     msg: any,
     connectedEmail: string,
-  ): IncomingMessageDto {
+    client: any,
+  ): Promise<IncomingMessageDto> {
     // Extract sender information with multiple fallbacks
     let fromEmail = '';
     let fromName = '';
@@ -290,6 +294,81 @@ export class OutlookPollingService {
       }
     }
 
+    // Process inline images (swapping cid: for data: URIs)
+    if (rawBody && rawBody.includes('cid:')) {
+      try {
+        // Fetch attachments for this message
+        const attachmentsResponse = await client
+          .api(`/me/messages/${msg.id}/attachments`)
+          .select('id,contentType,contentBytes,contentId,isInline,name')
+          .get();
+
+        const attachments = attachmentsResponse.value;
+
+        if (attachments && attachments.length > 0) {
+          for (const att of attachments) {
+            // Check if we have contentId and contentBytes
+            if (att.contentId && att.contentBytes) {
+              const cid = att.contentId;
+              const mimeType = att.contentType || 'image/jpeg'; // fallback
+              const base64 = att.contentBytes;
+
+              const dataUri = `data:${mimeType};base64,${base64}`;
+
+              // Replace all occurrences of cid:{contentId}
+              // Note: Outlook might wrap cid in quotes or not, but usually src="cid:..."
+              // We just replace the exact string `cid:${cid}`
+
+              // We need to escape special characters in cid if we use regex,
+              // or use split/join for simple replacement
+              rawBody = rawBody.split(`cid:${cid}`).join(dataUri);
+            }
+          }
+        }
+      } catch (error) {
+        this.logger.warn(
+          `Failed to fetch attachments for Outlook message ${msg.id}: ${error.message}`,
+        );
+      }
+    }
+
+    // Process standard attachments
+    const attachments: any[] = [];
+    try {
+      const attachmentsResponse = await client
+        .api(`/me/messages/${msg.id}/attachments`)
+        .select('id,contentType,contentBytes,contentId,isInline,name,size')
+        .get();
+
+      const fetchedAttachments = attachmentsResponse.value;
+      if (fetchedAttachments && fetchedAttachments.length > 0) {
+        for (const att of fetchedAttachments) {
+          if (!att.isInline) {
+            if (att.contentBytes) {
+              const buffer = Buffer.from(att.contentBytes, 'base64');
+              const savedFile = await this.storageService.saveFile(
+                att.name || 'attachment',
+                buffer,
+                att.contentType || 'application/octet-stream',
+              );
+
+              attachments.push({
+                filename: savedFile.filename,
+                originalName: att.name || 'attachment',
+                mimeType: att.contentType || 'application/octet-stream',
+                size: savedFile.size,
+                path: savedFile.path,
+              });
+            }
+          }
+        }
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Failed to process attachments for Outlook message ${msg.id}: ${error.message}`,
+      );
+    }
+
     const dto: IncomingMessageDto = {
       channel: MessageChannel.EMAIL,
       senderEmail: fromEmail,
@@ -306,7 +385,7 @@ export class OutlookPollingService {
         conversationId: msg.conversationId,
         receivedDateTime: msg.receivedDateTime,
       },
-      attachments: [], // Pending implementation
+      attachments: attachments,
     };
 
     this.logger.debug(

@@ -6,6 +6,7 @@ import { IngestionService } from '../../ingestion/ingestion.service';
 import { EmailIntegrationStatus } from './entities/email-integration.entity';
 import { MessageChannel } from '../../threads/entities/message.entity';
 import { IncomingMessageDto } from '../../ingestion/dto/incoming-message.dto';
+import { StorageService } from '../../storage/storage.service';
 
 @Injectable()
 export class GmailPollingService {
@@ -16,6 +17,7 @@ export class GmailPollingService {
     private emailIntegrationService: EmailIntegrationService,
     @Inject(forwardRef(() => IngestionService))
     private ingestionService: IngestionService,
+    private storageService: StorageService,
   ) {}
 
   /**
@@ -98,9 +100,10 @@ export class GmailPollingService {
           format: 'full',
         });
 
-        const mappedMessage = this.mapGmailMessageToDto(
+        const mappedMessage = await this.mapGmailMessageToDto(
           fullMsg.data,
           integration.email,
+          gmail,
         );
 
         this.logger.debug(
@@ -176,10 +179,11 @@ export class GmailPollingService {
     await integration.save();
   }
 
-  private mapGmailMessageToDto(
+  private async mapGmailMessageToDto(
     gmailMsg: any,
     connectedEmail: string,
-  ): IncomingMessageDto {
+    gmail: any,
+  ): Promise<IncomingMessageDto> {
     const headers = gmailMsg.payload.headers;
 
     const getHeader = (name: string) => {
@@ -237,6 +241,59 @@ export class GmailPollingService {
       }
     }
 
+    // Process inline images (swapping cid: for data: URIs)
+    if (rawBody && gmailMsg.payload.parts) {
+      const inlineAttachments: any[] = [];
+      const traverseForInline = (parts: any[]) => {
+        if (!parts) return;
+        for (const part of parts) {
+          if (part.body?.attachmentId && part.headers) {
+            const contentId = part.headers.find(
+              (h: any) => h.name.toLowerCase() === 'content-id',
+            );
+            if (contentId) {
+              inlineAttachments.push({
+                cid: contentId.value.replace(/^<|>$/g, ''),
+                attachmentId: part.body.attachmentId,
+                mimeType: part.mimeType,
+              });
+            }
+          }
+          if (part.parts) {
+            traverseForInline(part.parts);
+          }
+        }
+      };
+
+      traverseForInline(gmailMsg.payload.parts);
+
+      for (const att of inlineAttachments) {
+        // Only fetch if utilized in the HTML
+        if (rawBody.includes(`cid:${att.cid}`)) {
+          try {
+            const response = await gmail.users.messages.attachments.get({
+              userId: 'me',
+              messageId: gmailMsg.id,
+              id: att.attachmentId,
+            });
+
+            if (response.data.data) {
+              const base64 = response.data.data
+                .replace(/-/g, '+')
+                .replace(/_/g, '/');
+              const dataUri = `data:${att.mimeType};base64,${base64}`;
+              // Global replace
+              rawBody = rawBody.split(`cid:${att.cid}`).join(dataUri);
+            }
+          } catch (error) {
+            this.logger.warn(
+              `Failed to fetch inline attachment ${att.cid}: ${error.message}`,
+            );
+          }
+        }
+      }
+    }
+
     // Parse Sender
     // "Name <email>" or "email"
     // Regex to capture: Name (optional), <Email> (optional), or just Email
@@ -266,6 +323,91 @@ export class GmailPollingService {
       `Parsed Sender: From="${from}" -> Name="${senderName}", Email="${senderEmail}"`,
     );
 
+    // Process standard attachments (files)
+    const attachments: any[] = [];
+    if (gmailMsg.payload.parts) {
+      const standardAttachments: any[] = [];
+      const traverseForAttachments = (parts: any[]) => {
+        if (!parts) return;
+        for (const part of parts) {
+          // It's an attachment if it has a filename and body with attachmentId
+          // And it's NOT an inline image we already processed (though we can double check)
+          // Generally, if Content-Disposition is attachment, it's a file.
+          // If it's inline but has no Content-ID, treat as attachment?
+          // Simplest check: has filename, body.attachmentId
+          // Exclude if it was processed as inline (we can check inlineAttachments list if we scoped it out, but let's re-check headers)
+
+          if (part.filename && part.body?.attachmentId) {
+            const isInline = part.headers?.some(
+              (h: any) =>
+                h.name.toLowerCase() === 'content-disposition' &&
+                h.value.includes('inline'),
+            );
+            const hasCid = part.headers?.some(
+              (h: any) => h.name.toLowerCase() === 'content-id',
+            );
+
+            // If it's inline AND has CID, it's likely an embedded image we handled.
+            // BUT if it's inline and NOT used in HTML (we can't easily know), we might want to attach it?
+            // For now, let's attach everything that is NOT (Inline AND Has CID).
+            // Or explicitly: Content-Disposition: attachment OR (Inline AND No CID)
+
+            const isAttachment = part.headers?.some(
+              (h: any) =>
+                h.name.toLowerCase() === 'content-disposition' &&
+                h.value.includes('attachment'),
+            );
+
+            if (isAttachment || (!isInline && !hasCid)) {
+              standardAttachments.push({
+                filename: part.filename,
+                mimeType: part.mimeType,
+                attachmentId: part.body.attachmentId,
+                size: part.body.size,
+              });
+            }
+          }
+
+          if (part.parts) {
+            traverseForAttachments(part.parts);
+          }
+        }
+      };
+
+      traverseForAttachments(gmailMsg.payload.parts);
+
+      for (const att of standardAttachments) {
+        try {
+          const response = await gmail.users.messages.attachments.get({
+            userId: 'me',
+            messageId: gmailMsg.id,
+            id: att.attachmentId,
+          });
+
+          if (response.data.data) {
+            const buffer = Buffer.from(response.data.data, 'base64');
+            const savedFile = await this.storageService.saveFile(
+              att.filename,
+              buffer,
+              att.mimeType,
+            );
+
+            attachments.push({
+              filename: savedFile.filename, // internal name
+              originalName: att.filename,
+              mimeType: att.mimeType,
+              size: savedFile.size,
+              path: savedFile.path, // URL path
+            });
+          }
+        } catch (error) {
+          this.logger.warn(
+            `Failed to fetch standard attachment ${att.filename}: ${error.message}`,
+          );
+        }
+      }
+    }
+
     return {
       channel: MessageChannel.EMAIL,
       senderEmail,
@@ -282,7 +424,7 @@ export class GmailPollingService {
         threadId: gmailMsg.threadId,
         labelIds: gmailMsg.labelIds,
       },
-      attachments: [], // Attachments handling requires storage integration (S3/GCS) which is pending.
+      attachments: attachments,
     };
   }
 }

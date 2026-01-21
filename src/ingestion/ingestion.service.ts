@@ -292,6 +292,7 @@ export class IngestionService {
       readBy: [],
       isRead: false,
       externalMessageId: externalId,
+      attachments: message.attachments || [],
     });
 
     await createdMessage.save();
@@ -460,6 +461,7 @@ export class IngestionService {
       externalMessageId: message.messageId
         ? message.messageId.replace(/^<|>$/g, '').trim()
         : undefined,
+      attachments: message.attachments || [],
     });
 
     await createdMessage.save();

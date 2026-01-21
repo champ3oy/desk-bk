@@ -58,6 +58,7 @@ The JSON must follow this structure:
 - Address the customer's concerns directly
 - Provide actionable solutions when possible
 - Match the tone to the customer's sentiment
+- Do not use markdown formatting
 - OUTPUT ONLY THE JSON. NO OTHER TEXT.`;
 
 /**
@@ -295,7 +296,14 @@ ${threadsWithMessages
   .map(
     (thread, idx) => `
 ### Thread ${idx + 1}
-${thread.messages.map((msg: any) => `[${msg.messageType === 'external' ? 'Customer' : 'Agent'}] ${msg.content}`).join('\n\n')}
+${thread.messages
+  .map(
+    (
+      msg: any,
+    ) => `[${msg.authorType === 'customer' ? 'Customer' : 'Agent'}] (${new Date(msg.createdAt).toLocaleString()})
+${msg.content}`,
+  )
+  .join('\n\n')}
 `,
   )
   .join('\n')}
@@ -313,14 +321,186 @@ ${
     contextPrompt += `\n\n# KNOWLEDGE BASE CONTEXT\nUse the following information from our knowledge base to inform your response:\n\n${knowledgeContext}`;
   }
 
+  // ========== PREPARE IMAGES FOR AI CONTEXT ==========
+  // Extract images from recent messages to provide visual context
+  const images: any[] = [];
+  try {
+    const base64Regex = /data:image\/([a-zA-Z+]*);base64,([^"'\s>]+)/g;
+    const urlRegex =
+      /(https?:\/\/[^\s]+?\.(?:png|jpe?g|gif|webp)(?:\?[^\s]*)?)/gi;
+
+    // Scan ticket description and raw body for images
+    const ticketSearchContent =
+      (ticketData.ticket.description || '') + (ticketData.ticket.rawBody || '');
+
+    console.log(
+      `[AI Agent] Scanning ${threadsWithMessages.length} threads + ticket for images...`,
+    );
+
+    let tMatch;
+    while ((tMatch = base64Regex.exec(ticketSearchContent)) !== null) {
+      console.log(`[AI Agent] Found base64 image in ticket description`);
+      images.push({
+        mimeType: `image/${tMatch[1] === 'jpeg' ? 'jpeg' : tMatch[1] || 'png'}`,
+        base64Data: tMatch[2],
+        isBase64: true,
+        filename: 'ticket_embedded_image',
+      });
+    }
+
+    const tUrls = ticketSearchContent.match(urlRegex);
+    if (tUrls) {
+      console.log(
+        `[AI Agent] Found ${tUrls.length} image URLs in ticket description`,
+      );
+      tUrls.forEach((url: string) => {
+        images.push({
+          path: url,
+          mimeType: url.toLowerCase().endsWith('.png')
+            ? 'image/png'
+            : 'image/jpeg',
+          filename: 'ticket_url_image',
+        });
+      });
+    }
+
+    threadsWithMessages.forEach((thread: any, tIdx: number) => {
+      if (thread.messages && Array.isArray(thread.messages)) {
+        thread.messages.forEach((msg: any, mIdx: number) => {
+          if (msg.attachments && Array.isArray(msg.attachments)) {
+            msg.attachments.forEach((att: any) => {
+              const mime = att.mimeType || att.mime_type || att.mimetype;
+              if (mime && mime.startsWith('image/')) {
+                console.log(
+                  `[AI Agent] Found image attachment in Thread ${tIdx} Msg ${mIdx}: ${att.path || 'base64'}`,
+                );
+                if (att.path) {
+                  images.push({ ...att, mimeType: mime });
+                } else if (att.base64 || att.data) {
+                  images.push({
+                    mimeType: mime,
+                    base64Data: att.base64 || att.data,
+                    isBase64: true,
+                    filename: att.filename || 'attachment_image',
+                  });
+                }
+              }
+            });
+          }
+
+          // Check for base64 images in rawBody or content
+          const msgSearchContent = (msg.rawBody || '') + (msg.content || '');
+          let bMatch;
+          while ((bMatch = base64Regex.exec(msgSearchContent)) !== null) {
+            console.log(
+              `[AI Agent] Found embedded base64 image in Thread ${tIdx} Msg ${mIdx}`,
+            );
+            images.push({
+              mimeType: `image/${bMatch[1] === 'jpeg' ? 'jpeg' : bMatch[1] || 'png'}`,
+              base64Data: bMatch[2],
+              isBase64: true,
+              filename: 'embedded_image',
+            });
+          }
+
+          // Check for URLs in message content
+          const foundUrls = msgSearchContent.match(urlRegex);
+          if (foundUrls) {
+            console.log(
+              `[AI Agent] Found ${foundUrls.length} image URLs in Thread ${tIdx} Msg ${mIdx}`,
+            );
+            foundUrls.forEach((url: string) => {
+              if (!images.find((img) => img.path === url)) {
+                images.push({
+                  path: url,
+                  mimeType: url.toLowerCase().endsWith('.png')
+                    ? 'image/png'
+                    : 'image/jpeg',
+                  filename: 'url_image',
+                });
+              }
+            });
+          }
+        });
+      }
+    });
+
+    console.log(`[AI Agent] Total images found: ${images.length}`);
+  } catch (e) {
+    console.warn('Error extracting images for AI context:', e);
+  }
+
+  // Take most recent 3 images
+  const recentImages = images.slice(-3);
+  const imageContents: any[] = [];
+
+  if (recentImages.length > 0) {
+    console.log(
+      `[AI Agent] Fetching ${recentImages.length} images for context...`,
+    );
+    await Promise.all(
+      recentImages.map(async (img) => {
+        try {
+          let base64Data = '';
+          if (img.isBase64) {
+            console.log(`[AI Agent] Using pre-encoded base64 data for image`);
+            base64Data = img.base64Data;
+          } else if (
+            typeof img.path === 'string' &&
+            img.path.startsWith('http')
+          ) {
+            console.log(`[AI Agent] Fetching image from URL: ${img.path}`);
+            const res = await fetch(img.path);
+            if (res.ok) {
+              const arrayBuffer = await res.arrayBuffer();
+              base64Data = Buffer.from(arrayBuffer).toString('base64');
+              console.log(
+                `[AI Agent] Successfully fetched and encoded image (${base64Data.length} chars)`,
+              );
+            } else {
+              console.error(
+                `[AI Agent] Failed to fetch image: ${res.status} ${res.statusText}`,
+              );
+            }
+          } else {
+            console.error(
+              `[AI Agent] Image path does not start with http: ${img.path}`,
+            );
+          }
+
+          if (base64Data) {
+            imageContents.push({
+              type: 'image',
+              source_type: 'base64',
+              mime_type: img.mimeType,
+              data: base64Data,
+            });
+          }
+        } catch (e) {
+          console.error(`Failed to fetch image for AI context: ${img.path}`, e);
+        }
+      }),
+    );
+  }
+
   // ========== LLM INVOCATION ==========
   const llmStart = Date.now();
   let response;
 
   try {
+    let userContent: any = contextPrompt;
+
+    // Inject images if available
+    if (imageContents.length > 0) {
+      console.log(
+        `[AI Agent] Injecting ${imageContents.length} images into prompt for LLM`,
+      );
+      userContent = [{ type: 'text', text: contextPrompt }, ...imageContents];
+    }
+
     response = await model.invoke([
       { role: 'system', content: systemPrompt },
-      { role: 'user', content: contextPrompt },
+      { role: 'user', content: userContent },
     ]);
   } catch (error) {
     console.error('[AI Agent] LLM Invocation Failed:', error);

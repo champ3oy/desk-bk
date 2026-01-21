@@ -28,6 +28,7 @@ import aiConfig from './config/ai.config';
 import jwtConfig from './config/jwt.config';
 
 import { EmailModule } from './email/email.module';
+import { StorageModule } from './storage/storage.module';
 
 @Module({
   imports: [
@@ -62,6 +63,7 @@ import { EmailModule } from './email/email.module';
     InvoicesModule,
     NotificationsModule,
     MacrosModule,
+    StorageModule,
   ],
   controllers: [AppController],
   providers: [AppService],

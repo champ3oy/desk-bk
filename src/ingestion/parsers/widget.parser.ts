@@ -28,7 +28,7 @@ export class WidgetParser {
       senderName: payload.name || 'Website Visitor',
       content: payload.content || '',
       threadId: payload.sessionId, // Use session ID as thread ID for strict matching
-      attachments: [],
+      attachments: payload.attachments || [],
       metadata: payload,
     };
   }

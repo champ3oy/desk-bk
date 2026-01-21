@@ -75,24 +75,39 @@ export class CustomersService {
     updateCustomerDto: UpdateCustomerDto,
     organizationId: string,
   ): Promise<CustomerDocument> {
-    const customer = await this.findOne(id, organizationId);
+    // If email is being updated, check for uniqueness
+    if (updateCustomerDto.email) {
+      const customer = await this.findOne(id, organizationId);
+      if (updateCustomerDto.email !== customer.email) {
+        const existingCustomer = await this.customerModel.findOne({
+          email: updateCustomerDto.email,
+          organizationId: new Types.ObjectId(organizationId),
+        });
 
-    if (updateCustomerDto.email && updateCustomerDto.email !== customer.email) {
-      const existingCustomer = await this.customerModel.findOne({
-        email: updateCustomerDto.email,
-        organizationId: new Types.ObjectId(organizationId),
-      });
-
-      if (existingCustomer) {
-        throw new ConflictException(
-          'Customer with this email already exists in this organization',
-        );
+        if (existingCustomer) {
+          throw new ConflictException(
+            'Customer with this email already exists in this organization',
+          );
+        }
       }
     }
 
-    Object.assign(customer, updateCustomerDto);
-    const savedCustomer = await customer.save();
-    return savedCustomer;
+    const updatedCustomer = await this.customerModel
+      .findOneAndUpdate(
+        {
+          _id: id,
+          organizationId: new Types.ObjectId(organizationId),
+        },
+        { $set: updateCustomerDto },
+        { new: true },
+      )
+      .exec();
+
+    if (!updatedCustomer) {
+      throw new NotFoundException(`Customer with ID ${id} not found`);
+    }
+
+    return updatedCustomer;
   }
 
   async remove(id: string, organizationId: string): Promise<void> {

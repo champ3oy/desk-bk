@@ -102,7 +102,14 @@ ${threadsWithMessages
   .map(
     (thread, idx) => `
 ### Thread ${idx + 1}
-${thread.messages.map((msg: any) => `[${msg.messageType === 'external' ? 'CUSTOMER' : 'Agent'}] ${msg.content}`).join('\n\n')}
+${thread.messages
+  .map(
+    (
+      msg: any,
+    ) => `[${msg.authorType === 'customer' ? 'Customer' : 'Agent'}] (${new Date(msg.createdAt).toLocaleString()})
+${msg.content}`,
+  )
+  .join('\n\n')}
 `,
   )
   .join('\n')}
