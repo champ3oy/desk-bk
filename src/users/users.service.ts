@@ -27,10 +27,22 @@ export class UsersService {
   async createMembership(
     createUserDto: CreateUserDto & { isPasswordHashed?: boolean },
   ): Promise<UserResponse> {
-    // Check for global uniqueness of email
-    const existingUser = await this.userModel.findOne({
+    // Check for email uniqueness within the same organization (multi-tenant support)
+    // If organizationId is provided, check uniqueness within that org
+    // If not provided, check for any user without an org (global users)
+    const query: any = {
       email: { $regex: new RegExp(`^${createUserDto.email}$`, 'i') },
-    });
+    };
+
+    if (createUserDto.organizationId) {
+      // Check within the specific organization
+      query.organizationId = new Types.ObjectId(createUserDto.organizationId);
+    } else {
+      // Check for users without an organization
+      query.organizationId = { $exists: false };
+    }
+
+    const existingUser = await this.userModel.findOne(query);
 
     if (existingUser) {
       throw new ConflictException('User with this email already exists');
