@@ -18,6 +18,14 @@ export class CreateGroupDto {
   description?: string;
 
   @ApiPropertyOptional({
+    description: 'Group color hex code',
+    example: '#06B6D4',
+  })
+  @IsString()
+  @IsOptional()
+  color?: string;
+
+  @ApiPropertyOptional({
     description: 'Array of user IDs to add as members',
     example: ['507f1f77bcf86cd799439011', '507f1f77bcf86cd799439012'],
     type: [String],
@@ -27,4 +35,3 @@ export class CreateGroupDto {
   @IsOptional()
   memberIds?: string[];
 }
-

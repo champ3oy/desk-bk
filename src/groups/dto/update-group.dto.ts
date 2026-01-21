@@ -1,4 +1,10 @@
-import { IsString, IsOptional, IsBoolean, IsArray, IsUUID } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsBoolean,
+  IsArray,
+  IsUUID,
+} from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UpdateGroupDto {
@@ -19,6 +25,14 @@ export class UpdateGroupDto {
   description?: string;
 
   @ApiPropertyOptional({
+    description: 'Group color hex code',
+    example: '#06B6D4',
+  })
+  @IsString()
+  @IsOptional()
+  color?: string;
+
+  @ApiPropertyOptional({
     description: 'Whether the group is active',
     example: true,
   })
@@ -26,4 +40,3 @@ export class UpdateGroupDto {
   @IsOptional()
   isActive?: boolean;
 }
-

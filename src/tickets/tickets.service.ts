@@ -654,7 +654,9 @@ Return ONLY the message text.`;
 
     // Agents see tickets assigned to them, their groups, or unassigned tickets
     // Admins see all tickets in org
-    if (userRole === UserRole.AGENT || userRole === UserRole.LIGHT_AGENT) {
+    // Agents see tickets assigned to them, their groups, or unassigned tickets
+    // Admins see all tickets in org
+    if (userRole === UserRole.LIGHT_AGENT) {
       // Get groups the user belongs to
       const userGroups = await this.groupsService.findByMember(
         userId,
@@ -746,7 +748,8 @@ Return ONLY the message text.`;
     const ticketAssignedToGroupId = ticket.assignedToGroupId?.toString();
 
     // Agents can see tickets assigned to them or their groups
-    if (userRole === UserRole.AGENT || userRole === UserRole.LIGHT_AGENT) {
+    // Agents can see tickets assigned to them or their groups
+    if (userRole === UserRole.LIGHT_AGENT) {
       if (ticketAssignedToId === userId) {
         // Assigned directly to user
         return ticket;

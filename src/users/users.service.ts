@@ -158,7 +158,11 @@ export class UsersService {
 
     this.logger.debug(`update query: ${JSON.stringify(query)}`);
 
-    const userDoc = await this.userModel.findOne(query).exec();
+    // Find the user first to verify existence and check email uniqueness
+    const userDoc = await this.userModel
+      .findOne(query)
+      .select('email organizationId')
+      .exec();
 
     if (!userDoc) {
       throw new NotFoundException(`User with ID ${id} not found`);
@@ -175,22 +179,29 @@ export class UsersService {
       }
     }
 
-    // Create a copy of updates to avoid mutating the DTO or overwriting handled fields
+    // Create a copy of updates
     const updates: any = { ...updateUserDto };
 
-    // Handle organizationId if provided as string
+    // Handle organizationId if provided
     if (updates.organizationId) {
-      userDoc.organizationId = new Types.ObjectId(updates.organizationId);
-      delete updates.organizationId; // Remove so Object.assign doesn't overwrite with string
+      updates.organizationId = new Types.ObjectId(updates.organizationId);
     }
 
     if (updates.password) {
       updates.password = await bcrypt.hash(updates.password, 10);
     }
 
-    Object.assign(userDoc, updates);
-    const savedUser = await userDoc.save();
-    const { password: _, ...result } = savedUser.toObject();
+    // Use findByIdAndUpdate to avoid validating the entire document
+    // which might fail if legacy data is missing required fields (like password/email)
+    const updatedUser = await this.userModel
+      .findByIdAndUpdate(query._id, { $set: updates }, { new: true })
+      .exec();
+
+    if (!updatedUser) {
+      throw new NotFoundException(`User with ID ${id} not found`);
+    }
+
+    const { password: _, ...result } = updatedUser.toObject();
     return result as UserResponse;
   }
 

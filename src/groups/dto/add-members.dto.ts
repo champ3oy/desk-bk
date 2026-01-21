@@ -1,4 +1,4 @@
-import { IsArray, IsUUID } from 'class-validator';
+import { IsArray, IsMongoId } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class AddMembersDto {
@@ -8,7 +8,6 @@ export class AddMembersDto {
     type: [String],
   })
   @IsArray()
-  @IsUUID(undefined, { each: true })
+  @IsMongoId({ each: true })
   memberIds: string[];
 }
-

@@ -39,10 +39,7 @@ export class GroupsService {
 
     // Validate member IDs if provided
     if (createGroupDto.memberIds && createGroupDto.memberIds.length > 0) {
-      await this.validateMembers(
-        createGroupDto.memberIds,
-        organizationId,
-      );
+      await this.validateMembers(createGroupDto.memberIds, organizationId);
     }
 
     const group = new this.groupModel({
@@ -125,9 +122,7 @@ export class GroupsService {
       throw new BadRequestException('All specified users are already members');
     }
 
-    group.memberIds.push(
-      ...newMemberIds.map((id) => new Types.ObjectId(id)),
-    );
+    group.memberIds.push(...newMemberIds.map((id) => new Types.ObjectId(id)));
 
     return group.save();
   }
@@ -160,7 +155,10 @@ export class GroupsService {
       .exec();
   }
 
-  async findByMember(userId: string, organizationId: string): Promise<GroupDocument[]> {
+  async findByMember(
+    userId: string,
+    organizationId: string,
+  ): Promise<GroupDocument[]> {
     return this.groupModel
       .find({
         organizationId: new Types.ObjectId(organizationId),
@@ -178,12 +176,15 @@ export class GroupsService {
     for (const memberId of memberIds) {
       const user = await this.usersService.findOne(memberId, organizationId);
       // Users must be agents or admins to be in groups
-      if (user.role !== 'agent' && user.role !== 'admin') {
+      if (
+        user.role !== 'agent' &&
+        user.role !== 'admin' &&
+        user.role !== 'light_agent'
+      ) {
         throw new BadRequestException(
-          `User ${user.email} must be an agent or admin to be added to a group`,
+          `User ${user.email} must be an agent, light agent, or admin to be added to a group`,
         );
       }
     }
   }
 }
-

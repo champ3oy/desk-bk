@@ -17,7 +17,17 @@ export class Group {
   @Prop({ required: false })
   description?: string;
 
-  @ApiProperty({ description: 'Organization ID', example: '507f1f77bcf86cd799439011' })
+  @ApiPropertyOptional({
+    description: 'Group color hex code',
+    example: '#06B6D4',
+  })
+  @Prop({ required: false, default: '#06B6D4' })
+  color?: string;
+
+  @ApiProperty({
+    description: 'Organization ID',
+    example: '507f1f77bcf86cd799439011',
+  })
   @Prop({ type: Types.ObjectId, ref: 'Organization', required: true })
   organizationId: Types.ObjectId;
 
@@ -53,4 +63,3 @@ export const GroupSchema = SchemaFactory.createForClass(Group);
 
 // Create compound index for name uniqueness within organization
 GroupSchema.index({ name: 1, organizationId: 1 }, { unique: true });
-
