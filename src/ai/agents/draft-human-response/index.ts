@@ -33,6 +33,7 @@ const DRAFT_SYSTEM_PROMPT = `You are an AI assistant helping a human customer su
 - NEVER include sign-offs like "Best regards", "Sincerely", etc.
 - NEVER include agent names or signatures
 - End your response after providing the solution or next steps
+- Do not use any markdown formatting
 - Signatures are handled separately by the system
 
 # OUTPUT FORMAT
