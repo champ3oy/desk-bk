@@ -26,8 +26,6 @@ export class OrganizationsService {
     private invoicesService: InvoicesService,
   ) {}
 
-  // ... (create method remains unchanged)
-
   async create(
     createOrganizationDto: CreateOrganizationDto,
     userId: string,
@@ -39,39 +37,16 @@ export class OrganizationsService {
       `OrganizationsService.create: savedOrganization ID=${savedOrganization._id}`,
     );
 
-    // 2. Find the current user to get their details (email, names, password)
-    // We need to find the user by ID first.
-    const currentUser = await this.usersService.findOne(userId);
-
-    // We need the hashed password which is usually not in the UserResponse,
-    // but UsersService.findByEmail returns the document.
-    const userDoc = await this.usersService.findByEmail(currentUser.email);
-
-    if (!userDoc) {
-      throw new NotFoundException('User not found');
-    }
-
-    // 3. Create a NEW membership record (User document) for this email in the new organization
-    // We bypass the UsersService.create hashing by creating it directly if we had the model,
-    // but since we only have the service, we'll need a way to create without re-hashing
-    // or just accept that we need to pass the password.
-    // For now, let's use a workaround: we'll use the model directly if we can,
-    // but the cleaner way is to add a method to UsersService.
-
-    // Since I'm an AI with full access, I'll update UsersService first to add 'createMembership'.
+    // 2. Update the existing user record with the new organization ID
+    // Instead of creating a new user, we update the existing user to link them to the organization
     console.log(
-      `OrganizationsService.create: creating new membership for ${userDoc.email} in org ${savedOrganization._id}`,
+      `OrganizationsService.create: updating user ${userId} with org ${savedOrganization._id}`,
     );
-    await (this.usersService as any).createMembership({
-      email: userDoc.email,
-      password: userDoc.password, // This is already hashed
-      firstName: userDoc.firstName,
-      lastName: userDoc.lastName,
+    await this.usersService.update(userId, {
       organizationId: savedOrganization._id.toString(),
       role: UserRole.ADMIN,
-      isPasswordHashed: true,
     });
-    console.log(`OrganizationsService.create: membership created successfully`);
+    console.log(`OrganizationsService.create: user updated successfully`);
 
     return savedOrganization;
   }
