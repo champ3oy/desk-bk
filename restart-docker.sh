@@ -22,7 +22,8 @@ if [ "$ENV" == "dev" ]; then
     echo "----------------------------------------"
     
     echo "🛑  Stopping containers..."
-    docker compose -f docker-compose.yml down
+    docker compose -f docker-compose.yml down --remove-orphans || true
+    docker rm -f morph-backend || true
     
     echo "🏗️   Building and starting containers..."
     docker compose -f docker-compose.yml up --build -d
@@ -35,7 +36,8 @@ elif [ "$ENV" == "prod" ]; then
     echo "---------------------------------------"
     
     echo "🛑  Stopping containers..."
-    docker compose -f docker-compose.prod.yml down
+    docker compose -f docker-compose.prod.yml down --remove-orphans || true
+    docker rm -f morph-backend-prod || true
     
     echo "🏗️   Building and starting containers..."
     docker compose -f docker-compose.prod.yml up --build -d
@@ -50,7 +52,8 @@ elif [ "$ENV" == "all" ]; then
     # 1. Restart PROD (Primary)
     echo "🔹  Step 1/2: Production Environment"
     echo "🛑  Stopping Prod containers..."
-    docker compose -f docker-compose.prod.yml down --remove-orphans
+    docker compose -f docker-compose.prod.yml down --remove-orphans || true
+    docker rm -f morph-backend-prod || true
     echo "🏗️   Starting Prod containers (Port: 3000)..."
     # Prod runs on default port 3000
     PORT=3000 docker compose -f docker-compose.prod.yml up --build -d
@@ -60,7 +63,8 @@ elif [ "$ENV" == "all" ]; then
     # 2. Restart DEV (Secondary)
     echo "🔹  Step 2/2: Development Environment"
     echo "🛑  Stopping Dev containers..."
-    docker compose -f docker-compose.yml down --remove-orphans
+    docker compose -f docker-compose.yml down --remove-orphans || true
+    docker rm -f morph-backend || true
     echo "🏗️   Starting Dev containers (Port: 3001)..."
     # Force Dev to run on port 3001
     PORT=3001 docker compose -f docker-compose.yml up --build -d
