@@ -1,5 +1,5 @@
 # Use Playwright's official image which includes browser binaries
-FROM mcr.microsoft.com/playwright:v1.49.1-noble
+FROM mcr.microsoft.com/playwright:v1.58.0-noble
 
 WORKDIR /app
 

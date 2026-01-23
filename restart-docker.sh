@@ -22,28 +22,26 @@ if [ "$ENV" == "dev" ]; then
     echo "----------------------------------------"
     
     echo "🛑  Stopping containers..."
-    docker compose -f docker-compose.yml down --remove-orphans || true
-    docker rm -f morph-backend || true
+    docker compose -p desk-dev -f docker-compose.yml --env-file .env.development down --remove-orphans || true
     
     echo "🏗️   Building and starting containers..."
-    docker compose -f docker-compose.yml up --build -d
+    docker compose -p desk-dev -f docker-compose.yml --env-file .env.development up -d --build
     
     echo "✅  Development environment started!"
-    echo "Logs: docker compose -f docker-compose.yml logs -f"
+    echo "Logs: docker compose -p desk-dev -f docker-compose.yml logs -f"
 
 elif [ "$ENV" == "prod" ]; then
     echo "🔄  Restarting PRODUCTION environment..."
     echo "---------------------------------------"
     
     echo "🛑  Stopping containers..."
-    docker compose -f docker-compose.prod.yml down --remove-orphans || true
-    docker rm -f morph-backend-prod || true
+    docker compose -p desk-prod -f docker-compose.prod.yml --env-file .env.production down --remove-orphans || true
     
     echo "🏗️   Building and starting containers..."
-    docker compose -f docker-compose.prod.yml up --build -d
+    docker compose -p desk-prod -f docker-compose.prod.yml --env-file .env.production up -d --build
     
     echo "✅  Production environment started!"
-    echo "Logs: docker compose -f docker-compose.prod.yml logs -f"
+    echo "Logs: docker compose -p desk-prod -f docker-compose.prod.yml logs -f"
 
 elif [ "$ENV" == "all" ]; then
     echo "🔄  Restarting BOTH Development and Production environments..."
@@ -52,27 +50,25 @@ elif [ "$ENV" == "all" ]; then
     # 1. Restart PROD (Primary)
     echo "🔹  Step 1/2: Production Environment"
     echo "🛑  Stopping Prod containers..."
-    docker compose -f docker-compose.prod.yml down --remove-orphans || true
-    docker rm -f morph-backend-prod || true
+    docker compose -p desk-prod -f docker-compose.prod.yml --env-file .env.production down --remove-orphans || true
+    
     echo "🏗️   Starting Prod containers (Port: 3000)..."
-    # Prod runs on default port 3000
-    PORT=3000 docker compose -f docker-compose.prod.yml up --build -d
+    docker compose -p desk-prod -f docker-compose.prod.yml --env-file .env.production up -d --build
     
     echo ""
     
     # 2. Restart DEV (Secondary)
     echo "🔹  Step 2/2: Development Environment"
     echo "🛑  Stopping Dev containers..."
-    docker compose -f docker-compose.yml down --remove-orphans || true
-    docker rm -f morph-backend || true
+    docker compose -p desk-dev -f docker-compose.yml --env-file .env.development down --remove-orphans || true
+    
     echo "🏗️   Starting Dev containers (Port: 3001)..."
-    # Force Dev to run on port 3001
-    PORT=3001 docker compose -f docker-compose.yml up --build -d
+    docker compose -p desk-dev -f docker-compose.yml --env-file .env.development up -d --build
     
     echo "---------------------------------------------------------"
     echo "✅  All systems operational!"
-    echo "�  Prod API: http://localhost:3000"
-    echo "�️   Dev API:  http://localhost:3001"
+    echo "👉  Prod API: http://localhost:3000"
+    echo "👉  Dev API:  http://localhost:3001"
 
 else
     echo "❌  Error: Invalid argument '$ENV'. Must be 'dev', 'prod', or 'all'."
