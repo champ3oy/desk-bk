@@ -177,50 +177,10 @@ export const playgroundChat = async (
       const parsed = JSON.parse(jsonMatch[0]);
 
       if (parsed.action === 'ESCALATE') {
-        // Generate AI escalation message
-        try {
-          const historyText =
-            history && history.length > 0
-              ? history
-                  .slice(-5)
-                  .map(
-                    (h) =>
-                      `${h.role === 'user' ? 'Customer' : 'AI'}: ${h.content}`,
-                  )
-                  .join('\n')
-              : '';
-
-          const fullConversation = `${historyText}\nCustomer: ${message}`;
-
-          const prompt = `You are a helpful customer support AI. 
-The current conversation needs to be escalated to a human agent.
-
-Context:
-Recent Conversation:
-${fullConversation}
-
-Task: Write a polite, concise message to the customer explaining that you are passing the conversation to a human agent. 
-Do not apologize unless necessary. Be professional and reassuring.
-Return ONLY the message text.`;
-
-          const escResponse = await model.invoke(prompt);
-          const escText =
-            typeof escResponse.content === 'string' ? escResponse.content : '';
-
-          if (escText) {
-            responseText = escText.trim().replace(/^"|"$/g, '');
-          } else {
-            responseText =
-              "I'll connect you with a human agent to assist you further.";
-          }
-        } catch (error) {
-          console.error(
-            '[Playground] Failed to generate escalation message',
-            error,
-          );
-          responseText =
-            "I'll connect you with a human agent to assist you further.";
-        }
+        // Use a simple template instead of making a second LLM call
+        // This saves 2-5 seconds per escalation
+        responseText =
+          "I'll connect you with a human agent who can better assist you with this request. They'll be with you shortly.";
       } else if (parsed.action === 'REPLY' && parsed.content) {
         responseText = parsed.content;
       }

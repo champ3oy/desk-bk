@@ -30,5 +30,7 @@ export class ConcurrencySemaphore {
   }
 }
 
-// Global instance for Gemini API to stay within Free Tier limits
-export const geminiSemaphore = new ConcurrencySemaphore(1);
+// Global instance for Gemini API
+// Paid tier: can handle many concurrent requests (15+)
+// Free tier: set to 1 to stay within rate limits
+export const geminiSemaphore = new ConcurrencySemaphore(15);

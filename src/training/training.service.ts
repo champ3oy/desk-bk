@@ -309,20 +309,36 @@ export class TrainingService {
     }
   }
 
+  // Cached embeddings instance (singleton pattern)
+  private embeddingsInstance: GoogleGenerativeAIEmbeddings | null = null;
+
+  private getEmbeddingsInstance(): GoogleGenerativeAIEmbeddings | null {
+    if (this.embeddingsInstance) {
+      return this.embeddingsInstance;
+    }
+
+    const apiKey = this.configService.get<string>('ai.geminiApiKey');
+    if (!apiKey) {
+      console.warn('Gemini API key not found, skipping embedding generation');
+      return null;
+    }
+
+    this.embeddingsInstance = new GoogleGenerativeAIEmbeddings({
+      modelName: 'text-embedding-004',
+      apiKey,
+    });
+
+    return this.embeddingsInstance;
+  }
+
   private async generateEmbedding(text: string): Promise<number[]> {
     try {
       if (!text || text.trim().length === 0) return [];
 
-      const apiKey = this.configService.get<string>('ai.geminiApiKey');
-      if (!apiKey) {
-        console.warn('Gemini API key not found, skipping embedding generation');
+      const embeddings = this.getEmbeddingsInstance();
+      if (!embeddings) {
         return [];
       }
-
-      const embeddings = new GoogleGenerativeAIEmbeddings({
-        modelName: 'embedding-001', // or text-embedding-004
-        apiKey,
-      });
 
       return await embeddings.embedQuery(text);
     } catch (error) {
