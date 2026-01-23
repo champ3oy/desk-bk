@@ -3,6 +3,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { ConfigModule } from '@nestjs/config';
 import { TrainingController } from './training.controller';
 import { TrainingService } from './training.service';
+import { ScraperService } from './scraper.service';
 import {
   TrainingSource,
   TrainingSourceSchema,
@@ -16,7 +17,7 @@ import {
     ConfigModule,
   ],
   controllers: [TrainingController],
-  providers: [TrainingService],
-  exports: [TrainingService],
+  providers: [TrainingService, ScraperService],
+  exports: [TrainingService, ScraperService],
 })
 export class TrainingModule {}

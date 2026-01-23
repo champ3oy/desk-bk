@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import {
@@ -6,20 +6,22 @@ import {
   TrainingSourceDocument,
 } from './entities/training-source.entity';
 import { CreateTrainingSourceDto } from './dto/create-training-source.dto';
+import { ScraperService } from './scraper.service';
 
 import { GoogleGenerativeAIEmbeddings } from '@langchain/google-genai';
 import { ConfigService } from '@nestjs/config';
-import { convert } from 'html-to-text';
 import * as mammoth from 'mammoth';
 import { PDFParse } from 'pdf-parse';
 
 @Injectable()
 export class TrainingService {
+  private readonly logger = new Logger(TrainingService.name);
+
   constructor(
-    @InjectModel(TrainingSource.name)
     @InjectModel(TrainingSource.name)
     private trainingSourceModel: Model<TrainingSourceDocument>,
     private configService: ConfigService,
+    private scraperService: ScraperService,
   ) {}
 
   async create(
@@ -36,21 +38,30 @@ export class TrainingService {
         sourceData.content.startsWith('https'))
     ) {
       try {
-        const scraped = await this.scrapeUrl(sourceData.content);
+        this.logger.log(`Scraping URL: ${sourceData.content}`);
+        const scrapedPage = await this.scraperService.scrapeUrl(
+          sourceData.content,
+        );
 
         // Store metadata
         sourceData.metadata = {
           ...(sourceData.metadata || {}),
           originalUrl: sourceData.content,
-          scrapedAt: new Date(),
+          scrapedAt: scrapedPage.metadata.scrapedAt,
+          loadTimeMs: scrapedPage.metadata.loadTimeMs,
+          title: scrapedPage.title,
         };
 
         // Replace URL with actual text content for the AI
-        sourceData.content = scraped;
+        sourceData.content = scrapedPage.content;
 
         // Update size estimate
-        const kbSize = (scraped.length / 1024).toFixed(1);
+        const kbSize = (scrapedPage.content.length / 1024).toFixed(1);
         sourceData.size = `${kbSize} KB`;
+
+        this.logger.log(
+          `Scraped ${sourceData.content.length} chars from ${sourceData.metadata.originalUrl}`,
+        );
       } catch (error) {
         console.error(`Failed to scrape URL ${sourceData.content}:`, error);
         // We throw so the frontend knows it failed
@@ -74,23 +85,7 @@ export class TrainingService {
     return createdSource.save();
   }
 
-  private async scrapeUrl(url: string): Promise<string> {
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    const html = await response.text();
-    return convert(html, {
-      wordwrap: false,
-      selectors: [
-        { selector: 'img', format: 'skip' },
-        { selector: 'script', format: 'skip' },
-        { selector: 'style', format: 'skip' },
-        { selector: 'nav', format: 'skip' }, // Skip navigation menus typically
-        { selector: 'footer', format: 'skip' }, // Skip footers typically
-      ],
-    });
-  }
+  // Scraping is now handled by ScraperService (Playwright-based)
 
   async findAll(organizationId: string): Promise<TrainingSource[]> {
     return this.trainingSourceModel
@@ -148,78 +143,12 @@ export class TrainingService {
     }
   }
 
-  async scanWebsite(url: string): Promise<any[]> {
-    try {
-      // Ensure URL has protocol
-      if (!url.startsWith('http://') && !url.startsWith('https://')) {
-        url = 'https://' + url;
-      }
-
-      const response = await fetch(url);
-      const html = await response.text();
-
-      const pages: { url: string; title: string; status: number }[] = [];
-      const visitedUrls = new Set<string>();
-
-      // Add the main page
-      const titleMatch = /<title>(.*?)<\/title>/i.exec(html);
-      const pageTitle = titleMatch ? titleMatch[1] : 'Home';
-
-      visitedUrls.add(url);
-      pages.push({
-        url: url,
-        title: pageTitle,
-        status: response.status,
-      });
-
-      // Simple regex to find links (basic implementation)
-      const linkRegex = /<a[^>]+href=["']([^"']+)["'][^>]*>(.*?)<\/a>/gi;
-      let match;
-
-      const baseUrlObject = new URL(url);
-      const origin = baseUrlObject.origin;
-
-      while ((match = linkRegex.exec(html)) !== null) {
-        if (pages.length >= 50) break; // Limit to 50 pages
-
-        const href = match[1];
-        let linkText = match[2].replace(/<[^>]*>/g, '').trim(); // Strip HTML tags from link text
-
-        try {
-          // Resolve relative URLs
-          const fullUrl = new URL(href, url);
-
-          // Only include internal links that match the origin
-          if (
-            fullUrl.origin === origin &&
-            !visitedUrls.has(fullUrl.toString())
-          ) {
-            // Filter out files, anchors, etc
-            if (fullUrl.pathname.match(/\.(jpg|jpeg|png|gif|pdf|css|js)$/i))
-              continue;
-
-            visitedUrls.add(fullUrl.toString());
-
-            // Use the path as title if text is empty or generic
-            if (!linkText || linkText.length > 50) {
-              linkText = fullUrl.pathname === '/' ? 'Home' : fullUrl.pathname;
-            }
-
-            pages.push({
-              url: fullUrl.toString(),
-              title: linkText,
-              status: 200, // We assume 200 for discovered links for now
-            });
-          }
-        } catch (e) {
-          // Invalid URL, skip
-        }
-      }
-
-      return pages;
-    } catch (error) {
-      throw new Error(`Failed to scan website: ${error.message}`);
-    }
+  /**
+   * Scan a website and discover all pages (uses Playwright crawler)
+   */
+  async scanWebsite(url: string, maxPages: number = 50): Promise<any[]> {
+    this.logger.log(`Scanning website: ${url}`);
+    return this.scraperService.scanWebsite(url, maxPages);
   }
   async findSimilar(
     embedding: number[],

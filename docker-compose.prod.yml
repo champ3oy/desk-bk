@@ -9,3 +9,6 @@ services:
     env_file:
       - .env.production
     restart: always
+    # Required for Playwright/Chromium to work properly
+    shm_size: '2gb'
+    ipc: host
