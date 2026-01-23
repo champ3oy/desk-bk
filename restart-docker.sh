@@ -47,28 +47,28 @@ elif [ "$ENV" == "all" ]; then
     echo "🔄  Restarting BOTH Development and Production environments..."
     echo "---------------------------------------------------------"
     
-    # 1. Restart Development
-    echo "🔹  Step 1/2: Development Environment"
-    echo "🛑  Stopping Dev containers..."
-    docker compose -f docker-compose.yml down
-    echo "🏗️   Starting Dev containers (Port: ${PORT:-3000})..."
-    # Ensure Dev uses default port 3000 if not set
-    PORT=${PORT:-3000} docker compose -f docker-compose.yml up --build -d
+    # 1. Restart PROD (Primary)
+    echo "🔹  Step 1/2: Production Environment"
+    echo "🛑  Stopping Prod containers..."
+    docker compose -f docker-compose.prod.yml down --remove-orphans
+    echo "🏗️   Starting Prod containers (Port: 3000)..."
+    # Prod runs on default port 3000
+    PORT=3000 docker compose -f docker-compose.prod.yml up --build -d
     
     echo ""
     
-    # 2. Restart Production
-    echo "🔹  Step 2/2: Production Environment"
-    echo "🛑  Stopping Prod containers..."
-    docker compose -f docker-compose.prod.yml down
-    echo "🏗️   Starting Prod containers (Port: 3001)..."
-    # Force Prod to run on port 3001 to avoid conflict with Dev
-    PORT=3001 docker compose -f docker-compose.prod.yml up --build -d
+    # 2. Restart DEV (Secondary)
+    echo "🔹  Step 2/2: Development Environment"
+    echo "🛑  Stopping Dev containers..."
+    docker compose -f docker-compose.yml down --remove-orphans
+    echo "🏗️   Starting Dev containers (Port: 3001)..."
+    # Force Dev to run on port 3001
+    PORT=3001 docker compose -f docker-compose.yml up --build -d
     
     echo "---------------------------------------------------------"
     echo "✅  All systems operational!"
-    echo "🖥️   Dev API:  http://localhost:${PORT:-3000}"
-    echo "🚀  Prod API: http://localhost:3001"
+    echo "�  Prod API: http://localhost:3000"
+    echo "�️   Dev API:  http://localhost:3001"
 
 else
     echo "❌  Error: Invalid argument '$ENV'. Must be 'dev', 'prod', or 'all'."
