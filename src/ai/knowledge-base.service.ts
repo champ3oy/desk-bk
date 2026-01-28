@@ -30,7 +30,7 @@ export class KnowledgeBaseService {
     this.embeddingsInstance = new GoogleGenerativeAIEmbeddings({
       modelName: 'text-embedding-004',
       apiKey,
-      maxRetries: 0, // Fail fast on rate limits instead of waiting 60s
+      maxRetries: 0,
     });
 
     this.logger.log('Created singleton embeddings instance');

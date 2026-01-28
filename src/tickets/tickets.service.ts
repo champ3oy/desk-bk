@@ -869,6 +869,31 @@ Return ONLY the message text.`;
       );
     }
 
+    // Track resolution for analytics
+    if (
+      (updateTicketDto.status === TicketStatus.RESOLVED ||
+        updateTicketDto.status === TicketStatus.CLOSED) &&
+      (!existingTicket.resolvedAt ||
+        existingTicket.status !== updateTicketDto.status)
+    ) {
+      updateData.resolvedAt = new Date();
+      // If resolutionType isn't already set (e.g. by AI), default to 'human'
+      if (!existingTicket.resolutionType && !updateData.resolutionType) {
+        updateData.resolutionType =
+          userRole === UserRole.ADMIN || userRole === UserRole.AGENT
+            ? 'human'
+            : 'human';
+      }
+    } else if (
+      updateTicketDto.status &&
+      updateTicketDto.status !== TicketStatus.RESOLVED &&
+      updateTicketDto.status !== TicketStatus.CLOSED
+    ) {
+      // If ticket is re-opened, clear resolution data
+      updateData.resolvedAt = null;
+      updateData.resolutionType = null;
+    }
+
     // Use findByIdAndUpdate to avoid validation errors on existing valid/invalid documents involved in full save()
     // and to handle atomic updates better.
     const updatedTicket = await this.ticketModel

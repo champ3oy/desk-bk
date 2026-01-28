@@ -186,6 +186,39 @@ export class ThreadsService {
 
     const savedMessage = await message.save();
 
+    // Update ticket's firstResponseAt if this is the first external response from agent/AI
+    if (
+      savedMessage.messageType === MessageType.EXTERNAL &&
+      (savedMessage.authorType === MessageAuthorType.USER ||
+        savedMessage.authorType === MessageAuthorType.AI)
+    ) {
+      // Use a background update to avoid blocking
+      this.ticketsService
+        .findOne(
+          thread.ticketId.toString(),
+          organizationId, // use orgId as userId for admin access
+          UserRole.ADMIN,
+          organizationId,
+        )
+        .then(async (ticket) => {
+          if (ticket && !ticket.firstResponseAt) {
+            await this.ticketsService.update(
+              ticket._id.toString(),
+              { firstResponseAt: new Date() } as any,
+              organizationId,
+              UserRole.ADMIN,
+              organizationId,
+            );
+          }
+        })
+        .catch((err) =>
+          console.error(
+            `Failed to update firstResponseAt for ticket ${thread.ticketId}`,
+            err,
+          ),
+        );
+    }
+
     // Auto-reply Logic for existing threads (Customer messages)
     if (
       savedMessage.messageType === MessageType.EXTERNAL &&

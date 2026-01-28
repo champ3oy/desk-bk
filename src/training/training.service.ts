@@ -10,6 +10,8 @@ import { ScraperService } from './scraper.service';
 
 import { GoogleGenerativeAIEmbeddings } from '@langchain/google-genai';
 import { ConfigService } from '@nestjs/config';
+import { HumanMessage } from '@langchain/core/messages';
+import { AIModelFactory } from '../ai/ai-model.factory';
 import * as mammoth from 'mammoth';
 import { PDFParse } from 'pdf-parse';
 
@@ -37,37 +39,46 @@ export class TrainingService {
       (sourceData.content.startsWith('http') ||
         sourceData.content.startsWith('https'))
     ) {
-      try {
-        this.logger.log(`Scraping URL: ${sourceData.content}`);
-        const scrapedPage = await this.scraperService.scrapeUrl(
-          sourceData.content,
+      // Check if scraping is disabled in this environment
+      if (this.configService.get<boolean>('ai.webDisableScraping')) {
+        this.logger.warn(
+          `Scraping is disabled in this environment. Skipping URL: ${sourceData.content}`,
         );
+        sourceData.content = `[Scraping Disabled] ${sourceData.content}`;
+        sourceData.size = '0 KB';
+      } else {
+        try {
+          this.logger.log(`Scraping URL: ${sourceData.content}`);
+          const scrapedPage = await this.scraperService.scrapeUrl(
+            sourceData.content,
+          );
 
-        // Store metadata
-        sourceData.metadata = {
-          ...(sourceData.metadata || {}),
-          originalUrl: sourceData.content,
-          scrapedAt: scrapedPage.metadata.scrapedAt,
-          loadTimeMs: scrapedPage.metadata.loadTimeMs,
-          title: scrapedPage.title,
-        };
+          // Store metadata
+          sourceData.metadata = {
+            ...(sourceData.metadata || {}),
+            originalUrl: sourceData.content,
+            scrapedAt: scrapedPage.metadata.scrapedAt,
+            loadTimeMs: scrapedPage.metadata.loadTimeMs,
+            title: scrapedPage.title,
+          };
 
-        // Replace URL with actual text content for the AI
-        sourceData.content = scrapedPage.content;
+          // Replace URL with actual text content for the AI
+          sourceData.content = scrapedPage.content;
 
-        // Update size estimate
-        const kbSize = (scrapedPage.content.length / 1024).toFixed(1);
-        sourceData.size = `${kbSize} KB`;
+          // Update size estimate
+          const kbSize = (scrapedPage.content.length / 1024).toFixed(1);
+          sourceData.size = `${kbSize} KB`;
 
-        this.logger.log(
-          `Scraped ${sourceData.content.length} chars from ${sourceData.metadata.originalUrl}`,
-        );
-      } catch (error) {
-        console.error(`Failed to scrape URL ${sourceData.content}:`, error);
-        // We throw so the frontend knows it failed
-        throw new Error(
-          `Failed to scrape content from ${sourceData.content}: ${error.message}`,
-        );
+          this.logger.log(
+            `Scraped ${sourceData.content.length} chars from ${sourceData.metadata.originalUrl}`,
+          );
+        } catch (error) {
+          console.error(`Failed to scrape URL ${sourceData.content}:`, error);
+          // We throw so the frontend knows it failed
+          throw new Error(
+            `Failed to scrape content from ${sourceData.content}: ${error.message}`,
+          );
+        }
       }
     }
 
@@ -147,6 +158,12 @@ export class TrainingService {
    * Scan a website and discover all pages (uses Playwright crawler)
    */
   async scanWebsite(url: string, maxPages: number = 50): Promise<any[]> {
+    if (this.configService.get<boolean>('ai.webDisableScraping')) {
+      this.logger.warn(
+        `Website scanning is disabled in this environment. Skipping scan for: ${url}`,
+      );
+      return [];
+    }
     this.logger.log(`Scanning website: ${url}`);
     return this.scraperService.scanWebsite(url, maxPages);
   }
@@ -188,7 +205,7 @@ export class TrainingService {
 
     const sourceData: any = {
       name: file.originalname,
-      type: 'file',
+      type: file.mimetype.startsWith('image/') ? 'image' : 'file',
       content,
       size: (file.size / 1024).toFixed(1) + ' KB',
       metadata: {
@@ -230,11 +247,48 @@ export class TrainingService {
         file.mimetype === 'application/json'
       ) {
         return file.buffer.toString('utf-8');
+      } else if (file.mimetype.startsWith('image/')) {
+        return this.analyzeImage(file);
       } else {
         throw new Error(`Unsupported file type: ${file.mimetype}`);
       }
     } catch (error) {
       throw new Error(`Failed to parse file: ${error.message}`);
+    }
+  }
+
+  private async analyzeImage(file: Express.Multer.File): Promise<string> {
+    try {
+      this.logger.log(
+        `Analyzing image: ${file.originalname} (${file.mimetype})`,
+      );
+
+      const model = AIModelFactory.create(this.configService);
+
+      const base64Image = file.buffer.toString('base64');
+
+      const message = new HumanMessage({
+        content: [
+          {
+            type: 'text',
+            text: 'Analyze this image for a knowledge base. Extract all visible text (OCR) and provide a detailed technical description of any diagrams, charts, or visual information. Format the output clearly so it can be indexed for semantic search.',
+          },
+          {
+            type: 'image_url',
+            image_url: `data:${file.mimetype};base64,${base64Image}`,
+          },
+        ],
+      });
+
+      const response = await model.invoke([message]);
+      return typeof response.content === 'string'
+        ? response.content
+        : JSON.stringify(response.content);
+    } catch (error) {
+      this.logger.error(
+        `Failed to analyze image ${file.originalname}: ${error.message}`,
+      );
+      throw new Error(`Failed to analyze image: ${error.message}`);
     }
   }
 

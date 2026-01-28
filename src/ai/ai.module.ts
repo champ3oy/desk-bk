@@ -8,6 +8,7 @@ import { OrganizationsModule } from '../organizations/organizations.module';
 import { TrainingModule } from '../training/training.module';
 import { KnowledgeBaseService } from './knowledge-base.service';
 import { CustomersModule } from '../customers/customers.module';
+import { AiVoiceGateway } from '../gateways/ai-voice.gateway';
 
 @Module({
   imports: [
@@ -20,7 +21,7 @@ import { CustomersModule } from '../customers/customers.module';
     CustomersModule,
   ],
   controllers: [AiController],
-  providers: [KnowledgeBaseService],
+  providers: [KnowledgeBaseService, AiVoiceGateway],
   exports: [KnowledgeBaseService],
 })
 export class AiModule {}

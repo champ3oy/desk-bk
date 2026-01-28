@@ -21,6 +21,7 @@ import { SessionsModule } from './sessions/sessions.module';
 import { InvoicesModule } from './invoices/invoices.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { AnalyticsModule } from './analytics/analytics.module';
 import { MacrosModule } from './macros/macros.module';
 
 import databaseConfig from './config/database.config';
@@ -63,6 +64,7 @@ import { StorageModule } from './storage/storage.module';
     InvoicesModule,
     NotificationsModule,
     MacrosModule,
+    AnalyticsModule,
     StorageModule,
   ],
   controllers: [AppController],

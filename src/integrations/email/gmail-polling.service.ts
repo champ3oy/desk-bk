@@ -8,6 +8,8 @@ import { MessageChannel } from '../../threads/entities/message.entity';
 import { IncomingMessageDto } from '../../ingestion/dto/incoming-message.dto';
 import { StorageService } from '../../storage/storage.service';
 
+import { ConfigService } from '@nestjs/config';
+
 @Injectable()
 export class GmailPollingService {
   private readonly logger = new Logger(GmailPollingService.name);
@@ -18,6 +20,7 @@ export class GmailPollingService {
     @Inject(forwardRef(() => IngestionService))
     private ingestionService: IngestionService,
     private storageService: StorageService,
+    private configService: ConfigService,
   ) {}
 
   /**
@@ -25,6 +28,11 @@ export class GmailPollingService {
    */
   @Cron(CronExpression.EVERY_MINUTE)
   async pollEmails() {
+    if (this.configService.get<boolean>('ai.disablePolling')) {
+      this.logger.debug('Email polling is disabled by configuration');
+      return;
+    }
+
     if (this.isPolling) {
       this.logger.debug('Polling already in progress, skipping...');
       return;

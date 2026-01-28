@@ -74,7 +74,7 @@ export class ScraperService implements OnModuleDestroy {
     const browser = await this.getBrowser();
     const context = await browser.newContext({
       userAgent:
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
       viewport: { width: 1280, height: 720 },
     });
 
@@ -83,10 +83,11 @@ export class ScraperService implements OnModuleDestroy {
     try {
       this.logger.debug(`Scraping: ${url}`);
 
-      // Navigate with timeout and wait for network to settle
+      // Navigate with timeout and wait for DOM to be ready
+      // We use 'domcontentloaded' as it's more reliable than 'networkidle' for sites with persistent requests
       await page.goto(url, {
-        waitUntil: 'networkidle',
-        timeout: 30000,
+        waitUntil: 'domcontentloaded',
+        timeout: 45000, // Slightly longer timeout
       });
 
       // Wait for main content to load

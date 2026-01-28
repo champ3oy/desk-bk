@@ -11,6 +11,8 @@ import { MessageChannel } from '../../threads/entities/message.entity';
 import { IncomingMessageDto } from '../../ingestion/dto/incoming-message.dto';
 import { StorageService } from '../../storage/storage.service';
 
+import { ConfigService } from '@nestjs/config';
+
 @Injectable()
 export class OutlookPollingService {
   private readonly logger = new Logger(OutlookPollingService.name);
@@ -21,6 +23,7 @@ export class OutlookPollingService {
     @Inject(forwardRef(() => IngestionService))
     private ingestionService: IngestionService,
     private storageService: StorageService,
+    private configService: ConfigService,
   ) {}
 
   /**
@@ -28,6 +31,11 @@ export class OutlookPollingService {
    */
   @Cron(CronExpression.EVERY_MINUTE)
   async pollEmails() {
+    if (this.configService.get<boolean>('ai.disablePolling')) {
+      this.logger.debug('Email polling is disabled by configuration');
+      return;
+    }
+
     if (this.isPolling) {
       this.logger.debug('Outlook Polling already in progress, skipping...');
       return;

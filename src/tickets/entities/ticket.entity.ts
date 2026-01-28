@@ -144,6 +144,27 @@ export class Ticket {
   followers: Types.ObjectId[];
 
   @ApiPropertyOptional({
+    description: 'First response timestamp',
+    example: '2024-01-01T00:00:00.000Z',
+  })
+  @Prop({ required: false })
+  firstResponseAt?: Date;
+
+  @ApiPropertyOptional({
+    description: 'Resolution timestamp',
+    example: '2024-01-01T00:00:00.000Z',
+  })
+  @Prop({ required: false })
+  resolvedAt?: Date;
+
+  @ApiPropertyOptional({
+    description: 'How the ticket was resolved',
+    example: 'ai',
+  })
+  @Prop({ required: false })
+  resolutionType?: 'ai' | 'human';
+
+  @ApiPropertyOptional({
     description: 'Creation timestamp',
     example: '2024-01-01T00:00:00.000Z',
   })
