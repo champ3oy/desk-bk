@@ -249,7 +249,7 @@ export class ScraperService implements OnModuleDestroy {
    */
   async scanWebsite(
     startUrl: string,
-    maxPages: number = 50,
+    maxPages: number = 5,
   ): Promise<ScanResult[]> {
     const visited = new Set<string>();
     const results: ScanResult[] = [];

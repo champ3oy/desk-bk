@@ -7,6 +7,7 @@ import {
 } from './entities/training-source.entity';
 import { CreateTrainingSourceDto } from './dto/create-training-source.dto';
 import { ScraperService } from './scraper.service';
+import { ElevenLabsService } from '../integrations/elevenlabs/elevenlabs.service';
 
 import { GoogleGenerativeAIEmbeddings } from '@langchain/google-genai';
 import { ConfigService } from '@nestjs/config';
@@ -24,7 +25,10 @@ export class TrainingService {
     private trainingSourceModel: Model<TrainingSourceDocument>,
     private configService: ConfigService,
     private scraperService: ScraperService,
-  ) {}
+    private elevenLabsService: ElevenLabsService,
+  ) {
+    this.logger.log('TrainingService initialized with ElevenLabs integration.');
+  }
 
   async create(
     createTrainingSourceDto: CreateTrainingSourceDto,
@@ -93,7 +97,35 @@ export class TrainingService {
       embedding,
       organizationId: new Types.ObjectId(organizationId),
     });
-    return createdSource.save();
+    const savedSource = await createdSource.save();
+
+    this.logger.log(
+      `Created training source: ${JSON.stringify({
+        id: savedSource._id,
+        name: savedSource.name,
+        type: savedSource.type,
+        hasContent: !!savedSource.content,
+      })}`,
+    );
+
+    // Add to ElevenLabs Knowledge Base
+    if (savedSource.content) {
+      try {
+        this.logger.log(
+          `Adding content to ElevenLabs for source: ${savedSource.name}`,
+        );
+        await this.elevenLabsService.addToKnowledgeBase(
+          savedSource.name || (savedSource.content as string).substring(0, 50),
+          savedSource.content as string,
+          'text',
+        );
+        this.logger.log('ElevenLabs synchronization triggered.');
+      } catch (error) {
+        this.logger.error(`ElevenLabs sync failed: ${error.message}`);
+      }
+    }
+
+    return savedSource;
   }
 
   // Scraping is now handled by ScraperService (Playwright-based)
@@ -225,7 +257,22 @@ export class TrainingService {
       embedding,
       organizationId: new Types.ObjectId(organizationId),
     });
-    return createdSource.save();
+    const savedSource = await createdSource.save();
+
+    // Add to ElevenLabs Knowledge Base
+    if (content) {
+      try {
+        await this.elevenLabsService.addToKnowledgeBase(
+          file.originalname,
+          content,
+          'text',
+        );
+      } catch (error) {
+        this.logger.error(`ElevenLabs sync failed for file: ${error.message}`);
+      }
+    }
+
+    return savedSource;
   }
 
   private async parseFileContent(file: Express.Multer.File): Promise<string> {
@@ -307,7 +354,7 @@ export class TrainingService {
     }
 
     this.embeddingsInstance = new GoogleGenerativeAIEmbeddings({
-      modelName: 'text-embedding-004',
+      modelName: 'gemini-embedding-001',
       apiKey,
     });
 

@@ -18,4 +18,6 @@ export default registerAs('ai', () => ({
     process.env.WEB_DISABLE_SCRAPING === 'true' ||
     (process.env.NODE_ENV !== 'production' &&
       process.env.ENABLE_WEB_SCRAPING !== 'true'),
+  elevenLabsApiKey: process.env.ELEVENLABS_API_KEY,
+  elevenLabsAgentId: process.env.ELEVENLABS_AGENT_ID,
 }));

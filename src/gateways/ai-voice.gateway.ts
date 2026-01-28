@@ -64,7 +64,7 @@ export class AiVoiceGateway
     }
 
     const host = 'generativelanguage.googleapis.com';
-    const uri = `wss://${host}/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${apiKey}`;
+    const uri = `wss://${host}/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${apiKey}`;
 
     console.log(
       `Connecting to Gemini Bidi API: ${uri.replace(apiKey, 'HIDDEN')}`,
@@ -93,33 +93,33 @@ When answering, be professional and concise. `;
         this.geminiConnections.set(client.id, geminiWs);
 
         // Forced model for Live API
-        const targetModel = 'models/gemini-2.0-flash-exp';
+        const targetModel = 'models/gemini-2.5-flash-native-audio-latest';
 
         const setupMsg = {
           setup: {
             model: targetModel,
-            system_instruction: {
+            systemInstruction: {
               parts: [
                 { text: orgContext || 'You are a helpful AI assistant.' },
               ],
             },
-            generation_config: {
-              response_modalities: ['AUDIO'],
-              speech_config: {
-                voice_config: {
-                  prebuilt_voice_config: {
-                    voice_name: 'Aoede',
+            generationConfig: {
+              responseModalities: ['AUDIO'],
+              speechConfig: {
+                voiceConfig: {
+                  prebuiltVoiceConfig: {
+                    voiceName: 'Charon',
                   },
                 },
               },
             },
             tools: [
               {
-                function_declarations: [
+                functionDeclarations: [
                   {
                     name: 'search_knowledge_base',
                     description:
-                      'ALWAYS use this tool to answer user questions about the company, policies, or specific information. Examples: "What is your refund policy?", "How do I reset my password?". Do not halluncinate answers.',
+                      'ALWAYS use this tool to answer user questions about the company or specific information. Do not halluncinate answers.',
                     parameters: {
                       type: 'OBJECT',
                       properties: {
@@ -143,7 +143,7 @@ When answering, be professional and concise. `;
         client.emit('ai-status', { status: 'connected', model: targetModel });
       });
       geminiWs.on('message', async (dataBuffer: Buffer) => {
-        const handleToolCall = (toolCall: any) => {
+        const handleToolCall = async (toolCall: any) => {
           const functionCalls = toolCall.functionCalls || [];
           for (const call of functionCalls) {
             if (call.name === 'search_knowledge_base') {
@@ -154,32 +154,33 @@ When answering, be professional and concise. `;
               let results = 'No information found.';
 
               if (organizationId) {
-                (async () => {
-                  try {
-                    const searchResult =
-                      await this.knowledgeBaseService.retrieveRelevantContent(
-                        query,
-                        organizationId,
-                      );
-                    results = searchResult || 'No relevant documents found.';
-                    console.log(`Tool Result: ${results.substring(0, 50)}...`);
+                try {
+                  const searchResult =
+                    await this.knowledgeBaseService.retrieveRelevantContent(
+                      query,
+                      organizationId,
+                    );
+                  results = searchResult || 'No relevant documents found.';
+                  console.log(`Tool Result: ${results.substring(0, 50)}...`);
 
-                    const toolResponse = {
-                      tool_response: {
-                        function_responses: [
-                          {
-                            name: call.name,
-                            id: call.id,
-                            response: { result: results },
-                          },
-                        ],
-                      },
-                    };
+                  const toolResponse = {
+                    toolResponse: {
+                      functionResponses: [
+                        {
+                          name: call.name,
+                          id: call.id,
+                          response: { result: results },
+                        },
+                      ],
+                    },
+                  };
+
+                  if (geminiWs.readyState === WebSocket.OPEN) {
                     geminiWs.send(JSON.stringify(toolResponse));
-                  } catch (err) {
-                    console.error('Tool execution failed', err);
                   }
-                })();
+                } catch (err) {
+                  console.error('Tool execution failed', err);
+                }
               }
             }
           }
@@ -191,9 +192,6 @@ When answering, be professional and concise. `;
           if (response.setupComplete) {
             console.log('Gemini Setup Complete');
             client.emit('ai-status', { status: 'ready' });
-
-            // Inject context as the first user message since system_instruction is strict
-            // We send it as a 'realtime_input' which the model will "hear" or see as context
           }
 
           if (response.error) {
@@ -203,17 +201,16 @@ When answering, be professional and concise. `;
 
           // Handle Server Content (Turn or ToolCall)
           if (response.toolCall) {
-            // Some versions send toolCall at root
-            handleToolCall(response.toolCall);
+            await handleToolCall(response.toolCall);
           } else if (response.serverContent?.toolCall) {
-            handleToolCall(response.serverContent.toolCall);
+            await handleToolCall(response.serverContent.toolCall);
           } else if (response.serverContent?.modelTurn?.parts) {
-            // Sometimes tool calls are inside parts?
             for (const part of response.serverContent.modelTurn.parts) {
               if (part.functionCall) {
-                handleToolCall({
+                await handleToolCall({
                   functionCalls: [part.functionCall],
-                  id: 'turn_function_call',
+                  // Use the ID from the functionCall if available
+                  id: part.functionCall.id || 'turn_function_call',
                 });
               }
             }
@@ -261,10 +258,10 @@ When answering, be professional and concise. `;
     }
 
     const payload = {
-      realtime_input: {
-        media_chunks: [
+      realtimeInput: {
+        mediaChunks: [
           {
-            mime_type: chunk.mimeType || 'audio/pcm',
+            mimeType: chunk.mimeType || 'audio/pcm;rate=16000',
             data: chunk.data, // Expecting Base64
           },
         ],

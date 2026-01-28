@@ -8,6 +8,7 @@ import {
   TrainingSource,
   TrainingSourceSchema,
 } from './entities/training-source.entity';
+import { ElevenLabsModule } from '../integrations/elevenlabs/elevenlabs.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import {
       { name: TrainingSource.name, schema: TrainingSourceSchema },
     ]),
     ConfigModule,
+    ElevenLabsModule,
   ],
   controllers: [TrainingController],
   providers: [TrainingService, ScraperService],

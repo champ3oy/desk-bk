@@ -28,9 +28,8 @@ export class KnowledgeBaseService {
     }
 
     this.embeddingsInstance = new GoogleGenerativeAIEmbeddings({
-      modelName: 'text-embedding-004',
+      modelName: 'gemini-embedding-001',
       apiKey,
-      maxRetries: 0,
     });
 
     this.logger.log('Created singleton embeddings instance');
