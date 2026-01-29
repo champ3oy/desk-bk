@@ -17,13 +17,14 @@ export class StorageService {
       const blob = await put(filename, buffer, {
         access: 'public',
         contentType: mimeType,
+        addRandomSuffix: true,
       });
 
       this.logger.log(`File uploaded successfully: ${blob.url}`);
 
       return {
         path: blob.url, // Public URL from Vercel Blob
-        filename: filename,
+        filename: blob.pathname || filename,
         size: buffer.length,
       };
     } catch (error) {

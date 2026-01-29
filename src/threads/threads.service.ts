@@ -180,6 +180,7 @@ export class ThreadsService {
       authorId: new Types.ObjectId(userId),
       content: createMessageDto.content,
       channel: createMessageDto.channel || MessageChannel.PLATFORM,
+      attachments: createMessageDto.attachments || [],
       readBy: [],
       isRead: false,
     });

@@ -6,6 +6,8 @@ import { CreateAttachmentDto } from './dto/create-attachment.dto';
 import { Ticket, TicketDocument } from '../tickets/entities/ticket.entity';
 import { Comment, CommentDocument } from '../comments/entities/comment.entity';
 
+import { StorageService } from '../storage/storage.service';
+
 @Injectable()
 export class AttachmentsService {
   constructor(
@@ -15,11 +17,56 @@ export class AttachmentsService {
     private ticketModel: Model<TicketDocument>,
     @InjectModel(Comment.name)
     private commentModel: Model<CommentDocument>,
+    private storageService: StorageService,
   ) {}
 
-  async create(createAttachmentDto: CreateAttachmentDto): Promise<Attachment> {
+  async uploadFile(
+    file: Express.Multer.File,
+    organizationId: string,
+    ticketId?: string,
+  ): Promise<Attachment> {
+    if (!organizationId) {
+      throw new Error('organizationId is required');
+    }
+    const uploadedFile = await this.storageService.saveFile(
+      file.originalname,
+      file.buffer,
+      file.mimetype,
+    );
+
+    const attachmentData: any = {
+      filename: uploadedFile.filename,
+      originalName: file.originalname,
+      mimeType: file.mimetype,
+      size: uploadedFile.size,
+      path: uploadedFile.path,
+      organizationId: new Types.ObjectId(organizationId),
+    };
+
+    if (ticketId) {
+      try {
+        attachmentData.ticketId = new Types.ObjectId(ticketId);
+      } catch (e) {
+        console.warn(`Invalid ticketId provided: ${ticketId}`);
+        // Skip setting ticketId if invalid
+      }
+    }
+
+    const attachment = new this.attachmentModel(attachmentData);
+    return attachment.save();
+  }
+
+  async create(
+    createAttachmentDto: CreateAttachmentDto,
+    organizationId: string,
+  ): Promise<Attachment> {
+    if (!organizationId) {
+      throw new Error('organizationId is required');
+    }
     if (createAttachmentDto.ticketId) {
-      const ticket = await this.ticketModel.findById(createAttachmentDto.ticketId).exec();
+      const ticket = await this.ticketModel
+        .findById(createAttachmentDto.ticketId)
+        .exec();
       if (!ticket) {
         throw new NotFoundException(
           `Ticket with ID ${createAttachmentDto.ticketId} not found`,
@@ -28,7 +75,9 @@ export class AttachmentsService {
     }
 
     if (createAttachmentDto.commentId) {
-      const comment = await this.commentModel.findById(createAttachmentDto.commentId).exec();
+      const comment = await this.commentModel
+        .findById(createAttachmentDto.commentId)
+        .exec();
       if (!comment) {
         throw new NotFoundException(
           `Comment with ID ${createAttachmentDto.commentId} not found`,
@@ -39,14 +88,31 @@ export class AttachmentsService {
     const attachmentData: any = {
       ...createAttachmentDto,
       size: parseInt(createAttachmentDto.size, 10),
+      organizationId: new Types.ObjectId(organizationId),
     };
 
     if (createAttachmentDto.ticketId) {
-      attachmentData.ticketId = new Types.ObjectId(createAttachmentDto.ticketId);
+      try {
+        attachmentData.ticketId = new Types.ObjectId(
+          createAttachmentDto.ticketId,
+        );
+      } catch (e) {
+        console.warn(
+          `Invalid ticketId provided: ${createAttachmentDto.ticketId}`,
+        );
+      }
     }
 
     if (createAttachmentDto.commentId) {
-      attachmentData.commentId = new Types.ObjectId(createAttachmentDto.commentId);
+      try {
+        attachmentData.commentId = new Types.ObjectId(
+          createAttachmentDto.commentId,
+        );
+      } catch (e) {
+        console.warn(
+          `Invalid commentId provided: ${createAttachmentDto.commentId}`,
+        );
+      }
     }
 
     const attachment = new this.attachmentModel(attachmentData);
@@ -90,4 +156,3 @@ export class AttachmentsService {
     await this.attachmentModel.findByIdAndDelete(id).exec();
   }
 }
-

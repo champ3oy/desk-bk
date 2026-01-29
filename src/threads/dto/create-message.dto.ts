@@ -11,7 +11,8 @@ export class CreateMessageDto {
   content: string;
 
   @ApiProperty({
-    description: 'Message type - external (visible to customer) or internal (not visible to customer)',
+    description:
+      'Message type - external (visible to customer) or internal (not visible to customer)',
     enum: MessageType,
     example: MessageType.EXTERNAL,
   })
@@ -27,5 +28,27 @@ export class CreateMessageDto {
   @IsEnum(MessageChannel)
   @IsOptional()
   channel?: MessageChannel;
-}
 
+  @ApiPropertyOptional({
+    description: 'Array of attachments',
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: {
+        filename: { type: 'string' },
+        originalName: { type: 'string' },
+        mimeType: { type: 'string' },
+        size: { type: 'number' },
+        path: { type: 'string' },
+      },
+    },
+  })
+  @IsOptional()
+  attachments?: Array<{
+    filename: string;
+    originalName: string;
+    mimeType: string;
+    size: number;
+    path: string;
+  }>;
+}

@@ -73,8 +73,53 @@ export class DispatcherService {
       // inReplyTo and references should be the Message-ID from the last customer email
       // This ensures proper email threading in the customer's inbox
 
-      // Convert Markdown to HTML
-      let htmlContent = await marked.parse(message.content);
+      // Convert Markdown to HTML (avoid double parsing if already HTML)
+      let htmlContent: string;
+      const content = message.content || '';
+      if (
+        (content.includes('<p>') && content.includes('</p>')) ||
+        (content.includes('<div') && content.includes('</div>')) ||
+        content.includes('<br') ||
+        content.includes('<img')
+      ) {
+        htmlContent = content;
+      } else {
+        htmlContent = await marked.parse(content);
+      }
+
+      // Append Attachments (images) to HTML body if they exist
+      if (message.attachments && message.attachments.length > 0) {
+        let attachmentsHtml =
+          '<br/><div class="message-attachments" style="margin-top: 20px; border-top: 1px solid #eee; pt: 10px;">';
+        let hasImages = false;
+
+        message.attachments.forEach((att) => {
+          if (!att.path || att.path === 'undefined') return;
+
+          // Check if this attachment is already embedded in the HTML body
+          if (htmlContent.includes(att.path)) return;
+
+          if (att.mimeType?.startsWith('image/')) {
+            hasImages = true;
+            attachmentsHtml += `<div style="margin-bottom: 15px;">
+              <p style="font-size: 12px; color: #666; margin-bottom: 5px;">${att.originalName}</p>
+              <img src="${att.path}" alt="${att.originalName}" style="max-width: 100%; border-radius: 8px; border: 1px solid #ddd;" />
+            </div>`;
+          } else {
+            // For non-image files, just add a link
+            attachmentsHtml += `<div style="margin-bottom: 5px;">
+              <p style="font-size: 12px; color: #666;">
+                📎 <a href="${att.path}" target="_blank" style="color: #06b6d4; text-decoration: none;">${att.originalName}</a> (${(att.size / 1024).toFixed(1)} KB)
+              </p>
+            </div>`;
+          }
+        });
+
+        attachmentsHtml += '</div>';
+        if (hasImages || message.attachments.length > 0) {
+          htmlContent += attachmentsHtml;
+        }
+      }
 
       // Append Human Agent Signature if applicable
       if (message.authorType === MessageAuthorType.USER) {
