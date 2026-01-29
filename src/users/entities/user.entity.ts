@@ -9,6 +9,20 @@ export enum UserRole {
   ADMIN = 'admin',
 }
 
+@Schema({ _id: false })
+export class OrganizationMembership {
+  @ApiProperty({ description: 'Organization ID', type: String })
+  @Prop({ type: Types.ObjectId, ref: 'Organization', required: true })
+  organizationId: Types.ObjectId;
+
+  @ApiProperty({ description: 'User role in the organization', enum: UserRole })
+  @Prop({ type: String, enum: UserRole, required: true })
+  role: UserRole;
+}
+export const OrganizationMembershipSchema = SchemaFactory.createForClass(
+  OrganizationMembership,
+);
+
 export type UserDocument = User & Document;
 
 @Schema({ timestamps: true })
@@ -46,6 +60,13 @@ export class User {
   })
   @Prop({ type: Types.ObjectId, ref: 'Organization', required: false })
   organizationId?: Types.ObjectId;
+
+  @ApiProperty({
+    description: 'Organizations memberships',
+    type: [OrganizationMembership],
+  })
+  @Prop({ type: [OrganizationMembershipSchema], default: [] })
+  organizations: OrganizationMembership[];
 
   @ApiProperty({
     description: 'Whether user is active',
@@ -205,6 +226,12 @@ export class UserResponseDto {
     example: '507f1f77bcf86cd799439011',
   })
   organizationId?: string;
+
+  @ApiProperty({
+    description: 'Organizations memberships',
+    type: [OrganizationMembership],
+  })
+  organizations: OrganizationMembership[];
 
   @ApiProperty({
     description: 'Whether user is active',

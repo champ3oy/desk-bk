@@ -61,11 +61,11 @@ export class OrganizationsService {
     console.log(
       `OrganizationsService.create: updating user ${userId} with org ${savedOrganization._id}`,
     );
-    // 2. Create a new user record for this organization (so they keep access to old ones)
+    // 2. Add the user to the new organization (multi-membership)
     console.log(
-      `OrganizationsService.create: duplicating user ${userId} for org ${savedOrganization._id}`,
+      `OrganizationsService.create: adding user ${userId} to org ${savedOrganization._id}`,
     );
-    await this.usersService.duplicateUserForOrganization(
+    await this.usersService.addOrganizationToUser(
       userId,
       savedOrganization._id.toString(),
     );
@@ -169,10 +169,27 @@ export class OrganizationsService {
     console.log(
       `OrganizationsService.findByMemberEmail: found ${users.length} user records`,
     );
-    const orgIds = users.map((u) => u.organizationId).filter((id) => !!id);
-    console.log(`OrganizationsService.findByMemberEmail: orgIds:`, orgIds);
+    const orgIds = new Set<string>();
+    users.forEach((u) => {
+      if (u.organizationId) {
+        orgIds.add(u.organizationId.toString());
+      }
+      if (u.organizations) {
+        u.organizations.forEach((o) => {
+          if (o.organizationId) {
+            orgIds.add(o.organizationId.toString());
+          }
+        });
+      }
+    });
+
+    const uniqueOrgIds = Array.from(orgIds);
+    console.log(
+      `OrganizationsService.findByMemberEmail: orgIds:`,
+      uniqueOrgIds,
+    );
     const orgs = await this.organizationModel
-      .find({ _id: { $in: orgIds } })
+      .find({ _id: { $in: uniqueOrgIds } })
       .exec();
     console.log(
       `OrganizationsService.findByMemberEmail: found ${orgs.length} organizations`,

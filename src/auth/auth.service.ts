@@ -77,6 +77,10 @@ export class AuthService {
         lastName: validatedUser.lastName,
         role: validatedUser.role,
         organizationId: validatedUser.organizationId?.toString() || null,
+        organizations: (validatedUser.organizations || []).map((o: any) => ({
+          organizationId: o.organizationId.toString(),
+          role: o.role,
+        })),
       },
     };
   }

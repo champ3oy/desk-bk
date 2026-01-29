@@ -32,34 +32,54 @@ export class UsersService {
   async createMembership(
     createUserDto: CreateUserDto & { isPasswordHashed?: boolean },
   ): Promise<UserResponse> {
-    // Check for email uniqueness within the same organization (multi-tenant support)
-    // If organizationId is provided, check uniqueness within that org
-    // If not provided, check for any user without an org (global users)
-    const query: any = {
+    // Check for email uniqueness globally (we want shared user accounts)
+    const existingUser = await this.userModel.findOne({
       email: { $regex: new RegExp(`^${createUserDto.email}$`, 'i') },
-    };
-
-    if (createUserDto.organizationId) {
-      // Check within the specific organization
-      query.organizationId = new Types.ObjectId(createUserDto.organizationId);
-    } else {
-      // Check for users without an organization
-      query.organizationId = { $exists: false };
-    }
-
-    const existingUser = await this.userModel.findOne(query);
+    });
 
     if (existingUser) {
-      throw new ConflictException('User with this email already exists');
+      if (!createUserDto.organizationId) {
+        throw new ConflictException('User with this email already exists');
+      }
+
+      const orgId = createUserDto.organizationId;
+      const orgIdObj = new Types.ObjectId(orgId);
+
+      // Check if user is already a member of this organization
+      const isMember =
+        existingUser.organizationId?.equals(orgIdObj) ||
+        existingUser.organizations?.some((o) =>
+          o.organizationId.equals(orgIdObj),
+        );
+
+      if (isMember) {
+        throw new ConflictException(
+          'User with this email already exists in this organization',
+        );
+      }
+
+      this.logger.log(
+        `Adding existing user ${existingUser.email} to org ${orgId}`,
+      );
+
+      // Add to organizations array
+      if (!existingUser.organizations) {
+        existingUser.organizations = [];
+      }
+
+      existingUser.organizations.push({
+        organizationId: orgIdObj,
+        role: createUserDto.role || UserRole.CUSTOMER,
+      });
+
+      const savedUser = await existingUser.save();
+      const { password: _, ...result } = savedUser.toObject();
+      return result as UserResponse;
     }
 
     const password = createUserDto.isPasswordHashed
       ? createUserDto.password
       : await bcrypt.hash(createUserDto.password, 10);
-
-    console.log(
-      `UsersService.createMembership: creating record for ${createUserDto.email} with password length ${password?.length || 0}`,
-    );
 
     const userData: any = {
       ...createUserDto,
@@ -70,6 +90,13 @@ export class UsersService {
       userData.organizationId = new Types.ObjectId(
         createUserDto.organizationId,
       );
+      // Also add to organizations array for consistency
+      userData.organizations = [
+        {
+          organizationId: userData.organizationId,
+          role: createUserDto.role || UserRole.CUSTOMER,
+        },
+      ];
     }
 
     const user = new this.userModel(userData);
@@ -79,13 +106,18 @@ export class UsersService {
   }
 
   async findAll(organizationId?: string): Promise<UserResponse[]> {
-    const query = organizationId
-      ? { organizationId: new Types.ObjectId(organizationId) }
-      : {};
+    const query: any = {};
+    if (organizationId) {
+      const orgIdObj = new Types.ObjectId(organizationId);
+      query.$or = [
+        { organizationId: orgIdObj },
+        { 'organizations.organizationId': orgIdObj },
+      ];
+    }
     return this.userModel
       .find(query)
       .select(
-        'email firstName lastName role organizationId isActive createdAt updatedAt',
+        'email firstName lastName role organizationId isActive createdAt updatedAt organizations',
       )
       .exec();
   }
@@ -99,9 +131,11 @@ export class UsersService {
     const query: any = { _id: new Types.ObjectId(id) };
     if (organizationId) {
       // Check for both ObjectId and String format to handle potential data inconsistencies
-      query.organizationId = {
-        $in: [new Types.ObjectId(organizationId), organizationId],
-      };
+      const orgIdObj = new Types.ObjectId(organizationId);
+      query.$or = [
+        { organizationId: { $in: [orgIdObj, organizationId] } },
+        { 'organizations.organizationId': orgIdObj },
+      ];
     }
 
     this.logger.debug(`findOne query: ${JSON.stringify(query)}`);
@@ -109,7 +143,7 @@ export class UsersService {
     const user = await this.userModel
       .findOne(query)
       .select(
-        'email firstName lastName role organizationId isActive createdAt updatedAt signature',
+        'email firstName lastName role organizationId isActive createdAt updatedAt signature organizations',
       )
       .exec();
 
@@ -127,9 +161,11 @@ export class UsersService {
     const query: any = { email: { $regex: new RegExp(`^${email}$`, 'i') } };
     if (organizationId) {
       // Check for both ObjectId and String format to handle potential data inconsistencies
-      query.organizationId = {
-        $in: [new Types.ObjectId(organizationId), organizationId],
-      };
+      const orgIdObj = new Types.ObjectId(organizationId);
+      query.$or = [
+        { organizationId: { $in: [orgIdObj, organizationId] } },
+        { 'organizations.organizationId': orgIdObj },
+      ];
     }
     this.logger.debug(`findByEmail query: ${JSON.stringify(query)}`);
     const user = await this.userModel.findOne(query).exec();
@@ -231,49 +267,51 @@ export class UsersService {
     await this.userModel.findOneAndDelete(query).exec();
   }
 
-  async duplicateUserForOrganization(
+  async addOrganizationToUser(
     userId: string,
     organizationId: string,
+    role: UserRole = UserRole.ADMIN,
   ): Promise<UserResponse> {
     const user = await this.userModel.findById(userId).exec();
     if (!user) {
       throw new NotFoundException(`User with ID ${userId} not found`);
     }
 
-    // If user has no organization and is not ADMIN/Agent context yet, just update them
-    if (!user.organizationId) {
-      user.organizationId = new Types.ObjectId(organizationId);
-      user.role = UserRole.ADMIN;
-      const updatedUser = await user.save();
-      const { password: _, ...result } = updatedUser.toObject();
+    const orgIdObj = new Types.ObjectId(organizationId);
+
+    // Initial check: if user has no org, set it as primary (backward compatibility)
+    // But we prefer using the array now.
+    // If we want to move fully to array, we should populate array even if organizationId is set.
+
+    if (!user.organizations) {
+      user.organizations = [];
+    }
+
+    // Check if already member
+    const isMember =
+      user.organizationId?.equals(orgIdObj) ||
+      user.organizations.some((o) => o.organizationId.equals(orgIdObj));
+
+    if (isMember) {
+      // Already member, maybe update role? For now, just return.
+      const { password: _, ...result } = user.toObject();
       return result as UserResponse;
     }
 
-    // Check if user already exists in target organization
-    const existingUser = await this.userModel.findOne({
-      email: user.email,
-      organizationId: new Types.ObjectId(organizationId),
+    // Add to organizations
+    user.organizations.push({
+      organizationId: orgIdObj,
+      role: role,
     });
 
-    if (existingUser) {
-      // If user already exists in target org, return that user
-      const { password: _, ...result } = existingUser.toObject();
-      return result as UserResponse;
+    // If user has no primary org, set this one as primary too (optional, but good for legacy checks)
+    if (!user.organizationId) {
+      user.organizationId = orgIdObj;
+      user.role = role;
     }
 
-    const userData: any = user.toObject();
-    delete userData._id;
-    delete userData.createdAt;
-    delete userData.updatedAt;
-
-    // Set new organization and role
-    userData.organizationId = new Types.ObjectId(organizationId);
-    userData.role = UserRole.ADMIN; // Creator is always ADMIN
-
-    const newUser = new this.userModel(userData);
-    const savedUser = await newUser.save();
-
-    this.logger.log(`Duplicated user ${user.email} for org ${organizationId}`);
+    const savedUser = await user.save();
+    this.logger.log(`Added user ${user.email} to org ${organizationId}`);
 
     const { password: _, ...result } = savedUser.toObject();
     return result as UserResponse;

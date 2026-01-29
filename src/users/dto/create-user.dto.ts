@@ -5,9 +5,29 @@ import {
   IsEnum,
   IsOptional,
   IsMongoId,
+  IsArray,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { UserRole } from '../entities/user.entity';
+
+export class OrganizationMembershipDto {
+  @ApiProperty({
+    description: 'Organization ID',
+    example: '507f1f77bcf86cd799439011',
+  })
+  @IsMongoId()
+  organizationId: string;
+
+  @ApiProperty({
+    description: 'User role',
+    enum: UserRole,
+    example: UserRole.CUSTOMER,
+  })
+  @IsEnum(UserRole)
+  role: UserRole;
+}
 
 export class CreateUserDto {
   @ApiProperty({
@@ -58,6 +78,16 @@ export class CreateUserDto {
   @IsEnum(UserRole)
   @IsOptional()
   role?: UserRole;
+
+  @ApiPropertyOptional({
+    description: 'Organizations memberships',
+    type: [OrganizationMembershipDto],
+  })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => OrganizationMembershipDto)
+  @IsOptional()
+  organizations?: OrganizationMembershipDto[];
 
   @ApiPropertyOptional({
     description: 'Phone number',

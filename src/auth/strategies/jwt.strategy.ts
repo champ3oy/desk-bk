@@ -82,14 +82,29 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         ? switchOrgId
         : userOrgId;
 
+      // Resolve role based on effective org
+      let effectiveRole = user.role;
+      if (effectiveOrgId) {
+        if (user.organizationId?.toString() === effectiveOrgId) {
+          effectiveRole = user.role;
+        } else if (user.organizations) {
+          const membership = user.organizations.find(
+            (o) => o.organizationId.toString() === effectiveOrgId,
+          );
+          if (membership) {
+            effectiveRole = membership.role;
+          }
+        }
+      }
+
       this.logger.debug(
-        `User ${userId} effective org: ${effectiveOrgId} (header: ${switchOrgId || 'none'}, user: ${userOrgId || 'none'})`,
+        `User ${userId} effective org: ${effectiveOrgId} role: ${effectiveRole}`,
       );
 
       return {
         userId,
         email: user.email,
-        role: user.role,
+        role: effectiveRole,
         organizationId: effectiveOrgId || null,
       };
     } catch (error) {

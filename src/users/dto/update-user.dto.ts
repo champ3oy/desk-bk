@@ -5,9 +5,13 @@ import {
   IsOptional,
   IsBoolean,
   IsMongoId,
+  IsArray,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { UserRole } from '../entities/user.entity';
+import { OrganizationMembershipDto } from './create-user.dto';
 
 export class UpdateUserDto {
   @ApiPropertyOptional({
@@ -58,6 +62,16 @@ export class UpdateUserDto {
   @IsMongoId()
   @IsOptional()
   organizationId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Organizations memberships',
+    type: [OrganizationMembershipDto],
+  })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => OrganizationMembershipDto)
+  @IsOptional()
+  organizations?: OrganizationMembershipDto[];
 
   @ApiPropertyOptional({
     description: 'Whether the user is active',
