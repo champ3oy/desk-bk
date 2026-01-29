@@ -69,7 +69,106 @@ export class ScraperService implements OnModuleDestroy {
   /**
    * Scrape a single URL and extract clean text content
    */
+  /**
+   * Scrape a single URL with "Fast Path" first, then Playwright fallback
+   */
   async scrapeUrl(url: string): Promise<ScrapedPage> {
+    // 1. Try Fast Path first (Raw HTTP)
+    try {
+      this.logger.debug(`Attempting fast scrape: ${url}`);
+      const fastResult = await this.fastScrapeUrl(url);
+
+      // If we got significant content, return it
+      // A threshold of 1000 chars is usually safe for "real" content vs "Enable JS" placeholders
+      if (fastResult.content.length > 1000) {
+        this.logger.debug(`Fast scrape successful for ${url}`);
+        return fastResult;
+      }
+      this.logger.debug(
+        `Fast scrape returned low content (${fastResult.content.length} chars) for ${url}, falling back to Playwright`,
+      );
+    } catch (error) {
+      this.logger.debug(`Fast scrape failed for ${url}: ${error.message}`);
+    }
+
+    // 2. Playwright fallback
+    return this.scrapeWithPlaywright(url);
+  }
+
+  /**
+   * Fast Path: Scrape using raw HTTP and Cheerio
+   */
+  private async fastScrapeUrl(url: string): Promise<ScrapedPage> {
+    const startTime = Date.now();
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
+      },
+      signal: AbortSignal.timeout(15000), // 15s timeout for fast path
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const html = await response.text();
+    const $ = cheerio.load(html);
+
+    // Remove unwanted elements
+    $(
+      'script, style, noscript, iframe, nav, footer, header, aside, .cookie-banner, .ad, .ads',
+    ).remove();
+
+    const title = $('title').text() || 'Untitled';
+    const content = $('body')
+      .text()
+      .replace(/\s+/g, ' ')
+      .replace(/\n\s*\n/g, '\n\n')
+      .trim();
+
+    const baseUrlObj = new URL(url);
+    const links: Set<string> = new Set();
+
+    $('a[href]').each((_, element) => {
+      const href = $(element).attr('href');
+      if (!href) return;
+      try {
+        const fullUrl = new URL(href, url);
+        if (fullUrl.origin !== baseUrlObj.origin) return;
+        if (fullUrl.hash && fullUrl.pathname === baseUrlObj.pathname) return;
+        if (
+          /\.(jpg|jpeg|png|gif|pdf|css|js|zip|exe|dmg)$/i.test(fullUrl.pathname)
+        )
+          return;
+        if (fullUrl.protocol !== 'http:' && fullUrl.protocol !== 'https:')
+          return;
+
+        fullUrl.hash = '';
+        const normalizedUrl = fullUrl.toString().replace(/\/$/, '');
+        links.add(normalizedUrl);
+      } catch {}
+    });
+
+    const loadTimeMs = Date.now() - startTime;
+
+    return {
+      url,
+      title,
+      content,
+      links: Array.from(links),
+      metadata: {
+        scrapedAt: new Date(),
+        contentLength: content.length,
+        loadTimeMs,
+      },
+    };
+  }
+
+  /**
+   * Optimized Playwright scraping with resource blocking
+   */
+  private async scrapeWithPlaywright(url: string): Promise<ScrapedPage> {
     const startTime = Date.now();
     const browser = await this.getBrowser();
     const context = await browser.newContext({
@@ -80,32 +179,34 @@ export class ScraperService implements OnModuleDestroy {
 
     const page = await context.newPage();
 
-    try {
-      this.logger.debug(`Scraping: ${url}`);
+    // Speed up: Block media and unnecessary resources
+    await page.route('**/*', (route) => {
+      const type = route.request().resourceType();
+      if (['image', 'media', 'font', 'stylesheet'].includes(type)) {
+        route.abort();
+      } else {
+        route.continue();
+      }
+    });
 
-      // Navigate with timeout and wait for DOM to be ready
-      // We use 'domcontentloaded' as it's more reliable than 'networkidle' for sites with persistent requests
+    try {
+      this.logger.debug(`Scraping with Playwright: ${url}`);
+
       await page.goto(url, {
         waitUntil: 'domcontentloaded',
-        timeout: 45000, // Slightly longer timeout
+        timeout: 30000,
       });
 
-      // Wait for main content to load
       await this.waitForContent(page);
 
-      // Get page title
       const title = await page.title();
-
-      // Extract clean text content
       const content = await this.extractContent(page);
-
-      // Extract all links for crawling
       const links = await this.extractLinks(page, url);
 
       const loadTimeMs = Date.now() - startTime;
 
       this.logger.debug(
-        `Scraped ${url}: ${content.length} chars in ${loadTimeMs}ms`,
+        `Scraped (Playwright) ${url}: ${content.length} chars in ${loadTimeMs}ms`,
       );
 
       return {
@@ -120,7 +221,9 @@ export class ScraperService implements OnModuleDestroy {
         },
       };
     } catch (error) {
-      this.logger.error(`Failed to scrape ${url}: ${error.message}`);
+      this.logger.error(
+        `Failed to scrape ${url} with Playwright: ${error.message}`,
+      );
       throw new Error(`Failed to scrape ${url}: ${error.message}`);
     } finally {
       await context.close();
@@ -245,69 +348,74 @@ export class ScraperService implements OnModuleDestroy {
   }
 
   /**
-   * Scan a website and discover all pages (with crawling)
+   * Scan a website and discover all pages with parallel crawling
    */
   async scanWebsite(
     startUrl: string,
-    maxPages: number = 5,
+    maxPages: number = 20,
+    concurrency: number = 5,
   ): Promise<ScanResult[]> {
     const visited = new Set<string>();
     const results: ScanResult[] = [];
-    const queue: string[] = [startUrl];
+    const queue: string[] = [];
 
     // Normalize start URL
+    let initialUrl = startUrl;
     if (!startUrl.startsWith('http://') && !startUrl.startsWith('https://')) {
-      queue[0] = 'https://' + startUrl;
+      initialUrl = 'https://' + startUrl;
     }
+    queue.push(initialUrl);
 
-    const baseUrlObj = new URL(queue[0]);
+    const baseUrlObj = new URL(initialUrl);
+    this.logger.log(`Starting parallel website scan: ${initialUrl}`);
 
-    this.logger.log(`Starting website scan: ${queue[0]}`);
+    // Create fixed number of workers that process the queue
+    const workers: Promise<void>[] = [];
+    for (let i = 0; i < concurrency; i++) {
+      workers.push(
+        (async () => {
+          while (queue.length > 0 && results.length < maxPages) {
+            const url = queue.shift();
+            if (!url) break;
 
-    while (queue.length > 0 && results.length < maxPages) {
-      const url = queue.shift()!;
+            const normalizedUrl = url.replace(/\/$/, '');
+            // We mark as visited before scraping to avoid duplicate queueing
+            if (visited.has(normalizedUrl)) continue;
+            visited.add(normalizedUrl);
 
-      // Skip if already visited
-      const normalizedUrl = url.replace(/\/$/, '');
-      if (visited.has(normalizedUrl)) continue;
-      visited.add(normalizedUrl);
-
-      try {
-        const scraped = await this.scrapeUrl(url);
-
-        results.push({
-          url,
-          title: scraped.title,
-          status: 200,
-        });
-
-        // Add discovered links to queue
-        for (const link of scraped.links) {
-          const normalizedLink = link.replace(/\/$/, '');
-          if (!visited.has(normalizedLink) && !queue.includes(link)) {
-            // Only add links from the same domain
             try {
-              const linkUrl = new URL(link);
-              if (linkUrl.origin === baseUrlObj.origin) {
-                queue.push(link);
+              const scraped = await this.scrapeUrl(url);
+
+              if (results.length < maxPages) {
+                results.push({
+                  url,
+                  title: scraped.title,
+                  status: 200,
+                });
+
+                // Add discovered links to queue
+                for (const link of scraped.links) {
+                  const normalizedLink = link.replace(/\/$/, '');
+                  if (!visited.has(normalizedLink) && !queue.includes(link)) {
+                    try {
+                      const linkUrl = new URL(link);
+                      if (linkUrl.origin === baseUrlObj.origin) {
+                        queue.push(link);
+                      }
+                    } catch {}
+                  }
+                }
               }
-            } catch {
-              // Invalid URL, skip
+            } catch (error) {
+              this.logger.warn(`Failed to scan ${url}: ${error.message}`);
+              results.push({ url, title: 'Error', status: 500 });
             }
           }
-        }
-
-        // Rate limiting - 1 second between requests
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      } catch (error) {
-        this.logger.warn(`Failed to scan ${url}: ${error.message}`);
-        results.push({
-          url,
-          title: 'Error',
-          status: 500,
-        });
-      }
+        })(),
+      );
     }
+
+    await Promise.all(workers);
 
     this.logger.log(
       `Website scan complete: ${results.length} pages discovered`,
