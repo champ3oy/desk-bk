@@ -18,10 +18,10 @@ export class CreateTrainingSourceDto {
 
   @ApiProperty({
     description: 'Source type',
-    enum: ['file', 'image', 'audio', 'text', 'url'],
+    enum: ['file', 'image', 'audio', 'video', 'text', 'url'],
     example: 'file',
   })
-  @IsEnum(['file', 'image', 'audio', 'text', 'url'])
+  @IsEnum(['file', 'image', 'audio', 'video', 'text', 'url'])
   type: string;
 
   @ApiPropertyOptional({

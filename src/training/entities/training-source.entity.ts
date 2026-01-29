@@ -22,10 +22,13 @@ export class TrainingSource {
 
   @ApiProperty({
     description: 'Source type',
-    enum: ['file', 'image', 'audio', 'text', 'url'],
+    enum: ['file', 'image', 'audio', 'video', 'text', 'url'],
     example: 'file',
   })
-  @Prop({ required: true, enum: ['file', 'image', 'audio', 'text', 'url'] })
+  @Prop({
+    required: true,
+    enum: ['file', 'image', 'audio', 'video', 'text', 'url'],
+  })
   type: string;
 
   @ApiProperty({

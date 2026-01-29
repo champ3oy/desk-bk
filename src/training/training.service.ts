@@ -214,7 +214,13 @@ export class TrainingService {
     // Create initial source with 'processing' status
     const sourceData: any = {
       name: file.originalname,
-      type: file.mimetype.startsWith('image/') ? 'image' : 'file',
+      type: file.mimetype.startsWith('image/')
+        ? 'image'
+        : file.mimetype.startsWith('video/')
+          ? 'video'
+          : file.mimetype.startsWith('audio/')
+            ? 'audio'
+            : 'file',
       content: '', // Parsed later
       size: (file.size / 1024).toFixed(1) + ' KB',
       metadata: {
@@ -361,11 +367,87 @@ export class TrainingService {
         return file.buffer.toString('utf-8');
       } else if (file.mimetype.startsWith('image/')) {
         return this.analyzeImage(file);
+      } else if (file.mimetype.startsWith('video/')) {
+        return this.analyzeVideo(file);
+      } else if (file.mimetype.startsWith('audio/')) {
+        return this.analyzeAudio(file);
       } else {
         throw new Error(`Unsupported file type: ${file.mimetype}`);
       }
     } catch (error) {
       throw new Error(`Failed to parse file: ${error.message}`);
+    }
+  }
+
+  private async analyzeVideo(file: Express.Multer.File): Promise<string> {
+    try {
+      this.logger.log(
+        `Analyzing video: ${file.originalname} (${file.mimetype})`,
+      );
+
+      const model = AIModelFactory.create(this.configService);
+      const base64Data = file.buffer.toString('base64');
+
+      const message = new HumanMessage({
+        content: [
+          {
+            type: 'text',
+            text: 'Watch this video carefully. Extract all spoken words as a transcript, and provide a detailed description of the visual content, including any text seen on screen, people, actions, and key events. Format the output as a comprehensive technical document suitable for a knowledge base.',
+          },
+          {
+            // @ts-ignore - LangChain's Google GenAI supports media type for video/audio
+            type: 'media',
+            mimeType: file.mimetype,
+            data: base64Data,
+          },
+        ],
+      });
+
+      const response = await model.invoke([message]);
+      return typeof response.content === 'string'
+        ? response.content
+        : JSON.stringify(response.content);
+    } catch (error) {
+      this.logger.error(
+        `Failed to analyze video ${file.originalname}: ${error.message}`,
+      );
+      throw new Error(`Failed to analyze video: ${error.message}`);
+    }
+  }
+
+  private async analyzeAudio(file: Express.Multer.File): Promise<string> {
+    try {
+      this.logger.log(
+        `Analyzing audio: ${file.originalname} (${file.mimetype})`,
+      );
+
+      const model = AIModelFactory.create(this.configService);
+      const base64Data = file.buffer.toString('base64');
+
+      const message = new HumanMessage({
+        content: [
+          {
+            type: 'text',
+            text: 'Listen to this audio carefully. Provide a full, accurate transcript of everything said. If there are multiple speakers, try to distinguish them. Also describe any significant background sounds or context if relevant.',
+          },
+          {
+            // @ts-ignore
+            type: 'media',
+            mimeType: file.mimetype,
+            data: base64Data,
+          },
+        ],
+      });
+
+      const response = await model.invoke([message]);
+      return typeof response.content === 'string'
+        ? response.content
+        : JSON.stringify(response.content);
+    } catch (error) {
+      this.logger.error(
+        `Failed to analyze audio ${file.originalname}: ${error.message}`,
+      );
+      throw new Error(`Failed to analyze audio: ${error.message}`);
     }
   }
 
