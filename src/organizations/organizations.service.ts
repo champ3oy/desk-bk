@@ -61,10 +61,14 @@ export class OrganizationsService {
     console.log(
       `OrganizationsService.create: updating user ${userId} with org ${savedOrganization._id}`,
     );
-    await this.usersService.update(userId, {
-      organizationId: savedOrganization._id.toString(),
-      role: UserRole.ADMIN,
-    });
+    // 2. Create a new user record for this organization (so they keep access to old ones)
+    console.log(
+      `OrganizationsService.create: duplicating user ${userId} for org ${savedOrganization._id}`,
+    );
+    await this.usersService.duplicateUserForOrganization(
+      userId,
+      savedOrganization._id.toString(),
+    );
     console.log(`OrganizationsService.create: user updated successfully`);
 
     return savedOrganization;

@@ -7,7 +7,12 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import * as bcrypt from 'bcrypt';
-import { User, UserDocument, UserResponse } from './entities/user.entity';
+import {
+  User,
+  UserDocument,
+  UserResponse,
+  UserRole,
+} from './entities/user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 
@@ -224,5 +229,53 @@ export class UsersService {
       query.organizationId = new Types.ObjectId(organizationId);
     }
     await this.userModel.findOneAndDelete(query).exec();
+  }
+
+  async duplicateUserForOrganization(
+    userId: string,
+    organizationId: string,
+  ): Promise<UserResponse> {
+    const user = await this.userModel.findById(userId).exec();
+    if (!user) {
+      throw new NotFoundException(`User with ID ${userId} not found`);
+    }
+
+    // If user has no organization and is not ADMIN/Agent context yet, just update them
+    if (!user.organizationId) {
+      user.organizationId = new Types.ObjectId(organizationId);
+      user.role = UserRole.ADMIN;
+      const updatedUser = await user.save();
+      const { password: _, ...result } = updatedUser.toObject();
+      return result as UserResponse;
+    }
+
+    // Check if user already exists in target organization
+    const existingUser = await this.userModel.findOne({
+      email: user.email,
+      organizationId: new Types.ObjectId(organizationId),
+    });
+
+    if (existingUser) {
+      // If user already exists in target org, return that user
+      const { password: _, ...result } = existingUser.toObject();
+      return result as UserResponse;
+    }
+
+    const userData: any = user.toObject();
+    delete userData._id;
+    delete userData.createdAt;
+    delete userData.updatedAt;
+
+    // Set new organization and role
+    userData.organizationId = new Types.ObjectId(organizationId);
+    userData.role = UserRole.ADMIN; // Creator is always ADMIN
+
+    const newUser = new this.userModel(userData);
+    const savedUser = await newUser.save();
+
+    this.logger.log(`Duplicated user ${user.email} for org ${organizationId}`);
+
+    const { password: _, ...result } = savedUser.toObject();
+    return result as UserResponse;
   }
 }

@@ -57,6 +57,18 @@ export class TrainingSource {
   })
   @Prop({ type: [Number], required: false, select: false })
   embedding?: number[];
+
+  @ApiProperty({
+    description: 'Processing status',
+    enum: ['pending', 'processing', 'completed', 'failed'],
+    default: 'completed',
+  })
+  @Prop({
+    type: String,
+    enum: ['pending', 'processing', 'completed', 'failed'],
+    default: 'completed',
+  })
+  status: string;
 }
 
 export const TrainingSourceSchema =

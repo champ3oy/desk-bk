@@ -96,4 +96,15 @@ export class TrainingController {
   async remove(@Param('id') id: string, @Request() req) {
     return this.trainingService.remove(id, req.user.organizationId);
   }
+
+  @Post('bulk-delete')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Bulk delete training sources' })
+  @ApiResponse({
+    status: 204,
+    description: 'The sources have been successfully deleted.',
+  })
+  async removeMany(@Body('ids') ids: string[], @Request() req) {
+    return this.trainingService.removeMany(ids, req.user.organizationId);
+  }
 }

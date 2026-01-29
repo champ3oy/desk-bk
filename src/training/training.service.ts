@@ -38,59 +38,28 @@ export class TrainingService {
   ): Promise<TrainingSource> {
     const sourceData: any = { ...createTrainingSourceDto };
 
-    // Auto-scrape content if type is 'url' and content looks like a URL
-    if (
+    // Check for URL type processing
+    const isUrl =
       sourceData.type === 'url' &&
       sourceData.content &&
       (sourceData.content.startsWith('http') ||
-        sourceData.content.startsWith('https'))
-    ) {
-      // Check if scraping is disabled in this environment
-      if (this.configService.get<boolean>('ai.webDisableScraping')) {
-        this.logger.warn(
-          `Scraping is disabled in this environment. Skipping URL: ${sourceData.content}`,
-        );
-        sourceData.content = `[Scraping Disabled] ${sourceData.content}`;
-        sourceData.size = '0 KB';
-      } else {
-        try {
-          this.logger.log(`Scraping URL: ${sourceData.content}`);
-          const scrapedPage = await this.scraperService.scrapeUrl(
-            sourceData.content,
-          );
+        sourceData.content.startsWith('https'));
 
-          // Store metadata
-          sourceData.metadata = {
-            ...(sourceData.metadata || {}),
-            originalUrl: sourceData.content,
-            scrapedAt: scrapedPage.metadata.scrapedAt,
-            loadTimeMs: scrapedPage.metadata.loadTimeMs,
-            title: scrapedPage.title,
-          };
-
-          // Replace URL with actual text content for the AI
-          sourceData.content = scrapedPage.content;
-
-          // Update size estimate
-          const kbSize = (scrapedPage.content.length / 1024).toFixed(1);
-          sourceData.size = `${kbSize} KB`;
-
-          this.logger.log(
-            `Scraped ${sourceData.content.length} chars from ${sourceData.metadata.originalUrl}`,
-          );
-        } catch (error) {
-          console.error(`Failed to scrape URL ${sourceData.content}:`, error);
-          // We throw so the frontend knows it failed
-          throw new Error(
-            `Failed to scrape content from ${sourceData.content}: ${error.message}`,
-          );
-        }
-      }
+    if (isUrl) {
+      sourceData.status = 'processing';
+      sourceData.size = 'Pending';
+    } else {
+      sourceData.status = 'completed';
     }
 
-    // Generate embedding
+    // Generate embedding for Text type immediately
     let embedding: number[] | undefined;
-    if (sourceData.content) {
+    if (
+      !isUrl &&
+      sourceData.content &&
+      sourceData.type !== 'file' &&
+      sourceData.type !== 'image'
+    ) {
       embedding = await this.generateEmbedding(sourceData.content);
     }
 
@@ -106,40 +75,17 @@ export class TrainingService {
         id: savedSource._id,
         name: savedSource.name,
         type: savedSource.type,
-        hasContent: !!savedSource.content,
+        status: savedSource.status,
       })}`,
     );
 
-    // Add to ElevenLabs Knowledge Base
-    if (savedSource.content) {
-      try {
-        this.logger.log(
-          `Adding content to ElevenLabs for source: ${savedSource.name}`,
-        );
-
-        let agentId: string | undefined;
-        try {
-          const org = await this.organizationsService.findOne(organizationId);
-          if (org?.elevenLabsAgentId) {
-            agentId = org.elevenLabsAgentId;
-            this.logger.log(`Using Organization specific Agent ID: ${agentId}`);
-          }
-        } catch (orgErr) {
-          this.logger.warn(
-            `Failed to fetch org for agent ID lookup: ${orgErr.message}`,
-          );
-        }
-
-        await this.elevenLabsService.addToKnowledgeBase(
-          savedSource.name || (savedSource.content as string).substring(0, 50),
-          savedSource.content as string,
-          'text',
-          agentId,
-        );
-        this.logger.log('ElevenLabs synchronization triggered.');
-      } catch (error) {
-        this.logger.error(`ElevenLabs sync failed: ${error.message}`);
-      }
+    // Trigger background processing for URL
+    if (isUrl) {
+      this.processUrlAsync(savedSource, organizationId);
+    }
+    // For text/manual content, add to ElevenLabs immediately
+    else if (savedSource.content) {
+      this.syncToElevenLabs(savedSource, organizationId);
     }
 
     return savedSource;
@@ -203,6 +149,21 @@ export class TrainingService {
     }
   }
 
+  async removeMany(ids: string[], organizationId: string): Promise<void> {
+    const result = await this.trainingSourceModel.deleteMany({
+      _id: { $in: ids.map((id) => new Types.ObjectId(id)) },
+      organizationId: new Types.ObjectId(organizationId),
+    });
+
+    if (result.deletedCount === 0) {
+      this.logger.warn(
+        `No training sources found to delete for ids: ${ids.join(', ')}`,
+      );
+    } else {
+      this.logger.log(`Deleted ${result.deletedCount} training sources`);
+    }
+  }
+
   /**
    * Scan a website and discover all pages (uses Playwright crawler)
    */
@@ -250,60 +211,133 @@ export class TrainingService {
     file: Express.Multer.File,
     organizationId: string,
   ): Promise<TrainingSource> {
-    const content = await this.parseFileContent(file);
-
+    // Create initial source with 'processing' status
     const sourceData: any = {
       name: file.originalname,
       type: file.mimetype.startsWith('image/') ? 'image' : 'file',
-      content,
+      content: '', // Parsed later
       size: (file.size / 1024).toFixed(1) + ' KB',
       metadata: {
         mimetype: file.mimetype,
         originalName: file.originalname,
       },
+      status: 'processing',
     };
-
-    // Generate embedding
-    let embedding: number[] | undefined;
-    if (content) {
-      embedding = await this.generateEmbedding(content);
-    }
 
     const createdSource = new this.trainingSourceModel({
       ...sourceData,
-      embedding,
       organizationId: new Types.ObjectId(organizationId),
     });
     const savedSource = await createdSource.save();
 
-    // Add to ElevenLabs Knowledge Base
-    if (content) {
-      try {
-        let agentId: string | undefined;
-        try {
-          const org = await this.organizationsService.findOne(organizationId);
-          if (org?.elevenLabsAgentId) {
-            agentId = org.elevenLabsAgentId;
-            this.logger.log(`Using Organization specific Agent ID: ${agentId}`);
-          }
-        } catch (orgErr) {
-          this.logger.warn(
-            `Failed to fetch org for agent ID lookup: ${orgErr.message}`,
-          );
-        }
-
-        await this.elevenLabsService.addToKnowledgeBase(
-          file.originalname,
-          content,
-          'text',
-          agentId,
-        );
-      } catch (error) {
-        this.logger.error(`ElevenLabs sync failed for file: ${error.message}`);
-      }
-    }
+    // Trigger background processing
+    this.processFileAsync(file, savedSource, organizationId);
 
     return savedSource;
+  }
+
+  private async syncToElevenLabs(
+    source: TrainingSourceDocument,
+    organizationId: string,
+  ) {
+    if (!source.content) return;
+    try {
+      this.logger.log(
+        `Adding content to ElevenLabs for source: ${source.name}`,
+      );
+
+      let agentId: string | undefined;
+      try {
+        const org = await this.organizationsService.findOne(organizationId);
+        if (org?.elevenLabsAgentId) {
+          agentId = org.elevenLabsAgentId;
+          this.logger.log(`Using Organization specific Agent ID: ${agentId}`);
+        }
+      } catch (orgErr) {
+        this.logger.warn(
+          `Failed to fetch org for agent ID lookup: ${orgErr.message}`,
+        );
+      }
+
+      await this.elevenLabsService.addToKnowledgeBase(
+        source.name || (source.content as string).substring(0, 50),
+        source.content as string,
+        'text',
+        agentId,
+      );
+      this.logger.log('ElevenLabs synchronization triggered.');
+    } catch (error) {
+      this.logger.error(
+        `ElevenLabs sync failed for source ${source._id}: ${error.message}`,
+      );
+    }
+  }
+
+  private async processUrlAsync(
+    source: TrainingSourceDocument,
+    organizationId: string,
+  ) {
+    if (this.configService.get<boolean>('ai.webDisableScraping')) {
+      this.logger.warn(`Scraping disabled, skipping ${source.name}`);
+      source.content = `[Scraping Disabled] ${source.name}`; // original url was in content potentially
+      source.status = 'failed';
+      await source.save();
+      return;
+    }
+
+    try {
+      const url = source.content || source.metadata?.originalUrl;
+      if (!url) throw new Error('No URL to scrape');
+
+      this.logger.log(`Background Scraping URL: ${url}`);
+      const scrapedPage = await this.scraperService.scrapeUrl(url);
+
+      source.metadata = {
+        ...(source.metadata || {}),
+        originalUrl: url,
+        scrapedAt: scrapedPage.metadata.scrapedAt,
+        loadTimeMs: scrapedPage.metadata.loadTimeMs,
+        title: scrapedPage.title,
+      };
+      source.content = scrapedPage.content;
+      const kbSize = (scrapedPage.content.length / 1024).toFixed(1);
+      source.size = `${kbSize} KB`;
+      source.embedding = await this.generateEmbedding(source.content);
+      source.status = 'completed';
+
+      await source.save();
+      this.logger.log(`Background scraping completed for ${source._id}`);
+
+      await this.syncToElevenLabs(source, organizationId);
+    } catch (error) {
+      this.logger.error(`Background scraping failed: ${error.message}`);
+      source.status = 'failed';
+      source.metadata = { ...(source.metadata || {}), error: error.message };
+      await source.save();
+    }
+  }
+
+  private async processFileAsync(
+    file: Express.Multer.File,
+    source: TrainingSourceDocument,
+    organizationId: string,
+  ) {
+    try {
+      const content = await this.parseFileContent(file);
+      source.content = content;
+      source.embedding = await this.generateEmbedding(content);
+      source.status = 'completed';
+
+      await source.save();
+
+      await this.syncToElevenLabs(source, organizationId);
+      this.logger.log(`Background file processing completed for ${source._id}`);
+    } catch (error) {
+      this.logger.error(`Background file processing failed: ${error.message}`);
+      source.status = 'failed';
+      source.metadata = { ...(source.metadata || {}), error: error.message };
+      await source.save();
+    }
   }
 
   private async parseFileContent(file: Express.Multer.File): Promise<string> {
