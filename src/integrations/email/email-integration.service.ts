@@ -518,7 +518,7 @@ export class EmailIntegrationService {
       `From: <${fromEmail}>`,
       `To: <${toEmail}>`,
       `Subject: ${utf8Subject}`,
-      'Content-Type: text/plain; charset=utf-8',
+      'Content-Type: text/html; charset=utf-8',
       'MIME-Version: 1.0',
     ];
 
@@ -575,7 +575,7 @@ export class EmailIntegrationService {
     const message: any = {
       subject: subject,
       body: {
-        contentType: 'Text',
+        contentType: 'HTML',
         content: content,
       },
       toRecipients: [

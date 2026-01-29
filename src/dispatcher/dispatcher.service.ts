@@ -10,6 +10,7 @@ import { TicketDocument } from '../tickets/entities/ticket.entity';
 import { CustomersService } from '../customers/customers.service';
 import { OrganizationsService } from '../organizations/organizations.service';
 import { UsersService } from '../users/users.service';
+import { marked } from 'marked';
 
 @Injectable()
 export class DispatcherService {
@@ -72,7 +73,8 @@ export class DispatcherService {
       // inReplyTo and references should be the Message-ID from the last customer email
       // This ensures proper email threading in the customer's inbox
 
-      let finalContent = message.content;
+      // Convert Markdown to HTML
+      let htmlContent = await marked.parse(message.content);
 
       // Append Human Agent Signature if applicable
       if (message.authorType === MessageAuthorType.USER) {
@@ -96,9 +98,21 @@ export class DispatcherService {
             )}`,
           );
 
-          if (user.signature?.enabled && user.signature.text) {
-            finalContent += `\n\n--\n${user.signature.text}`;
-            this.logger.debug('Dispatcher: Signature appended.');
+          if (user.signature?.enabled) {
+            let signatureHtml = '';
+            if (user.signature.text) {
+              // Convert signature text to HTML if it's markdown
+              const sigTextHtml = await marked.parse(user.signature.text);
+              signatureHtml += sigTextHtml;
+            }
+            if (user.signature.imageUrl) {
+              signatureHtml += `<br/><img src="${user.signature.imageUrl}" alt="${user.firstName} ${user.lastName}" style="max-width: 200px; height: auto;" />`;
+            }
+
+            if (signatureHtml) {
+              htmlContent += `<br/><hr style="border: none; border-top: 1px solid #ccc; margin-top: 20px;"/><div class="signature">${signatureHtml}</div>`;
+              this.logger.debug('Dispatcher: Signature appended.');
+            }
           } else {
             this.logger.debug(
               'Dispatcher: Signature skipped (disabled or empty).',
@@ -117,7 +131,7 @@ export class DispatcherService {
         fromEmail,
         recipientEmail,
         subject,
-        finalContent,
+        htmlContent,
         inReplyTo,
         references,
       );
