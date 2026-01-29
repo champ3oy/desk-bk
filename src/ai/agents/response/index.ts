@@ -162,6 +162,14 @@ You must output a single valid JSON object. Do not include markdown formatting.
     toneInstructions.push(
       '- Do NOT add a signature block, name, or company name (it is appended automatically)',
     );
+    // Explicitly forbid markdown for email clients
+    toneInstructions.push(
+      '- CRITICAL: Do NOT use any markdown formatting in the content field. Email clients do not render it.',
+    );
+    toneInstructions.push(
+      '- Do NOT use **bold**, *italics*, `code`, or [links](url).',
+    );
+    toneInstructions.push('- Use plain text only. Use "1." or "-" for lists.');
   } else {
     toneInstructions.push(
       '- NEVER include sign-offs, signatures, or "Best regards" type endings',

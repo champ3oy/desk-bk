@@ -104,7 +104,7 @@ export class UsersService {
     const user = await this.userModel
       .findOne(query)
       .select(
-        'email firstName lastName role organizationId isActive createdAt updatedAt',
+        'email firstName lastName role organizationId isActive createdAt updatedAt signature',
       )
       .exec();
 

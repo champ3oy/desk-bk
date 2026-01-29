@@ -14,8 +14,8 @@ import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { UpdateOrganizationDto } from './dto/update-organization.dto';
 import { UsersService } from '../users/users.service';
 import { UserRole } from '../users/entities/user.entity';
-
 import { InvoicesService } from '../invoices/invoices.service';
+import { ElevenLabsService } from '../integrations/elevenlabs/elevenlabs.service';
 
 @Injectable()
 export class OrganizationsService {
@@ -24,12 +24,31 @@ export class OrganizationsService {
     private organizationModel: Model<OrganizationDocument>,
     private usersService: UsersService,
     private invoicesService: InvoicesService,
+    private elevenLabsService: ElevenLabsService,
   ) {}
 
   async create(
     createOrganizationDto: CreateOrganizationDto,
     userId: string,
   ): Promise<Organization> {
+    // 0. Auto-create an ElevenLabs Agent for this organization
+    try {
+      console.log(
+        `[OrganizationsService] Creating ElevenLabs agent for org: ${createOrganizationDto.name}`,
+      );
+      const agentId = await this.elevenLabsService.createAgent(
+        createOrganizationDto.name,
+      );
+      if (agentId) {
+        createOrganizationDto.elevenLabsAgentId = agentId;
+        console.log(`[OrganizationsService] Assigned Agent ID: ${agentId}`);
+      }
+    } catch (e) {
+      console.error(
+        `[OrganizationsService] Failed to auto-create ElevenLabs Agent: ${e.message}. The Org will be created without a dedicated agent.`,
+      );
+    }
+
     // 1. Create the new organization
     const organization = new this.organizationModel(createOrganizationDto);
     const savedOrganization = await organization.save();

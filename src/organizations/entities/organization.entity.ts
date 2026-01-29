@@ -243,6 +243,13 @@ export class Organization {
     headerText?: string;
   };
 
+  @ApiPropertyOptional({
+    description: 'ElevenLabs Agent ID configured for this organization',
+    example: 'agent_abc123',
+  })
+  @Prop({ required: false })
+  elevenLabsAgentId?: string;
+
   @ApiPropertyOptional({ description: 'Payment method info' })
   @Prop({
     type: {

@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { OrganizationsService } from './organizations.service';
 import { OrganizationsController } from './organizations.controller';
+import { ElevenLabsModule } from '../integrations/elevenlabs/elevenlabs.module';
+import { forwardRef } from '@nestjs/common';
 import {
   Organization,
   OrganizationSchema,
@@ -16,6 +18,7 @@ import { InvoicesModule } from '../invoices/invoices.module';
     ]),
     UsersModule,
     InvoicesModule,
+    forwardRef(() => ElevenLabsModule),
   ],
   controllers: [OrganizationsController],
   providers: [OrganizationsService],

@@ -157,6 +157,14 @@ export class UpdateOrganizationDto {
   billingEmail?: string;
 
   @ApiPropertyOptional({
+    description: 'ElevenLabs Agent ID',
+    example: 'agent_abc123',
+  })
+  @IsString()
+  @IsOptional()
+  elevenLabsAgentId?: string;
+
+  @ApiPropertyOptional({
     description: 'Widget configuration',
   })
   @IsOptional()

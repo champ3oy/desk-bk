@@ -7,6 +7,7 @@ import {
 } from './entities/training-source.entity';
 import { CreateTrainingSourceDto } from './dto/create-training-source.dto';
 import { ScraperService } from './scraper.service';
+import { OrganizationsService } from '../organizations/organizations.service';
 import { ElevenLabsService } from '../integrations/elevenlabs/elevenlabs.service';
 
 import { GoogleGenerativeAIEmbeddings } from '@langchain/google-genai';
@@ -26,6 +27,7 @@ export class TrainingService {
     private configService: ConfigService,
     private scraperService: ScraperService,
     private elevenLabsService: ElevenLabsService,
+    private organizationsService: OrganizationsService,
   ) {
     this.logger.log('TrainingService initialized with ElevenLabs integration.');
   }
@@ -114,10 +116,25 @@ export class TrainingService {
         this.logger.log(
           `Adding content to ElevenLabs for source: ${savedSource.name}`,
         );
+
+        let agentId: string | undefined;
+        try {
+          const org = await this.organizationsService.findOne(organizationId);
+          if (org?.elevenLabsAgentId) {
+            agentId = org.elevenLabsAgentId;
+            this.logger.log(`Using Organization specific Agent ID: ${agentId}`);
+          }
+        } catch (orgErr) {
+          this.logger.warn(
+            `Failed to fetch org for agent ID lookup: ${orgErr.message}`,
+          );
+        }
+
         await this.elevenLabsService.addToKnowledgeBase(
           savedSource.name || (savedSource.content as string).substring(0, 50),
           savedSource.content as string,
           'text',
+          agentId,
         );
         this.logger.log('ElevenLabs synchronization triggered.');
       } catch (error) {
@@ -262,10 +279,24 @@ export class TrainingService {
     // Add to ElevenLabs Knowledge Base
     if (content) {
       try {
+        let agentId: string | undefined;
+        try {
+          const org = await this.organizationsService.findOne(organizationId);
+          if (org?.elevenLabsAgentId) {
+            agentId = org.elevenLabsAgentId;
+            this.logger.log(`Using Organization specific Agent ID: ${agentId}`);
+          }
+        } catch (orgErr) {
+          this.logger.warn(
+            `Failed to fetch org for agent ID lookup: ${orgErr.message}`,
+          );
+        }
+
         await this.elevenLabsService.addToKnowledgeBase(
           file.originalname,
           content,
           'text',
+          agentId,
         );
       } catch (error) {
         this.logger.error(`ElevenLabs sync failed for file: ${error.message}`);

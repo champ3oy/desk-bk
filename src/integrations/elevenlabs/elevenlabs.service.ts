@@ -39,13 +39,18 @@ export class ElevenLabsService {
     name: string,
     content: string,
     type: 'text' | 'url' = 'text',
+    agentId?: string,
   ): Promise<void> {
-    this.logger.log(`addToKnowledgeBase called for: ${name}, type: ${type}`);
+    const targetAgentId = agentId || this.agentId;
+
     this.logger.log(
-      `Client exists: ${!!this.client}, Agent ID: ${this.agentId}`,
+      `addToKnowledgeBase called for: ${name}, type: ${type}, agentId: ${targetAgentId}`,
+    );
+    this.logger.log(
+      `Client exists: ${!!this.client}, Agent ID: ${targetAgentId}`,
     );
 
-    if (!this.client || !this.agentId) {
+    if (!this.client || !targetAgentId) {
       this.logger.warn(
         'ElevenLabs client or Agent ID not configured. Skipping knowledge base update.',
       );
@@ -122,8 +127,9 @@ export class ElevenLabsService {
       }
 
       // 2. Add to agent and set usage mode
-      const agent = await this.client.conversationalAi.agents.get(this.agentId);
-      this.logger.log(`Fetched agent config for: ${this.agentId}`);
+      const agent =
+        await this.client.conversationalAi.agents.get(targetAgentId);
+      this.logger.log(`Fetched agent config for: ${targetAgentId}`);
 
       const currentAgentConfig = agent.conversationConfig?.agent as any;
       const currentPromptConfig = currentAgentConfig?.prompt || {};
@@ -140,7 +146,7 @@ export class ElevenLabsService {
       const filteredKb = currentKb.filter((item: any) => item.id !== docId);
 
       const updateResponse = await this.client.conversationalAi.agents.update(
-        this.agentId,
+        targetAgentId,
         {
           conversationConfig: {
             ...agent.conversationConfig,
@@ -173,7 +179,7 @@ export class ElevenLabsService {
       );
 
       this.logger.log(
-        `Successfully added and indexed document ${docId} for agent ${this.agentId}`,
+        `Successfully added and indexed document ${docId} for agent ${targetAgentId}`,
       );
     } catch (error) {
       this.logger.error(
@@ -183,15 +189,17 @@ export class ElevenLabsService {
     }
   }
 
-  async getSignedUrl(): Promise<{ signedUrl: string }> {
-    if (!this.agentId || !this.client) {
-      throw new Error('ElevenLabs not configured');
+  async getSignedUrl(agentId?: string): Promise<{ signedUrl: string }> {
+    const targetAgentId = agentId || this.agentId;
+
+    if (!targetAgentId || !this.client) {
+      throw new Error('ElevenLabs not configured (Agent ID or Client missing)');
     }
 
     try {
       // Direct API call since SDK support for signed URL likely varies or is hidden
       const response = await fetch(
-        `https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=${this.agentId}`,
+        `https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=${targetAgentId}`,
         {
           method: 'GET',
           headers: {
@@ -216,12 +224,59 @@ export class ElevenLabsService {
     }
   }
 
-  getConfigStatus() {
+  getConfigStatus(agentId?: string) {
     return {
       apiKeySet: !!this.configService.get<string>('ai.elevenLabsApiKey'),
-      agentIdSet: !!this.agentId,
-      agentId: this.agentId,
-      clientInitialized: !!this.client,
+      agentIdSet: !!(agentId || this.agentId),
+      agentId: agentId || this.agentId,
     };
+  }
+
+  async createAgent(name: string, prompt?: string): Promise<string> {
+    if (!this.client) {
+      throw new Error('ElevenLabs client not initialized');
+    }
+
+    const agentName = name || 'Support Agent';
+
+    try {
+      const agent = await this.client.conversationalAi.agents.create({
+        name: agentName,
+        conversationConfig: {
+          agent: {
+            prompt: {
+              prompt:
+                prompt || `You are a helpful support agent for ${agentName}.`,
+              llm: 'gpt-4-turbo',
+              temperature: 0.7,
+              knowledgeBase: [],
+            },
+            firstMessage: 'Hello! How can I help you today?',
+            language: 'en',
+          },
+          asr: {
+            quality: 'high',
+            provider: 'elevenlabs',
+          },
+          tts: {
+            modelId: 'eleven_turbo_v2',
+            agentOutputAudioFormat: 'pcm_44100',
+          },
+        } as any,
+      });
+
+      // Handle type mismatch if SDK definition is outdated
+      const agentData = agent as any;
+      const newAgentId =
+        agentData.agentId || agentData.agent_id || agentData.id;
+
+      this.logger.log(
+        `Created new ElevenLabs Agent: ${newAgentId} for ${name}`,
+      );
+      return newAgentId;
+    } catch (err: any) {
+      this.logger.error(`Failed to create agent: ${err.message}`, err.body);
+      throw err;
+    }
   }
 }

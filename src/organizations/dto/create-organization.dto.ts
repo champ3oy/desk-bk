@@ -67,4 +67,12 @@ export class CreateOrganizationDto {
   @IsBoolean()
   @IsOptional()
   aiLearnFromTickets?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'ElevenLabs Agent ID',
+    example: 'agent_abc123',
+  })
+  @IsString()
+  @IsOptional()
+  elevenLabsAgentId?: string;
 }

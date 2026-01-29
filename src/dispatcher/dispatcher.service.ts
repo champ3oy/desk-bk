@@ -4,10 +4,12 @@ import {
   MessageDocument,
   MessageType,
   MessageChannel,
+  MessageAuthorType,
 } from '../threads/entities/message.entity';
 import { TicketDocument } from '../tickets/entities/ticket.entity';
 import { CustomersService } from '../customers/customers.service';
 import { OrganizationsService } from '../organizations/organizations.service';
+import { UsersService } from '../users/users.service';
 
 @Injectable()
 export class DispatcherService {
@@ -18,6 +20,7 @@ export class DispatcherService {
     @Inject(forwardRef(() => CustomersService))
     private customersService: CustomersService,
     private organizationsService: OrganizationsService,
+    private usersService: UsersService,
   ) {}
 
   /**
@@ -69,12 +72,52 @@ export class DispatcherService {
       // inReplyTo and references should be the Message-ID from the last customer email
       // This ensures proper email threading in the customer's inbox
 
+      let finalContent = message.content;
+
+      // Append Human Agent Signature if applicable
+      if (message.authorType === MessageAuthorType.USER) {
+        try {
+          // message.authorId is likely an ObjectId or string
+          const userId =
+            typeof message.authorId === 'object'
+              ? (message.authorId as any)._id
+                ? (message.authorId as any)._id.toString()
+                : (message.authorId as any).toString()
+              : (message.authorId as any).toString();
+
+          this.logger.debug(
+            `Dispatcher: Fetching user ${userId} for signature...`,
+          );
+          const user = (await this.usersService.findOne(userId)) as any;
+
+          this.logger.debug(
+            `Dispatcher: User loaded. Signature: ${JSON.stringify(
+              user.signature,
+            )}`,
+          );
+
+          if (user.signature?.enabled && user.signature.text) {
+            finalContent += `\n\n--\n${user.signature.text}`;
+            this.logger.debug('Dispatcher: Signature appended.');
+          } else {
+            this.logger.debug(
+              'Dispatcher: Signature skipped (disabled or empty).',
+            );
+          }
+        } catch (err) {
+          this.logger.warn(
+            `Failed to append signature for user ${message.authorId}: ${err.message}`,
+          );
+          // Continue delivering the message even if signature fails
+        }
+      }
+
       // Calling sendEmail
       await this.emailIntegrationService.sendEmail(
         fromEmail,
         recipientEmail,
         subject,
-        message.content,
+        finalContent,
         inReplyTo,
         references,
       );
