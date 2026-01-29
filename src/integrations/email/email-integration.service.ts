@@ -588,21 +588,34 @@ export class EmailIntegrationService {
     };
 
     // Handling Reply headers is different in Graph API.
-    // Theoretically, 'replyTo' property exists but that sets Reply-To header.
-    // To properly Thread, we usually use 'createReply' on the original message if we have its ID.
-    // But here we are sending a generic email that might be a reply.
-    // Graph API allows setting internetMessageHeaders for custom headers.
+    // Standard headers like In-Reply-To and References cannot be set via internetMessageHeaders property
+    // unless they start with x- or X-. To maintain threading, we use SingleValueLegacyExtendedProperty.
 
-    const internetMessageHeaders: any[] = [];
+    const singleValueExtendedProperties: any[] = [];
     if (inReplyTo) {
-      internetMessageHeaders.push({ name: 'In-Reply-To', value: inReplyTo });
-    }
-    if (references) {
-      internetMessageHeaders.push({ name: 'References', value: references });
+      // PidTagInReplyTo (0x1042)
+      const formattedInReplyTo = inReplyTo.startsWith('<')
+        ? inReplyTo
+        : `<${inReplyTo}>`;
+      singleValueExtendedProperties.push({
+        id: 'String 0x1042',
+        value: formattedInReplyTo,
+      });
     }
 
-    if (internetMessageHeaders.length > 0) {
-      message.internetMessageHeaders = internetMessageHeaders;
+    if (references) {
+      // PidTagReferences (0x1039)
+      const formattedReferences = references.startsWith('<')
+        ? references
+        : `<${references}>`;
+      singleValueExtendedProperties.push({
+        id: 'String 0x1039',
+        value: formattedReferences,
+      });
+    }
+
+    if (singleValueExtendedProperties.length > 0) {
+      message.singleValueExtendedProperties = singleValueExtendedProperties;
     }
 
     await client.api('/me/sendMail').post({
