@@ -63,13 +63,13 @@ export class TrainingSource {
 
   @ApiProperty({
     description: 'Processing status',
-    enum: ['pending', 'processing', 'completed', 'failed'],
-    default: 'completed',
+    enum: ['pending', 'processing', 'learned', 'failed'],
+    default: 'learned',
   })
   @Prop({
     type: String,
-    enum: ['pending', 'processing', 'completed', 'failed'],
-    default: 'completed',
+    enum: ['pending', 'processing', 'learned', 'failed'],
+    default: 'learned',
   })
   status: string;
 }

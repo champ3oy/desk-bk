@@ -89,10 +89,113 @@ export class ScraperService implements OnModuleDestroy {
       );
     } catch (error) {
       this.logger.debug(`Fast scrape failed for ${url}: ${error.message}`);
+      // If it's a 404, we skip entirely and don't try Playwright
+      if (error.message.includes('status: 404')) {
+        this.logger.warn(`Skipping 404 URL: ${url}`);
+        throw error;
+      }
     }
 
     // 2. Playwright fallback
     return this.scrapeWithPlaywright(url);
+  }
+
+  /**
+   * Scrape a single URL and return all internal links found on it (Shallow scan)
+   * Returns objects with url and title (discovered from link text)
+   */
+  async discoverLinks(url: string): Promise<{ url: string; title: string }[]> {
+    try {
+      this.logger.debug(`Discovering links on: ${url}`);
+      // Use raw fetch for speed since we only need links
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
+        },
+        signal: AbortSignal.timeout(15000),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const html = await response.text();
+      const $ = cheerio.load(html);
+      const baseUrlObj = new URL(url);
+      const discovered: Map<string, string> = new Map();
+
+      // Basic normalization and filtering
+      $('a[href]').each((_, element) => {
+        const href = $(element).attr('href');
+        const text = $(element).text().replace(/\s+/g, ' ').trim();
+        if (!href) return;
+        try {
+          const fullUrl = new URL(href, url);
+          if (fullUrl.origin !== baseUrlObj.origin) return;
+          if (fullUrl.hash && fullUrl.pathname === baseUrlObj.pathname) return;
+          if (
+            /\.(jpg|jpeg|png|gif|pdf|css|js|zip|exe|dmg|svg|ico)$/i.test(
+              fullUrl.pathname,
+            )
+          )
+            return;
+          if (fullUrl.protocol !== 'http:' && fullUrl.protocol !== 'https:')
+            return;
+
+          fullUrl.hash = '';
+          const normalizedUrl = fullUrl.toString().replace(/\/$/, '');
+
+          // Prefer better titles if we find the same URL twice
+          const existingTitle = discovered.get(normalizedUrl);
+          if (
+            !existingTitle ||
+            (text &&
+              text.length >
+                (existingTitle === 'Untitled' ? 0 : existingTitle.length))
+          ) {
+            discovered.set(normalizedUrl, text || 'Untitled');
+          }
+        } catch {}
+      });
+
+      // Add the original URL as well if it's not there
+      const originalNormalized = url.replace(/\/$/, '');
+      if (
+        !discovered.has(originalNormalized) ||
+        discovered.get(originalNormalized) === 'Untitled'
+      ) {
+        const pageTitle = $('title').text().trim() || 'Home';
+        discovered.set(originalNormalized, pageTitle);
+      }
+
+      return Array.from(discovered.entries()).map(([url, title]) => ({
+        url,
+        title,
+      }));
+    } catch (error) {
+      this.logger.error(`Failed to discover links on ${url}: ${error.message}`);
+      // Fallback to playwright if fetch fails (could be a SPA)
+      try {
+        this.logger.debug(`Falling back to Playwright for discovery: ${url}`);
+        const scraped = await this.scrapeWithPlaywright(url);
+        const results = scraped.links.map((link) => ({
+          url: link,
+          title: 'Untitled', // Playwright fallback primarily returns URLs
+        }));
+
+        // Add the main page
+        if (!scraped.links.includes(url.replace(/\/$/, ''))) {
+          results.push({ url: url.replace(/\/$/, ''), title: scraped.title });
+        }
+        return results;
+      } catch (pwError) {
+        this.logger.error(
+          `Playwright fallback also failed for discovery: ${pwError.message}`,
+        );
+        throw pwError;
+      }
+    }
   }
 
   /**
@@ -221,10 +324,13 @@ export class ScraperService implements OnModuleDestroy {
         },
       };
     } catch (error) {
-      this.logger.error(
+      this.logger.warn(
         `Failed to scrape ${url} with Playwright: ${error.message}`,
       );
-      throw new Error(`Failed to scrape ${url}: ${error.message}`);
+      // Instead of throwing, return a "failed" ScrapedPage structure if needed,
+      // or re-throw if the caller expects to catch it.
+      // Given scanWebsite catches it, we can keep throwing but with clearer context.
+      throw error;
     } finally {
       await context.close();
     }

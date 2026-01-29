@@ -49,7 +49,7 @@ export class TrainingService {
       sourceData.status = 'processing';
       sourceData.size = 'Pending';
     } else {
-      sourceData.status = 'completed';
+      sourceData.status = 'learned';
     }
 
     // Generate embedding for Text type immediately
@@ -165,7 +165,28 @@ export class TrainingService {
   }
 
   /**
-   * Scan a website and discover all pages (uses Playwright crawler)
+   * Discover internal links on a given URL (Shallow discovery)
+   */
+  async discoverLinks(url: string): Promise<{ url: string; title: string }[]> {
+    if (this.configService.get<boolean>('ai.webDisableScraping')) {
+      this.logger.warn(
+        `Website discovery is disabled in this environment. Skipping discovery for: ${url}`,
+      );
+      return [];
+    }
+
+    // Normalize URL
+    let initialUrl = url;
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      initialUrl = 'https://' + url;
+    }
+
+    this.logger.log(`Discovering links on: ${initialUrl}`);
+    return this.scraperService.discoverLinks(initialUrl);
+  }
+
+  /**
+   * Scan a website and discover all pages (Legacy/Internal use)
    */
   async scanWebsite(url: string, maxPages: number = 50): Promise<any[]> {
     if (this.configService.get<boolean>('ai.webDisableScraping')) {
@@ -205,6 +226,40 @@ export class TrainingService {
         },
       ])
       .exec();
+  }
+
+  /**
+   * Create multiple training sources from a list of URLs and start background processing
+   */
+  async bulkCreateFromUrls(
+    urls: string[],
+    organizationId: string,
+  ): Promise<TrainingSource[]> {
+    const createdSources: TrainingSource[] = [];
+
+    for (const url of urls) {
+      const sourceData: any = {
+        name: url.replace(/^https?:\/\/(www\.)?/, '').substring(0, 50),
+        type: 'url',
+        content: url, // Store URL in content as placeholder
+        status: 'processing',
+        size: 'Pending',
+        organizationId: new Types.ObjectId(organizationId),
+        metadata: {
+          originalUrl: url,
+          addedAt: new Date(),
+        },
+      };
+
+      const createdSource = new this.trainingSourceModel(sourceData);
+      const savedSource = await createdSource.save();
+      createdSources.push(savedSource);
+
+      // Trigger background processing
+      this.processUrlAsync(savedSource, organizationId);
+    }
+
+    return createdSources;
   }
 
   async processFile(
@@ -309,7 +364,7 @@ export class TrainingService {
       const kbSize = (scrapedPage.content.length / 1024).toFixed(1);
       source.size = `${kbSize} KB`;
       source.embedding = await this.generateEmbedding(source.content);
-      source.status = 'completed';
+      source.status = 'learned';
 
       await source.save();
       this.logger.log(`Background scraping completed for ${source._id}`);
@@ -332,7 +387,7 @@ export class TrainingService {
       const content = await this.parseFileContent(file);
       source.content = content;
       source.embedding = await this.generateEmbedding(content);
-      source.status = 'completed';
+      source.status = 'learned';
 
       await source.save();
 

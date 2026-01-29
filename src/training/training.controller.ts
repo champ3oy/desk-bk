@@ -59,13 +59,27 @@ export class TrainingController {
   }
 
   @Post('scan-website')
-  @ApiOperation({ summary: 'Scan a website for pages' })
+  @ApiOperation({ summary: 'Discover sub-links on a website page' })
   @ApiResponse({
     status: 200,
-    description: 'Returns a list of pages found on the website.',
+    description: 'Returns a list of URLs found on the provided page.',
   })
   async scanWebsite(@Body('url') url: string) {
-    return this.trainingService.scanWebsite(url);
+    // We repurpose scan-website for shallow discovery (fast)
+    return this.trainingService.discoverLinks(url);
+  }
+
+  @Post('bulk-create')
+  @ApiOperation({ summary: 'Bulk create training sources from selected URLs' })
+  @ApiResponse({
+    status: 201,
+    description: 'The sources have been successfully created and queued.',
+  })
+  async bulkCreate(@Body('urls') urls: string[], @Request() req) {
+    return this.trainingService.bulkCreateFromUrls(
+      urls,
+      req.user.organizationId,
+    );
   }
 
   @Get()

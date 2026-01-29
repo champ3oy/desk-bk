@@ -10,15 +10,16 @@ const systemPrompt = `You are an expert ticket summarizer and analyst. You must 
 
 Do not mention ticket ID
 CRITICAL: If there are images (screenshots), you MUST READ ALL TEXT from them and include the exact error messages or details in the summary.
-keep details brief and concise
+The summary MUST be around 80 words in length.
+Use bullet points for all internal points and details.
 
 JSON Structure:
 {
-  "summary": "the summary should be properly formatted markdown and put it in this sections:
-1. A brief overview of the issue
-2. Key points from the conversation (Include exact text read from any screenshots)
-3. Current status and any pending actions
-4. Customer's main concerns.",
+  "summary": "The summary should be properly formatted markdown (approximately 80 words total) using the following structure:
+- **Overview**: A brief overview of the issue.
+- **Key Points**: Bulleted list of key conversation points (Include exact text read from any screenshots).
+- **Status**: Current status and pending actions.
+- **Customer Concerns**: Bulleted list of customer's main concerns.",
   "sentiment": "One of: Frustrated, Neutral, Happy, Angry, Concerned",
   "urgency": "One of: Low, Medium, High, Urgent",
   "topic": "Brief topic label (e.g., Billing, Bug, Feature Request, Question)"
@@ -123,7 +124,7 @@ ${
 
 # TASK
 Respond ONLY with a JSON object. Analyze the ticket and provide:
-1. summary: A rich markdown summary of the issue and conversation.
+1. summary: A rich markdown summary of the issue and conversation, approximately 80 words long, with bulleted points.
 2. sentiment: The primary emotional tone of the customer.
 3. urgency: The priority from a customer satisfaction and business impact perspective.
 4. topic: A short, representative tag for the issue.`;
