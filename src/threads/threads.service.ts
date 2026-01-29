@@ -483,6 +483,13 @@ export class ThreadsService {
       userRole,
     );
 
+    const ticket = await this.ticketsService.findOne(
+      thread.ticketId.toString(),
+      userId,
+      userRole,
+      organizationId,
+    );
+
     const query: any = {
       threadId: new Types.ObjectId(threadId),
       organizationId: new Types.ObjectId(organizationId),
@@ -504,27 +511,50 @@ export class ThreadsService {
         );
 
         if (!isParticipant) {
-          // Check if user is in any participant group
-          const userGroups = await this.groupsService.findByMember(
-            userId,
-            organizationId,
-          );
-          const isInGroup = thread.participantGroupIds.some((groupId) =>
-            userGroups.some(
-              (group) => group._id.toString() === groupId.toString(),
-            ),
-          );
+          // Check if user is the assignee
+          const assignedToId = ticket.assignedToId
+            ? (ticket.assignedToId as any)._id
+              ? (ticket.assignedToId as any)._id.toString()
+              : ticket.assignedToId.toString()
+            : null;
 
-          if (!isInGroup) {
-            // User is not a participant or in a participant group
-            // Show external messages OR internal messages authored by this user
-            query.$or = [
-              { messageType: MessageType.EXTERNAL },
-              {
-                messageType: MessageType.INTERNAL,
-                authorId: new Types.ObjectId(userId),
-              },
-            ];
+          if (assignedToId === userId) {
+            // User is the assignee, full access granted
+          } else {
+            // Check groups (assigned group or participant group)
+            const userGroups = await this.groupsService.findByMember(
+              userId,
+              organizationId,
+            );
+
+            const assignedToGroupId = ticket.assignedToGroupId
+              ? (ticket.assignedToGroupId as any)._id
+                ? (ticket.assignedToGroupId as any)._id.toString()
+                : ticket.assignedToGroupId.toString()
+              : null;
+
+            const isAssignedGroup =
+              assignedToGroupId &&
+              userGroups.some((g) => g._id.toString() === assignedToGroupId);
+
+            const isInParticipantGroup = thread.participantGroupIds.some(
+              (groupId) =>
+                userGroups.some(
+                  (group) => group._id.toString() === groupId.toString(),
+                ),
+            );
+
+            if (!isAssignedGroup && !isInParticipantGroup) {
+              // User is not a participant, assignee, or in any relevant group
+              // Show external messages OR internal messages authored by this user
+              query.$or = [
+                { messageType: MessageType.EXTERNAL },
+                {
+                  messageType: MessageType.INTERNAL,
+                  authorId: new Types.ObjectId(userId),
+                },
+              ];
+            }
           }
         }
       }

@@ -668,10 +668,11 @@ Return ONLY the message text.`;
         { assignedToId: new Types.ObjectId(userId) },
         { followers: new Types.ObjectId(userId) },
         { assignedToGroupId: { $in: groupIds } },
+        // Unassigned tickets (matches null or missing)
         {
-          assignedToId: { $exists: false },
-          assignedToGroupId: { $exists: false },
-        }, // Unassigned tickets
+          assignedToId: null,
+          assignedToGroupId: null,
+        },
         {
           _id: {
             $in: await this.threadsService.findTicketIdsByParticipant(
@@ -837,20 +838,28 @@ Return ONLY the message text.`;
 
     const updateData: any = { ...updateTicketDto };
 
-    if (updateTicketDto.assignedToId) {
-      updateData.assignedToId = new Types.ObjectId(
-        updateTicketDto.assignedToId,
-      );
-      // Clear group assignment if assigning to individual
-      updateData.assignedToGroupId = null;
+    if (updateTicketDto.assignedToId !== undefined) {
+      if (updateTicketDto.assignedToId === null) {
+        updateData.assignedToId = null;
+      } else {
+        updateData.assignedToId = new Types.ObjectId(
+          updateTicketDto.assignedToId,
+        );
+        // Clear group assignment if assigning to individual
+        updateData.assignedToGroupId = null;
+      }
     }
 
-    if (updateTicketDto.assignedToGroupId) {
-      updateData.assignedToGroupId = new Types.ObjectId(
-        updateTicketDto.assignedToGroupId,
-      );
-      // Clear individual assignment if assigning to group
-      updateData.assignedToId = null;
+    if (updateTicketDto.assignedToGroupId !== undefined) {
+      if (updateTicketDto.assignedToGroupId === null) {
+        updateData.assignedToGroupId = null;
+      } else {
+        updateData.assignedToGroupId = new Types.ObjectId(
+          updateTicketDto.assignedToGroupId,
+        );
+        // Clear individual assignment if assigning to group
+        updateData.assignedToId = null;
+      }
     }
 
     if (updateTicketDto.categoryId) {
