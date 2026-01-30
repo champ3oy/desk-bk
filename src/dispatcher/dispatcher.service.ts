@@ -147,7 +147,10 @@ export class DispatcherService {
             let signatureHtml = '';
             if (user.signature.text) {
               // Convert signature text to HTML if it's markdown
-              const sigTextHtml = await marked.parse(user.signature.text);
+              // Enable breaks to render newlines as <br>
+              const sigTextHtml = await marked.parse(user.signature.text, {
+                breaks: true,
+              });
               signatureHtml += sigTextHtml;
             }
             if (user.signature.imageUrl) {

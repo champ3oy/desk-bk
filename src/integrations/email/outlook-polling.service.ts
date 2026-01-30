@@ -302,34 +302,59 @@ export class OutlookPollingService {
       }
     }
 
-    // Process inline images (swapping cid: for data: URIs)
+    // Process inline images
     if (rawBody && rawBody.includes('cid:')) {
       try {
         // Fetch attachments for this message
         const attachmentsResponse = await client
           .api(`/me/messages/${msg.id}/attachments`)
-          .select('id,contentType,contentBytes,contentId,isInline,name')
+          .select('id,contentType,contentBytes,contentId,isInline,name,size')
           .get();
 
         const attachments = attachmentsResponse.value;
 
         if (attachments && attachments.length > 0) {
           for (const att of attachments) {
-            // Check if we have contentId and contentBytes
+            // Check if we have contentId and contentBytes and it is marked as inline
+            // Note: Some inline images might not be marked isInline=true in Graph API but have contentId
             if (att.contentId && att.contentBytes) {
               const cid = att.contentId;
-              const mimeType = att.contentType || 'image/jpeg'; // fallback
-              const base64 = att.contentBytes;
+              const mimeType = att.contentType || 'image/jpeg';
 
-              const dataUri = `data:${mimeType};base64,${base64}`;
+              const buffer = Buffer.from(att.contentBytes, 'base64');
+
+              // Upload to storage to get a public URL (better than Data URI for email clients)
+              const savedFile = await this.storageService.saveFile(
+                att.name || 'image',
+                buffer,
+                mimeType,
+              );
+
+              const imageUrl = savedFile.path;
 
               // Replace all occurrences of cid:{contentId}
-              // Note: Outlook might wrap cid in quotes or not, but usually src="cid:..."
-              // We just replace the exact string `cid:${cid}`
+              // We use a regex for case-insensitive replacement because Outlook CIDs can be messy
+              // Escape special characters in cid for regex
+              const escapedCid = cid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              const regex = new RegExp(`cid:${escapedCid}`, 'gi');
 
-              // We need to escape special characters in cid if we use regex,
-              // or use split/join for simple replacement
-              rawBody = rawBody.split(`cid:${cid}`).join(dataUri);
+              rawBody = rawBody.replace(regex, imageUrl);
+
+              // Also handle case where CID might be wrapped in <> in the body but not in the ID, or vice versa
+              // If cid is "foo", body might have "cid:<foo>"? Unlikely but possible in some MIME logic.
+              // More common: contentId="<foo>", body="cid:foo".
+              if (cid.startsWith('<') && cid.endsWith('>')) {
+                const unwrapped = cid.slice(1, -1);
+                const escapedUnwrapped = unwrapped.replace(
+                  /[.*+?^${}()|[\]\\]/g,
+                  '\\$&',
+                );
+                const regexUnwrapped = new RegExp(
+                  `cid:${escapedUnwrapped}`,
+                  'gi',
+                );
+                rawBody = rawBody.replace(regexUnwrapped, imageUrl);
+              }
             }
           }
         }
