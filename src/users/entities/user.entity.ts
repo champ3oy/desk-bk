@@ -9,6 +9,14 @@ export enum UserRole {
   ADMIN = 'admin',
 }
 
+export enum UserStatus {
+  ONLINE = 'online',
+  OFFLINE = 'offline',
+  AWAY = 'away',
+  BUSY = 'busy',
+  DND = 'dnd',
+}
+
 @Schema({ _id: false })
 export class OrganizationMembership {
   @ApiProperty({ description: 'Organization ID', type: String })
@@ -53,6 +61,18 @@ export class User {
     default: UserRole.CUSTOMER,
   })
   role: UserRole;
+
+  @ApiPropertyOptional({
+    description: 'User availability status',
+    enum: UserStatus,
+    example: UserStatus.ONLINE,
+  })
+  @Prop({
+    type: String,
+    enum: UserStatus,
+    default: UserStatus.OFFLINE, // Default to offline
+  })
+  status?: UserStatus;
 
   @ApiPropertyOptional({
     description: 'Organization ID',
@@ -220,6 +240,13 @@ export class UserResponseDto {
     example: UserRole.CUSTOMER,
   })
   role: UserRole;
+
+  @ApiPropertyOptional({
+    description: 'User availability status',
+    enum: UserStatus,
+    example: UserStatus.ONLINE,
+  })
+  status?: UserStatus;
 
   @ApiPropertyOptional({
     description: 'Organization ID',

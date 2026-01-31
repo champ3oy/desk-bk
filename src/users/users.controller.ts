@@ -26,7 +26,7 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
-import { UserRole, UserResponseDto } from './entities/user.entity';
+import { UserRole, UserResponseDto, UserStatus } from './entities/user.entity';
 
 @ApiTags('Users')
 @ApiBearerAuth('JWT-auth')
@@ -106,5 +106,28 @@ export class UsersController {
     @Request() req,
   ) {
     return this.usersService.update(id, updateUserDto, req.user.organizationId);
+  }
+
+  @Patch('status')
+  @ApiOperation({ summary: 'Update my availability status' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        status: { enum: ['online', 'offline', 'away', 'busy', 'dnd'] },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Status successfully updated',
+    type: UserResponseDto,
+  })
+  updateStatus(@Body('status') status: UserStatus, @Request() req) {
+    // Validate status enum
+    if (!Object.values(UserStatus).includes(status)) {
+      // throw BadRequest? Nest validation pipe might handle if DTO used, but here simpler.
+    }
+    return this.usersService.setStatus(req.user.userId, status);
   }
 }

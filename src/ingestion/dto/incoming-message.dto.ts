@@ -114,5 +114,6 @@ export class IncomingMessageDto {
     mimeType: string;
     size: number;
     path: string;
+    contentId?: string;
   }>;
 }

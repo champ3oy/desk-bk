@@ -12,6 +12,7 @@ import {
   UserDocument,
   UserResponse,
   UserRole,
+  UserStatus,
 } from './entities/user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -24,6 +25,19 @@ export class UsersService {
     @InjectModel(User.name)
     private userModel: Model<UserDocument>,
   ) {}
+
+  async setStatus(userId: string, status: UserStatus): Promise<UserResponse> {
+    const user = await this.userModel.findByIdAndUpdate(
+      userId,
+      { status },
+      { new: true },
+    );
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    const { password: _, ...result } = user.toObject();
+    return result as UserResponse;
+  }
 
   async create(createUserDto: CreateUserDto): Promise<UserResponse> {
     return this.createMembership(createUserDto);
@@ -190,6 +204,22 @@ export class UsersService {
   async findAllByEmail(email: string): Promise<UserDocument[]> {
     return this.userModel
       .find({ email: { $regex: new RegExp(`^${email}$`, 'i') } })
+      .exec();
+  }
+
+  async findByEmailAndOrg(
+    email: string,
+    organizationId: string,
+  ): Promise<UserDocument | null> {
+    const orgIdObj = new Types.ObjectId(organizationId);
+    return this.userModel
+      .findOne({
+        email: { $regex: new RegExp(`^${email}$`, 'i') },
+        $or: [
+          { organizationId: { $in: [orgIdObj, organizationId] } },
+          { 'organizations.organizationId': orgIdObj },
+        ],
+      })
       .exec();
   }
 

@@ -10,7 +10,7 @@ import { TicketDocument } from '../tickets/entities/ticket.entity';
 import { CustomersService } from '../customers/customers.service';
 import { OrganizationsService } from '../organizations/organizations.service';
 import { UsersService } from '../users/users.service';
-import { marked } from 'marked';
+import * as marked from 'marked';
 
 @Injectable()
 export class DispatcherService {

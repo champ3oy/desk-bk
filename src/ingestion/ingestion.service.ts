@@ -12,6 +12,8 @@ import { TicketResolver } from './resolvers/ticket.resolver';
 import { PendingReviewService } from './services/pending-review.service';
 import { ThreadsService } from '../threads/threads.service';
 import { TicketsService } from '../tickets/tickets.service';
+import { UsersService } from '../users/users.service'; // Added UsersService
+import { UserRole, UserDocument } from '../users/entities/user.entity';
 import {
   Message,
   MessageDocument,
@@ -46,6 +48,7 @@ export class IngestionService {
     @Inject(forwardRef(() => ThreadsService))
     private threadsService: ThreadsService,
     private ticketsService: TicketsService,
+    private usersService: UsersService, // Injected UsersService
   ) {}
 
   /**
@@ -156,30 +159,77 @@ export class IngestionService {
     error?: string;
   }> {
     try {
-      // Step 3: Resolve customer (find or create)
-      const customerId = await this.customerResolver.resolve(
-        message,
-        organizationId,
-      );
-      this.logger.debug(`Resolved customer: ${customerId}`);
+      // Step 3: Check if sender is an Agent (Internal User)
+      // This prevents Agents quoting themselves creating new tickets,
+      // and allows Agents to reply via email to tickets.
+
+      let agentUser: UserDocument | null = null;
+      if (message.senderEmail) {
+        agentUser = await this.usersService.findByEmailAndOrg(
+          message.senderEmail,
+          organizationId,
+        );
+      }
 
       // Step 4: Resolve ticket (reply vs new)
+      // We pass customerId as null if it's an agent, so the resolver doesn't rely on customer logic
+      // But we need a customerId for ticket creation, so we defer that check.
+
+      let customerId: string | null = null;
+      if (!agentUser) {
+        // Normal flow: Resolve Customer
+        customerId = await this.customerResolver.resolve(
+          message,
+          organizationId,
+        );
+        this.logger.debug(`Resolved customer: ${customerId}`);
+      } else {
+        this.logger.debug(
+          `Sender is AGENT: ${agentUser.email} (${agentUser.role})`,
+        );
+      }
+
+      // Resolve Ticket
+      // Use customerId if we have it, otherwise null.
+      // TicketResolver might use customerId to find recent threads.
       const existingTicketId = await this.ticketResolver.resolve(
         message,
         organizationId,
-        customerId,
+        customerId || '', // Pass empty string if agent, resolver should handle it
       );
 
       if (existingTicketId) {
-        // This is a reply - add message to existing ticket
+        // This is a reply to an EXISTING ticket
+        const replyAuthorId =
+          customerId || (agentUser ? agentUser._id.toString() : '');
         return await this.handleReply(
           message,
           organizationId,
-          customerId,
+          replyAuthorId, // Use Agent ID if agent
           existingTicketId,
+          !!agentUser, // isAgent flag
         );
       } else {
-        // This is a new ticket
+        // New Ticket Attempt
+        if (agentUser) {
+          // AGENTS should NOT create new tickets via email usually (unless configured).
+          // This is arguably the "Loop" - an agent receives a notification, replies,
+          // limits headers are stripped, and it looks like a new email.
+          // We should REJECT or Treat as invalid.
+          this.logger.warn(
+            `Agent ${agentUser.email} attempted to create ticket via email (No matching thread found). Rejection to prevent loops.`,
+          );
+          return {
+            success: false,
+            error:
+              'Agents cannot create new tickets via email. Please use the dashboard.',
+          };
+        }
+
+        // Normal New Ticket
+        if (!customerId) {
+          throw new Error('Cannot create ticket: Customer not resolved');
+        }
         return await this.handleNewTicket(message, organizationId, customerId);
       }
     } catch (error) {
@@ -222,8 +272,9 @@ export class IngestionService {
   private async handleReply(
     message: IncomingMessageDto,
     organizationId: string,
-    customerId: string,
+    authorId: string,
     ticketId: string,
+    isAgent = false,
   ): Promise<{ success: boolean; ticketId: string; messageId: string }> {
     this.logger.debug(`Handling reply to ticket ${ticketId}`);
 
@@ -253,18 +304,36 @@ export class IngestionService {
     }
 
     // Get or create thread for ticket
-    const thread = await this.threadsService.getOrCreateThread(
-      ticketId,
-      customerId,
-      organizationId,
-      message.metadata, // Pass metadata (e.g. sessionId)
-    );
+    let thread;
+    if (isAgent) {
+      // If agent, we don't have customerId to pass to getOrCreateThread
+      // But the thread MUST exist for an existing ticket.
+      thread = await this.threadModel.findOne({
+        ticketId: new Types.ObjectId(ticketId),
+        organizationId: new Types.ObjectId(organizationId),
+      });
+
+      if (!thread) {
+        this.logger.error(
+          `Thread not found for ticket ${ticketId} (Agent reply)`,
+        );
+        throw new Error('Thread not found');
+      }
+    } else {
+      // If customer, ensure thread exists or check by session
+      thread = await this.threadsService.getOrCreateThread(
+        ticketId,
+        authorId, // In this case authorId IS customerId
+        organizationId,
+        message.metadata,
+      );
+    }
 
     // Check for content duplicate within last 2 minutes (to catch different Message-IDs for same content)
     const contentDuplicate = await this.checkContentDuplicate(
       message.content,
       organizationId,
-      customerId,
+      authorId, // Changed from customerId
       thread._id.toString(),
     );
 
@@ -283,9 +352,11 @@ export class IngestionService {
     const createdMessage = new this.messageModel({
       threadId: new Types.ObjectId(thread._id),
       organizationId: new Types.ObjectId(organizationId),
-      messageType: MessageType.EXTERNAL,
-      authorType: MessageAuthorType.CUSTOMER,
-      authorId: new Types.ObjectId(customerId),
+      // Use EXTERNAL for Agent replies so they are visible to customers.
+      // Use INTERNAL if you want them to be private notes (but email replies usually implies public comms).
+      messageType: isAgent ? MessageType.EXTERNAL : MessageType.EXTERNAL,
+      authorType: isAgent ? MessageAuthorType.USER : MessageAuthorType.CUSTOMER,
+      authorId: new Types.ObjectId(authorId),
       content: message.content,
       rawBody: message.rawBody,
       channel: message.channel,
@@ -316,21 +387,26 @@ export class IngestionService {
 
     // Trigger AI Auto-reply using the actual message channel
     // We don't await this to avoid blocking ingestion response
-    const channelName = this.getChannelName(message.channel);
-    this.ticketsService
-      .handleAutoReply(
-        ticketId,
-        message.content,
-        organizationId,
-        customerId,
-        channelName,
-      )
-      .catch((e) =>
-        this.logger.error(
-          `Failed to trigger auto-reply for ticket ${ticketId}`,
-          e,
-        ),
-      );
+    // Trigger AI Auto-reply using the actual message channel
+    // We don't await this to avoid blocking ingestion response
+    // ONLY Trigger Auto-reply if it's a CUSTOMER message, not if an Agent replied.
+    if (!isAgent) {
+      const channelName = this.getChannelName(message.channel);
+      this.ticketsService
+        .handleAutoReply(
+          ticketId,
+          message.content,
+          organizationId,
+          authorId, // usage of generic authorId
+          channelName,
+        )
+        .catch((e) =>
+          this.logger.error(
+            `Failed to trigger auto-reply for ticket ${ticketId}`,
+            e,
+          ),
+        );
+    }
 
     return {
       success: true,

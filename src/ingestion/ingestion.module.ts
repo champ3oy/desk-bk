@@ -22,6 +22,7 @@ import { TicketsModule } from '../tickets/tickets.module';
 import { ThreadsModule } from '../threads/threads.module';
 import { TrainingModule } from '../training/training.module';
 import { KnowledgeBaseService } from '../ai/knowledge-base.service';
+import { UsersModule } from '../users/users.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { KnowledgeBaseService } from '../ai/knowledge-base.service';
     forwardRef(() => TicketsModule),
     forwardRef(() => ThreadsModule),
     TrainingModule, // For KnowledgeBaseService
+    UsersModule,
   ],
   controllers: [WebhooksController],
   providers: [

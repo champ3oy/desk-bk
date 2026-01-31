@@ -27,7 +27,35 @@ export class EmailParser {
         parsed = this.parseGeneric(payload);
     }
 
+    // Post-process HTML to replace CID images with actual URLs
+    if (parsed.rawBody && parsed.attachments && parsed.attachments.length > 0) {
+      parsed.rawBody = this.replaceCidImages(
+        parsed.rawBody,
+        parsed.attachments,
+      );
+    }
+
     return parsed;
+  }
+
+  /**
+   * Replace cid:ID identifiers in HTML with attachment URLs
+   */
+  private replaceCidImages(html: string, attachments: any[]): string {
+    let processedHtml = html;
+
+    attachments.forEach((att) => {
+      if (att.contentId) {
+        // Replace cid:contentId with the attachment path (URL)
+        // Regex to match "cid:contentId" or 'cid:contentId'
+        const cidRegex = new RegExp(`cid:${att.contentId}`, 'g');
+        processedHtml = processedHtml.replace(cidRegex, att.path);
+
+        // Also try to match without 'cid:' if sometimes referenced directly (rare)
+      }
+    });
+
+    return processedHtml;
   }
 
   private parseSendGrid(payload: Record<string, any>): IncomingMessageDto {
@@ -213,26 +241,64 @@ export class EmailParser {
             attachments.push({
               filename: att.filename || att.id || 'attachment',
               originalName: att.filename || att.id || 'attachment',
-              mimeType: att.contentType || 'application/octet-stream',
               size: att.size || 0,
               path: att.url || '',
+              contentId:
+                att.contentId ||
+                att['content-id'] ||
+                att.content_id ||
+                undefined,
             });
           }
         });
       }
     }
 
+    // Handle SendGrid/Generic attachment fields
     if (payload['attachment-count'] && payload['attachment-count'] > 0) {
+      // Parse content-ids map if available (SendGrid)
+      // Map is { "content-id": "filename" }
+      let filenameToCid: Record<string, string> = {};
+      try {
+        if (payload['content-ids']) {
+          const contentIdMap = JSON.parse(payload['content-ids']);
+          Object.keys(contentIdMap).forEach((cid) => {
+            filenameToCid[contentIdMap[cid]] = cid;
+          });
+        }
+      } catch (e) {}
+
+      // Parse attachment-info (SendGrid)
+      let attachmentInfo: Record<string, any> = {};
+      try {
+        if (payload['attachment-info']) {
+          attachmentInfo = JSON.parse(payload['attachment-info']);
+        }
+      } catch (e) {}
+
       // Some providers give attachment count but URLs are in separate fields
       for (let i = 1; i <= payload['attachment-count']; i++) {
-        const attUrl = payload[`attachment-${i}`] || payload[`attachment${i}`];
+        const attKeyInfo = `attachment${i}`;
+        const attUrl = payload[`attachment-${i}`] || payload[attKeyInfo];
+
         if (attUrl) {
+          let filename = `attachment-${i}`;
+          let mimeType = 'application/octet-stream';
+
+          if (attachmentInfo[attKeyInfo]) {
+            filename = attachmentInfo[attKeyInfo].filename || filename;
+            mimeType = attachmentInfo[attKeyInfo].type || mimeType;
+          }
+
+          const cid = filenameToCid[filename];
+
           attachments.push({
-            filename: `attachment-${i}`,
-            originalName: `attachment-${i}`,
-            mimeType: 'application/octet-stream',
+            filename: filename,
+            originalName: filename,
+            mimeType: mimeType,
             size: 0,
             path: attUrl,
+            contentId: cid,
           });
         }
       }

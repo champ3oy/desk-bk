@@ -64,6 +64,20 @@ export class TicketResolver {
         }
       }
 
+      // Strategy 3: Check Subject for Ticket ID Pattern
+      // Pattern: [Ticket #12345] or Ticket #12345
+      // We look for alphanumeric ID after "Ticket #"
+      if (message.subject) {
+        const ticketId = await this.findTicketBySubject(
+          message.subject,
+          organizationId,
+        );
+        if (ticketId) {
+          this.logger.debug(`Found reply ticket ${ticketId} by Subject match`);
+          return ticketId;
+        }
+      }
+
       // Strategy 3: Check thread ID (for SMS/WhatsApp)
       if (message.threadId) {
         const ticketId = await this.findTicketByThreadId(
@@ -194,6 +208,58 @@ export class TicketResolver {
       return threads[0].ticketId.toString();
     }
 
+    return null;
+  }
+
+  /**
+   * Find ticket by matching Subject pattern
+   */
+  private async findTicketBySubject(
+    subject: string,
+    organizationId: string,
+  ): Promise<string | null> {
+    if (!subject) return null;
+
+    // Regex to match [Ticket #ID] or Ticket #ID (case insensitive)
+    // Matches: [Ticket #507f1f...], Ticket #507f1f..., etc.
+    // We assume ID is alphanumeric objectId or similar string
+    const match = subject.match(
+      /(?:\[|\s)Ticket\s*#([a-zA-Z0-9]+)(?:\]|\s|$)/i,
+    );
+
+    if (match && match[1]) {
+      const ticketIdCandidate = match[1];
+
+      // Verify this ticket actually exists and belongs to the org
+      try {
+        // Use ticketsService to find ticket if possible, or query directly if we had the model.
+        // Since we injected ticketsService, let's see if it has a findOne capability we can use,
+        // or just rely on the ID being a valid format.
+        // Note: We don't have direct access to TicketModel here, only Message/Thread.
+        // But we DO have ticketsService injected.
+
+        // HOWEVER, TicketsService.findOne usually requires user context (userId, role) which we don't have.
+        // Safe bet: Query Thread model for this ticketId to see if it exists.
+
+        // If ticketId is not a valid ObjectId (if using Mongo ObjectIds), this might throw.
+        if (!Types.ObjectId.isValid(ticketIdCandidate)) {
+          return null;
+        }
+
+        const thread = await this.threadModel
+          .findOne({
+            ticketId: new Types.ObjectId(ticketIdCandidate),
+            organizationId: new Types.ObjectId(organizationId),
+          })
+          .exec();
+
+        if (thread) {
+          return thread.ticketId.toString();
+        }
+      } catch (err) {
+        this.logger.warn(`Error verifying ticket from subject: ${err.message}`);
+      }
+    }
     return null;
   }
 

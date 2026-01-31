@@ -1,4 +1,5 @@
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
+import { ChatOpenAI } from '@langchain/openai';
 import { ConfigService } from '@nestjs/config';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { Logger } from '@nestjs/common';
@@ -30,6 +31,9 @@ export class AIModelFactory {
         modelName =
           configService.get<string>('ai.customModelName') ||
           process.env.AI_CUSTOM_MODEL_NAME;
+      } else if (defaultModel.toLowerCase().startsWith('deepseek')) {
+        provider = 'deepseek';
+        modelName = defaultModel;
       } else {
         provider = 'google';
         modelName = defaultModel;
@@ -63,6 +67,8 @@ export class AIModelFactory {
     let model: BaseChatModel;
     if (isCustom) {
       model = this.createCustomClient(configService, modelName);
+    } else if (provider?.toLowerCase() === 'deepseek') {
+      model = this.createDeepseekClient(configService, modelName);
     } else {
       model = this.createGeminiClient(configService, modelName);
     }
@@ -107,25 +113,25 @@ export class AIModelFactory {
           model: 'gemini-1.5-pro',
           label: 'Gemini 1.5 Pro',
         },
+      );
+    }
+
+    // Check Deepseek
+    const deepseekKey =
+      configService.get<string>('ai.deepseekApiKey') ||
+      process.env.DEEPSEEK_API_KEY;
+
+    if (deepseekKey) {
+      models.push(
         {
-          provider: 'google',
-          model: 'gemini-3-pro-preview',
-          label: 'Gemini 3.0 Pro Preview',
+          provider: 'deepseek',
+          model: 'deepseek-chat',
+          label: 'Deepseek Chat (V3)',
         },
         {
-          provider: 'google',
-          model: 'gemini-3-flash-preview',
-          label: 'Gemini 3.0 Flash Preview',
-        },
-        {
-          provider: 'google',
-          model: 'gemini-2.5-pro',
-          label: 'Gemini 2.5 Pro',
-        },
-        {
-          provider: 'google',
-          model: 'gemini-2.5-flash',
-          label: 'Gemini 2.5 Flash',
+          provider: 'deepseek',
+          model: 'deepseek-reasoner',
+          label: 'Deepseek Reasoner (R1)',
         },
       );
     }
@@ -244,5 +250,31 @@ export class AIModelFactory {
     }) as any;
 
     return client;
+  }
+
+  private static createDeepseekClient(
+    configService: ConfigService,
+    modelName: string,
+  ): ChatOpenAI {
+    const apiKey =
+      configService.get<string>('ai.deepseekApiKey') ||
+      process.env.DEEPSEEK_API_KEY;
+
+    if (!apiKey) {
+      throw new Error(
+        'Deepseek API key is not configured. Please set DEEPSEEK_API_KEY.',
+      );
+    }
+
+    this.logger.log(`[AI Factory] Initializing Deepseek Client: ${modelName}`);
+
+    return new ChatOpenAI({
+      modelName: modelName,
+      openAIApiKey: apiKey,
+      configuration: {
+        baseURL: 'https://api.deepseek.com',
+      },
+      temperature: 0.3,
+    });
   }
 }

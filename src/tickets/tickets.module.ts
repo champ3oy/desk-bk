@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { TicketsService } from './tickets.service';
 import { TicketsController } from './tickets.controller';
+import { CustomerTicketsController } from '../api/mobile/customer-tickets.controller';
 import { Ticket, TicketSchema } from './entities/ticket.entity';
 import { Tag, TagSchema } from '../tags/entities/tag.entity';
 import { CustomersModule } from '../customers/customers.module';
@@ -24,7 +25,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     forwardRef(() => ThreadsModule),
     NotificationsModule,
   ],
-  controllers: [TicketsController],
+  controllers: [TicketsController, CustomerTicketsController],
   providers: [TicketsService],
   exports: [TicketsService],
 })
