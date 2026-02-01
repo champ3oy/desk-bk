@@ -12,6 +12,7 @@ import { TicketResolver } from './resolvers/ticket.resolver';
 import { PendingReviewService } from './services/pending-review.service';
 import { ThreadsService } from '../threads/threads.service';
 import { TicketsService } from '../tickets/tickets.service';
+import { WidgetGateway } from '../gateways/widget.gateway';
 import { UsersService } from '../users/users.service'; // Added UsersService
 import { UserRole, UserDocument } from '../users/entities/user.entity';
 import {
@@ -47,8 +48,12 @@ export class IngestionService {
     private pendingReviewService: PendingReviewService,
     @Inject(forwardRef(() => ThreadsService))
     private threadsService: ThreadsService,
+    @Inject(forwardRef(() => TicketsService))
     private ticketsService: TicketsService,
-    private usersService: UsersService, // Injected UsersService
+    @Inject(forwardRef(() => UsersService))
+    private usersService: UsersService,
+    @Inject(forwardRef(() => WidgetGateway))
+    private widgetGateway: WidgetGateway,
   ) {}
 
   /**
@@ -408,6 +413,16 @@ export class IngestionService {
         );
     }
 
+    // Notify Widget via WebSocket if applicable (Echo back to user or notify other sessions)
+    if (thread.metadata?.sessionId) {
+      await createdMessage.populate('authorId');
+      this.widgetGateway.sendNewMessage(
+        organizationId,
+        thread.metadata.sessionId,
+        createdMessage,
+      );
+    }
+
     return {
       success: true,
       ticketId,
@@ -548,6 +563,16 @@ export class IngestionService {
 
     // Note: Auto-reply is already triggered by ticketsService.create() above
     // so we don't need to call handleAutoReply here again
+
+    // Notify Widget via WebSocket if applicable
+    if (message.metadata?.sessionId) {
+      await createdMessage.populate('authorId');
+      this.widgetGateway.sendNewMessage(
+        organizationId,
+        message.metadata.sessionId,
+        createdMessage,
+      );
+    }
 
     return {
       success: true,

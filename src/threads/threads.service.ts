@@ -25,6 +25,7 @@ import { UserRole } from '../users/entities/user.entity';
 import { DispatcherService } from '../dispatcher/dispatcher.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/entities/notification.entity';
+import { WidgetGateway } from '../gateways/widget.gateway';
 
 @Injectable()
 export class ThreadsService {
@@ -39,7 +40,9 @@ export class ThreadsService {
     private customersService: CustomersService,
     private groupsService: GroupsService,
     private dispatcherService: DispatcherService,
+
     private notificationsService: NotificationsService,
+    private widgetGateway: WidgetGateway,
   ) {}
 
   /**
@@ -220,6 +223,17 @@ export class ThreadsService {
         );
     }
 
+    // Notify Widget via WebSocket if applicable
+    if (thread.metadata?.sessionId) {
+      // Populate author for the socket event
+      await savedMessage.populate('authorId');
+      this.widgetGateway.sendNewMessage(
+        organizationId,
+        thread.metadata.sessionId,
+        savedMessage,
+      );
+    }
+
     // Auto-reply Logic for existing threads (Customer messages)
     if (
       savedMessage.messageType === MessageType.EXTERNAL &&
@@ -321,7 +335,12 @@ export class ThreadsService {
     if (
       savedMessage.messageType === MessageType.EXTERNAL &&
       (savedMessage.authorType === MessageAuthorType.USER ||
-        savedMessage.authorType === MessageAuthorType.AI)
+        savedMessage.authorType === MessageAuthorType.AI) &&
+      savedMessage.channel !== MessageChannel.WIDGET &&
+      !(
+        savedMessage.channel === MessageChannel.PLATFORM &&
+        thread.metadata?.sessionId
+      )
     ) {
       try {
         // Fetch ticket to get subject

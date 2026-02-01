@@ -122,7 +122,7 @@ export class OutlookPollingService {
     // Graph API: receivedDateTime ge 2023...
     // Also order by receivedDateTime desc
 
-    let url = `/me/messages?$filter=receivedDateTime ge ${dateIsoString}&$orderby=receivedDateTime desc&$top=50&$select=id,receivedDateTime,from,toRecipients,subject,body,internetMessageHeaders,conversationId,isRead`;
+    let url = `/me/messages?$filter=receivedDateTime ge ${dateIsoString} and from/emailAddress/address ne '${integration.email}'&$orderby=receivedDateTime desc&$top=50&$select=id,receivedDateTime,from,toRecipients,subject,body,internetMessageHeaders,conversationId,isRead`;
 
     // Handle pagination? For now fetch top 50. In a real loop we should follow @odata.nextLink
     // Let's implement basic pagination loop

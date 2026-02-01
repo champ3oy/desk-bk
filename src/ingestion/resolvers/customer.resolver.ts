@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { CustomersService } from '../../customers/customers.service';
 import { IncomingMessageDto } from '../dto/incoming-message.dto';
 
@@ -6,7 +6,10 @@ import { IncomingMessageDto } from '../dto/incoming-message.dto';
 export class CustomerResolver {
   private readonly logger = new Logger(CustomerResolver.name);
 
-  constructor(private customersService: CustomersService) {}
+  constructor(
+    @Inject(forwardRef(() => CustomersService))
+    private customersService: CustomersService,
+  ) {}
 
   /**
    * Resolve customer from incoming message

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { IncomingMessageDto } from '../dto/incoming-message.dto';
@@ -20,6 +20,7 @@ export class TicketResolver {
     private messageModel: Model<MessageDocument>,
     @InjectModel(Thread.name)
     private threadModel: Model<ThreadDocument>,
+    @Inject(forwardRef(() => TicketsService))
     private ticketsService: TicketsService,
   ) {}
 

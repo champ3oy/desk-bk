@@ -23,6 +23,7 @@ import { IntegrationsModule } from './integrations/integrations.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { MacrosModule } from './macros/macros.module';
+import { IngestionModule } from './ingestion/ingestion.module';
 
 import databaseConfig from './config/database.config';
 import aiConfig from './config/ai.config';
@@ -65,7 +66,9 @@ import { StorageModule } from './storage/storage.module';
     NotificationsModule,
     MacrosModule,
     AnalyticsModule,
-    StorageModule,
+    AnalyticsModule, // Line 67
+    StorageModule, // Line 68
+    IngestionModule,
   ],
   controllers: [AppController],
   providers: [AppService],

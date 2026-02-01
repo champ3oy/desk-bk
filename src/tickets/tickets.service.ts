@@ -26,6 +26,7 @@ import { draftResponse } from '../ai/agents/response';
 import {
   MessageType,
   MessageAuthorType,
+  MessageChannel,
 } from '../threads/entities/message.entity';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { TicketPaginationDto } from './dto/ticket-pagination.dto';
@@ -312,9 +313,6 @@ Sentiment:`;
               (confidence < threshold
                 ? `Confidence ${confidence}% below threshold ${threshold}%`
                 : 'AI decided to escalate');
-            console.log(
-              `[Auto-Reply] Escalating ticket ${ticketId}: ${reason}`,
-            );
 
             await this.ticketModel
               .updateOne(
@@ -392,6 +390,12 @@ Return ONLY the message text.`;
               {
                 content: escalationMessage,
                 messageType: MessageType.EXTERNAL,
+                channel:
+                  channel === 'chat' || channel === 'widget'
+                    ? MessageChannel.WIDGET
+                    : channel === 'email'
+                      ? MessageChannel.EMAIL
+                      : (channel as any),
               },
               organizationId,
               customerId,
@@ -408,9 +412,6 @@ Return ONLY the message text.`;
             let finalContent = response.content;
 
             // Debug logging
-            console.log(
-              `[AutoReply] Channel: ${channel}, aiEmailSignature exists: ${!!org.aiEmailSignature}`,
-            );
 
             // Only append signature for EMAIL channel
             if (
@@ -418,12 +419,8 @@ Return ONLY the message text.`;
               channel &&
               channel.toLowerCase() === 'email'
             ) {
-              console.log(`[AutoReply] Appending email signature to response`);
               finalContent += `\n\n${org.aiEmailSignature}`;
             } else {
-              console.log(
-                `[AutoReply] NOT appending signature. Channel: ${channel}`,
-              );
             }
 
             await this.threadsService.createMessage(
@@ -431,6 +428,12 @@ Return ONLY the message text.`;
               {
                 content: finalContent,
                 messageType: MessageType.EXTERNAL,
+                channel:
+                  channel === 'chat' || channel === 'widget'
+                    ? MessageChannel.WIDGET
+                    : channel === 'email'
+                      ? MessageChannel.EMAIL
+                      : (channel as any),
               },
               organizationId,
               customerId,

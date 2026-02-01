@@ -1,4 +1,5 @@
 import { Module, forwardRef } from '@nestjs/common';
+import { WidgetGateway } from '../gateways/widget.gateway';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ThreadsService } from './threads.service';
 import { ThreadsController } from './threads.controller';
@@ -9,6 +10,7 @@ import { CustomersModule } from '../customers/customers.module';
 import { GroupsModule } from '../groups/groups.module';
 import { DispatcherModule } from '../dispatcher/dispatcher.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { IngestionModule } from '../ingestion/ingestion.module';
 
 @Module({
   imports: [
@@ -20,10 +22,12 @@ import { NotificationsModule } from '../notifications/notifications.module';
     forwardRef(() => CustomersModule),
     GroupsModule,
     DispatcherModule,
+
     NotificationsModule,
+    forwardRef(() => IngestionModule),
   ],
   controllers: [ThreadsController],
-  providers: [ThreadsService],
-  exports: [ThreadsService],
+  providers: [ThreadsService, WidgetGateway],
+  exports: [ThreadsService, WidgetGateway],
 })
 export class ThreadsModule {}

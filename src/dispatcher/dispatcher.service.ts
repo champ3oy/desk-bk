@@ -175,7 +175,7 @@ export class DispatcherService {
       }
 
       // Calling sendEmail
-      await this.emailIntegrationService.sendEmail(
+      const externalMessageId = await this.emailIntegrationService.sendEmail(
         fromEmail,
         recipientEmail,
         subject,
@@ -183,6 +183,11 @@ export class DispatcherService {
         inReplyTo,
         references,
       );
+
+      if (externalMessageId) {
+        message.externalMessageId = externalMessageId;
+        await message.save();
+      }
 
       this.logger.log(`Dispatched message ${message._id} via ${fromEmail}`);
       return true;

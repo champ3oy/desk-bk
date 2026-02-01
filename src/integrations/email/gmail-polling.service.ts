@@ -155,7 +155,7 @@ export class GmailPollingService {
   async syncMessagesManually(integration: any, days: number) {
     const seconds = days * 24 * 60 * 60;
     const after = Math.floor(Date.now() / 1000 - seconds);
-    const query = `after:${after}`;
+    const query = `after:${after} -from:${integration.email}`;
     this.logger.log(
       `Starting manual sync for ${integration.email} looking back ${days} days...`,
     );
@@ -169,7 +169,7 @@ export class GmailPollingService {
     if (integration.lastSyncedAt) {
       // Convert to seconds
       const after = Math.floor(integration.lastSyncedAt.getTime() / 1000);
-      query = `after:${after}`;
+      query = `after:${after} -from:${integration.email}`;
     } else {
       // First sync: start from when the integration was added/created
       // This prevents ingesting old emails prior to connection
@@ -177,7 +177,7 @@ export class GmailPollingService {
         ? new Date(integration['createdAt']).getTime()
         : Date.now();
       const after = Math.floor(startTime / 1000);
-      query = `after:${after}`;
+      query = `after:${after} -from:${integration.email}`;
     }
 
     await this.fetchMessages(integration, query);
