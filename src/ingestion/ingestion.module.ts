@@ -23,6 +23,7 @@ import { ThreadsModule } from '../threads/threads.module';
 import { TrainingModule } from '../training/training.module';
 import { KnowledgeBaseService } from '../ai/knowledge-base.service';
 import { UsersModule } from '../users/users.module';
+import { AttachmentsModule } from '../attachments/attachments.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { UsersModule } from '../users/users.module';
     forwardRef(() => CustomersModule),
     forwardRef(() => TicketsModule),
     forwardRef(() => ThreadsModule),
+    AttachmentsModule,
     TrainingModule, // For KnowledgeBaseService
     UsersModule,
   ],

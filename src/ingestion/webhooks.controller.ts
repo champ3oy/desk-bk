@@ -29,6 +29,9 @@ import { OrganizationsService } from '../organizations/organizations.service';
 import { CustomersService } from '../customers/customers.service';
 import { KnowledgeBaseService } from '../ai/knowledge-base.service';
 import { playgroundChat } from '../ai/agents/playground';
+import { AttachmentsService } from '../attachments/attachments.service';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { UploadedFile, UseInterceptors } from '@nestjs/common';
 
 @ApiTags('Webhooks')
 @Controller('webhooks')
@@ -41,6 +44,7 @@ export class WebhooksController {
     private organizationsService: OrganizationsService,
     private customersService: CustomersService,
     private knowledgeBaseService: KnowledgeBaseService,
+    private attachmentsService: AttachmentsService,
   ) {}
 
   @Post('email')
@@ -293,6 +297,50 @@ export class WebhooksController {
 
     // AI response is handled by auto-reply logic in threads service
     return result;
+  }
+
+  @Post('widget/upload')
+  @UseInterceptors(FileInterceptor('file'))
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Upload a file from widget',
+    description: 'Uploads a file and returns the attachment details.',
+  })
+  async handleWidgetUpload(
+    @UploadedFile() file: Express.Multer.File,
+    @Body('channelId') channelId: string,
+    @Headers('x-channel-id') headerChannelId: string,
+  ) {
+    const orgId = channelId || headerChannelId;
+
+    if (!orgId) {
+      throw new BadRequestException('Channel ID is required');
+    }
+
+    if (!file) {
+      throw new BadRequestException('File is required');
+    }
+
+    this.logger.debug(`Received Widget file upload for org ${orgId}`);
+
+    try {
+      const attachment = await this.attachmentsService.uploadFile(file, orgId);
+      return {
+        success: true,
+        attachment: {
+          id: (attachment as any)._id,
+          filename: attachment.filename,
+          originalName: attachment.originalName,
+          mimeType: attachment.mimeType,
+          size: attachment.size,
+          path: attachment.path,
+          url: attachment.path, // Assuming path is the accessible URL
+        },
+      };
+    } catch (error) {
+      this.logger.error(`Widget file upload failed: ${error.message}`);
+      throw new BadRequestException(`Upload failed: ${error.message}`);
+    }
   }
 
   @Get('widget/history')

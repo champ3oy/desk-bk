@@ -226,7 +226,10 @@ export class ThreadsService {
     // Notify Widget via WebSocket if applicable
     if (thread.metadata?.sessionId) {
       // Populate author for the socket event
-      await savedMessage.populate('authorId');
+      await savedMessage.populate({
+        path: 'authorId',
+        select: 'firstName lastName email',
+      });
       this.widgetGateway.sendNewMessage(
         organizationId,
         thread.metadata.sessionId,

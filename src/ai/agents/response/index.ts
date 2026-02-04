@@ -140,6 +140,17 @@ You must output a single valid JSON object. Do not include markdown formatting.
     toneInstructions.push('- Do not use emojis in responses');
   }
 
+  // Channel specific formatting
+  if (channel !== 'email') {
+    toneInstructions.push(
+      '- Live Chat/Widget: Keep messages short and split into multiple lines if needed.',
+    );
+    toneInstructions.push(
+      '- Do NOT use complex markdown headers or bullets unless necessary.',
+    );
+    toneInstructions.push('- Be conversational and quick.');
+  }
+
   // Greetings - ONLY APPLY if replying
   if (org.aiIncludeGreetings === false && channel !== 'email') {
     toneInstructions.push(

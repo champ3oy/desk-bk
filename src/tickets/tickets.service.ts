@@ -252,10 +252,19 @@ Sentiment:`;
         }
       }
 
-      if (!shouldAutoReply) return;
+      if (!shouldAutoReply) {
+        console.log(
+          `[AutoReply] Skipping auto-reply for ticket ${ticketId}: Auto-reply not enabled for channel '${channel}'`,
+        );
+        return;
+      }
 
       const ticket = await this.ticketModel.findById(ticketId);
       if (!ticket) return;
+
+      console.log(
+        `[AutoReply] Processing ticket ${ticketId}. Channel: ${channel}. Org settings: LiveChat=${org.aiAutoReplyLiveChat} Email=${org.aiAutoReplyEmail}`,
+      );
 
       // Check if AI auto-reply is disabled for this ticket
       if (ticket.aiAutoReplyDisabled) {
@@ -271,8 +280,12 @@ Sentiment:`;
         ticket.status === TicketStatus.RESOLVED ||
         ticket.status === TicketStatus.ESCALATED ||
         ticket.isAiEscalated
-      )
+      ) {
+        console.log(
+          `[AutoReply] Ticket ${ticketId} status prevents AI reply: ${ticket.status} / Escalated: ${ticket.isAiEscalated}`,
+        );
         return;
+      }
 
       const isRestricted = this.checkRestrictedTopics(
         ticket.subject,
@@ -290,6 +303,7 @@ Sentiment:`;
       // Use timeout to not block
       setTimeout(async () => {
         try {
+          console.log(`[AutoReply] Drafting response for ${ticketId}...`);
           const response = await draftResponse(
             ticketId,
             this,
@@ -302,6 +316,10 @@ Sentiment:`;
             organizationId,
             undefined,
             channel,
+          );
+
+          console.log(
+            `[AutoReply] Draft result: Action=${response.action}, Confidence=${response.confidence}`,
           );
 
           const confidence = response.confidence || 0;
@@ -328,6 +346,8 @@ Sentiment:`;
                 },
               )
               .exec();
+
+            console.log(`[AutoReply] Escalated ticket ${ticketId}: ${reason}`);
 
             // Send friendly escalation message to customer
             const thread = await this.threadsService.getOrCreateThread(
