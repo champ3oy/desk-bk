@@ -30,9 +30,9 @@ export class WidgetGateway implements OnModuleInit {
   onModuleInit() {
     // Attach WebSocket Server to the existing HTTP Server
     const server = this.httpAdapterHost.httpAdapter.getHttpServer();
-    this.wss = new WebSocketServer({ server, path: '/widget' });
+    this.wss = new WebSocketServer({ server, path: '/api/widget' });
 
-    this.logger.log('Native WebSocket Server initialized at /widget');
+    this.logger.log('Native WebSocket Server initialized at /api/widget');
 
     this.wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
       this.handleConnection(ws, req);

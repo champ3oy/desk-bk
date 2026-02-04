@@ -188,8 +188,8 @@ Retrieve the configured branding and settings for your organization (e.g., color
 
 Instead of polling `GET /history`, you can connect via WebSocket to receive messages in real-time.
 
-**Connection URL:** `wss://api.morpheusdesk.com/widget`
-(For local: `ws://localhost:3000/widget`)
+**Connection URL:** `wss://api.morpheusdesk.com/api/widget`
+(For local: `ws://localhost:3000/api/widget`)
 
 **Protocol:** Native WebSocket (not Socket.IO)
 

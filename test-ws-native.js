@@ -1,7 +1,7 @@
 const WebSocket = require('ws');
 const { v4: uuidv4 } = require('uuid');
 
-const URL = 'ws://localhost:3000/widget';
+const URL = 'ws://localhost:3000/api/widget';
 const CHANNEL_ID = '69724acec84f3520beda873c';
 const SESSION_ID = 'native_ws_tester';
 
