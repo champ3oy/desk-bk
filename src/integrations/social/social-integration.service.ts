@@ -187,6 +187,15 @@ export class SocialIntegrationService {
     // Subscribe the WABA to our Meta app to receive webhooks
     await this.subscribeWabaToApp(dto.wabaId, accessToken);
 
+    // Register phone number with PIN (default to '1234' if not provided)
+    if (phoneNumberId) {
+      await this.registerWhatsAppPhoneNumber(
+        phoneNumberId,
+        dto.pin || '1234',
+        accessToken,
+      );
+    }
+
     this.logger.log(
       `WhatsApp integration created for organization: ${organizationId}, WABA: ${dto.wabaId}`,
     );
@@ -230,6 +239,55 @@ export class SocialIntegrationService {
         `Error subscribing WABA ${wabaId} to app: ${error.message}`,
       );
       // Don't throw - integration was created successfully, just log the warning
+    }
+  }
+
+  /**
+   * Register a WhatsApp phone number with a PIN (Two-Step Verification)
+   */
+  async registerWhatsAppPhoneNumber(
+    phoneNumberId: string,
+    pin: string,
+    accessToken: string,
+  ): Promise<void> {
+    try {
+      this.logger.debug(`Registering WhatsApp phone number: ${phoneNumberId}`);
+
+      const response = await fetch(
+        `https://graph.facebook.com/v23.0/${phoneNumberId}/register`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            messaging_product: 'whatsapp',
+            pin: pin,
+          }),
+        },
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        this.logger.warn(
+          `Failed to register WhatsApp phone number ${phoneNumberId}: ${JSON.stringify(
+            data,
+          )}`,
+        );
+        return;
+      }
+
+      if (data.success) {
+        this.logger.log(
+          `WhatsApp phone number ${phoneNumberId} registered successfully`,
+        );
+      }
+    } catch (error: any) {
+      this.logger.warn(
+        `Error registering WhatsApp phone number ${phoneNumberId}: ${error.message}`,
+      );
     }
   }
 

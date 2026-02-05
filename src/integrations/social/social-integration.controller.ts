@@ -109,6 +109,7 @@ export class SocialIntegrationController {
           businessId: body.businessId,
           phoneNumberId: body.phoneNumberId,
           event: body.event,
+          pin: body.pin,
         },
         accessToken,
         req.user.organizationId,

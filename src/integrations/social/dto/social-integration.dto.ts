@@ -34,6 +34,13 @@ export class StoreWabaDataDto {
   @IsString()
   @IsOptional()
   event?: string;
+
+  @ApiPropertyOptional({
+    description: 'Two-step verification PIN for the phone number',
+  })
+  @IsString()
+  @IsOptional()
+  pin?: string;
 }
 
 export class ExchangeInstagramCodeDto {
