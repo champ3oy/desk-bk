@@ -24,7 +24,42 @@ export class WhatsAppParser {
   }
 
   private parseMeta(payload: Record<string, any>): IncomingMessageDto {
-    // Meta WhatsApp Business API webhook format
+    // Check if this is a pre-normalized payload from webhooks.controller.ts
+    // (has flat structure with 'from', 'to', 'text' fields)
+    if (
+      payload.from &&
+      (payload.to || payload.phoneNumberId) &&
+      !payload.entry
+    ) {
+      // This is the normalized format from webhooks.controller.ts
+      const attachments: any[] = [];
+      if (payload.mediaUrl && payload.mediaType) {
+        attachments.push({
+          filename: `whatsapp_${payload.mediaType}_${payload.id || Date.now()}.${this.getExtension(payload.mediaType)}`,
+          originalName: `whatsapp_${payload.mediaType}_${payload.id || Date.now()}.${this.getExtension(payload.mediaType)}`,
+          mimeType: this.getMimeType(payload.mediaType),
+          size: 0,
+          path: payload.mediaUrl,
+        });
+      }
+
+      return {
+        channel: MessageChannel.WHATSAPP,
+        senderPhone: payload.from,
+        recipientPhone: payload.to, // This is the display_phone_number
+        senderName: payload.fromName,
+        content: payload.text || '',
+        threadId: payload.originalPayload?.context?.from,
+        messageId: payload.id,
+        attachments,
+        metadata: {
+          ...payload,
+          phoneNumberId: payload.phoneNumberId, // Keep phoneNumberId for sending replies
+        },
+      };
+    }
+
+    // Raw Meta WhatsApp Business API webhook format
     const entry = payload.entry?.[0];
     const changes = entry?.changes?.[0];
     const value = changes?.value;
@@ -32,7 +67,11 @@ export class WhatsAppParser {
     const contact = value?.contacts?.[0];
 
     const senderPhone = message?.from || value?.from;
-    const recipientPhone = value?.metadata?.phone_number_id || entry?.id;
+    // Use display_phone_number (the actual phone number) for organization resolution
+    const recipientPhone =
+      value?.metadata?.display_phone_number ||
+      value?.metadata?.phone_number_id ||
+      entry?.id;
 
     const attachments: any[] = [];
     if (message?.type === 'image' && message.image) {
@@ -54,8 +93,41 @@ export class WhatsAppParser {
       threadId: message?.context?.from || value?.conversation?.id,
       messageId: message?.id,
       attachments,
-      metadata: payload,
+      metadata: {
+        ...payload,
+        phoneNumberId: value?.metadata?.phone_number_id, // Keep phoneNumberId for sending replies
+      },
     };
+  }
+
+  private getExtension(mediaType: string): string {
+    switch (mediaType) {
+      case 'image':
+        return 'jpg';
+      case 'video':
+        return 'mp4';
+      case 'audio':
+        return 'ogg';
+      case 'document':
+        return 'pdf';
+      default:
+        return 'bin';
+    }
+  }
+
+  private getMimeType(mediaType: string): string {
+    switch (mediaType) {
+      case 'image':
+        return 'image/jpeg';
+      case 'video':
+        return 'video/mp4';
+      case 'audio':
+        return 'audio/ogg';
+      case 'document':
+        return 'application/pdf';
+      default:
+        return 'application/octet-stream';
+    }
   }
 
   private parseGeneric(payload: Record<string, any>): IncomingMessageDto {

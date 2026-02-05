@@ -9,17 +9,31 @@ import {
 } from '../../threads/entities/message.entity';
 import { Thread, ThreadDocument } from '../../threads/entities/thread.entity';
 import { TicketsService } from '../../tickets/tickets.service';
-import { TicketStatus } from '../../tickets/entities/ticket.entity';
+import {
+  Ticket,
+  TicketDocument,
+  TicketStatus,
+} from '../../tickets/entities/ticket.entity';
 
 @Injectable()
 export class TicketResolver {
   private readonly logger = new Logger(TicketResolver.name);
+
+  // Statuses that are considered "open" for attaching new messages
+  private readonly OPEN_STATUSES = [
+    TicketStatus.OPEN,
+    TicketStatus.PENDING,
+    TicketStatus.ESCALATED,
+    TicketStatus.IN_PROGRESS,
+  ];
 
   constructor(
     @InjectModel(Message.name)
     private messageModel: Model<MessageDocument>,
     @InjectModel(Thread.name)
     private threadModel: Model<ThreadDocument>,
+    @InjectModel(Ticket.name)
+    private ticketModel: Model<TicketDocument>,
     @Inject(forwardRef(() => TicketsService))
     private ticketsService: TicketsService,
   ) {}
@@ -189,8 +203,8 @@ export class TicketResolver {
       return null;
     }
 
-    // Alternative: Find most recent thread for this customer and check if threadId matches
-    // This is a simplified approach - in production you might want to store thread IDs separately
+    // Alternative: Find most recent OPEN thread for this customer
+    // Only attach to tickets that are still open (not closed/resolved)
     const threads = await this.threadModel
       .find({
         customerId: new Types.ObjectId(customerId),
@@ -201,15 +215,44 @@ export class TicketResolver {
       .limit(10)
       .exec();
 
-    // For now, return the most recent thread's ticket
-    // In a more sophisticated implementation, you'd match thread IDs from metadata
-    if (threads.length > 0) {
-      // Return the most recent ticket as a fallback
-      // This is a heuristic - ideally you'd have a proper thread ID mapping
-      return threads[0].ticketId.toString();
+    // Check each thread's ticket status - only return if ticket is open
+    for (const thread of threads) {
+      const isOpen = await this.isTicketOpen(thread.ticketId.toString());
+      if (isOpen) {
+        this.logger.debug(
+          `Found open ticket ${thread.ticketId} for customer ${customerId}`,
+        );
+        return thread.ticketId.toString();
+      }
     }
 
+    // No open tickets found - a new ticket will be created
+    this.logger.debug(
+      `No open tickets found for customer ${customerId} - will create new ticket`,
+    );
     return null;
+  }
+
+  /**
+   * Check if a ticket is in an "open" state (not closed/resolved)
+   */
+  private async isTicketOpen(ticketId: string): Promise<boolean> {
+    try {
+      const ticket = await this.ticketModel
+        .findById(ticketId)
+        .select('status')
+        .lean()
+        .exec();
+
+      if (!ticket) {
+        return false;
+      }
+
+      return this.OPEN_STATUSES.includes(ticket.status as TicketStatus);
+    } catch (error) {
+      this.logger.warn(`Error checking ticket status: ${error.message}`);
+      return false;
+    }
   }
 
   /**

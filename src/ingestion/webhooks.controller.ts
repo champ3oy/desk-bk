@@ -334,7 +334,9 @@ export class WebhooksController {
           mimeType: attachment.mimeType,
           size: attachment.size,
           path: attachment.path,
-          url: attachment.path, // Assuming path is the accessible URL
+          url: attachment.path?.startsWith('http')
+            ? attachment.path
+            : `http://localhost:3005${attachment.path?.startsWith('/') ? '' : '/'}${attachment.path}`,
         },
       };
     } catch (error) {
@@ -431,6 +433,12 @@ export class WebhooksController {
           authorType: msg.authorType, // Include authorType to differentiate AI vs human agents
           authorName, // Include author name for human agents
           timestamp: msg.createdAt?.getTime() || Date.now(),
+          attachments: (msg.attachments || []).map((att: any) => ({
+            ...att,
+            url: att.path?.startsWith('http')
+              ? att.path
+              : `http://localhost:3005${att.path?.startsWith('/') ? '' : '/'}${att.path}`,
+          })),
         };
       }),
     };

@@ -303,10 +303,14 @@ export class CustomersService {
     }
 
     // Create new customer
-    // For widget customers, we can create without email if we have externalId
-    if (!customerData.email && !customerData.externalId) {
+    // We can create a customer if we have email, externalId, OR phone (for WhatsApp/SMS users)
+    if (
+      !customerData.email &&
+      !customerData.externalId &&
+      !customerData.phone
+    ) {
       throw new BadRequestException(
-        'Email or externalId is required to create a customer',
+        'Email, phone, or externalId is required to create a customer',
       );
     }
 
@@ -320,6 +324,10 @@ export class CustomersService {
           customerData.firstName || nameParts[0] || 'Customer';
         customerData.lastName =
           customerData.lastName || nameParts.slice(1).join(' ') || '';
+      } else if (customerData.phone) {
+        // WhatsApp/SMS customer - use phone-based defaults
+        customerData.firstName = customerData.firstName || 'WhatsApp';
+        customerData.lastName = customerData.lastName || 'User';
       } else {
         // Widget customer without email
         customerData.firstName = customerData.firstName || 'Website';

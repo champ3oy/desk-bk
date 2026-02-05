@@ -366,7 +366,12 @@ export class ThreadsService {
           organizationId,
         );
 
-        if (customer.email) {
+        // Dispatch based on channel: email needs email, WhatsApp needs phone
+        const shouldDispatch =
+          customer.email ||
+          (savedMessage.channel === MessageChannel.WHATSAPP && customer.phone);
+
+        if (shouldDispatch) {
           // Find last message with external ID for threading
           const lastMessage = await this.messageModel
             .findOne({
@@ -379,9 +384,13 @@ export class ThreadsService {
           await this.dispatcherService.dispatch(
             savedMessage,
             ticket,
-            customer.email,
+            (customer.email || customer.phone)!, // Use email or phone as recipient identifier
             lastMessage?.externalMessageId,
             lastMessage?.externalMessageId, // Simple threading: use last ID as references too
+          );
+        } else {
+          console.warn(
+            `Cannot dispatch message ${savedMessage._id}: Customer has no email${savedMessage.channel === MessageChannel.WHATSAPP ? ' or phone' : ''}`,
           );
         }
       } catch (error) {

@@ -50,6 +50,16 @@ export class CustomerResolver {
         customerData.externalId = message.metadata.sessionId;
       }
 
+      // For WhatsApp/SMS messages without email, use phone as externalId
+      // This ensures consistent customer identification across conversations
+      if (
+        !customerData.email &&
+        !customerData.externalId &&
+        customerData.phone
+      ) {
+        customerData.externalId = `phone:${customerData.phone}`;
+      }
+
       // Find or create customer
       const customer = await this.customersService.findOrCreate(
         customerData,

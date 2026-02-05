@@ -123,22 +123,41 @@ export class OrganizationResolver {
           // Since we already have all organizations, we can just check if any has a matching WhatsApp integration
           // For better performance, we'd query directly, but let's keep it simple for now
           // We'll iterate through all organizations and their social integrations
+
+          // Also check by phoneNumberId if available in metadata (Meta API ID)
+          const phoneNumberId = message.metadata?.phoneNumberId;
+
           for (const org of organizations as OrganizationDocument[]) {
             const orgId = (org as any)._id.toString();
             const integrations =
               await this.socialIntegrationService.findByOrganization(orgId);
 
-            const match = integrations.some(
-              (integration) =>
-                integration.isActive &&
+            const match = integrations.some((integration) => {
+              if (!integration.isActive) return false;
+
+              // Match by phone number
+              if (
                 integration.phoneNumber &&
                 this.normalizePhone(integration.phoneNumber) ===
-                  normalizedRecipient,
-            );
+                  normalizedRecipient
+              ) {
+                return true;
+              }
+
+              // Match by phoneNumberId (Meta API ID)
+              if (
+                phoneNumberId &&
+                integration.phoneNumberId === phoneNumberId
+              ) {
+                return true;
+              }
+
+              return false;
+            });
 
             if (match) {
               this.logger.debug(
-                `Matched organization ${orgId} by Social Integration phone`,
+                `Matched organization ${orgId} by Social Integration phone/phoneNumberId`,
               );
               return orgId;
             }

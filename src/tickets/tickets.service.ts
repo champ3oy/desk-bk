@@ -252,6 +252,10 @@ Sentiment:`;
         }
       }
 
+      console.log(
+        `[AutoReply] Channel: ${channel}, ShouldReply: ${shouldAutoReply}, OrgSettings: Email=${org.aiAutoReplyEmail}, LiveChat=${org.aiAutoReplyLiveChat}, Social=${org.aiAutoReplySocialMedia}`,
+      );
+
       if (!shouldAutoReply) {
         console.log(
           `[AutoReply] Skipping auto-reply for ticket ${ticketId}: Auto-reply not enabled for channel '${channel}'`,
@@ -415,7 +419,9 @@ Return ONLY the message text.`;
                     ? MessageChannel.WIDGET
                     : channel === 'email'
                       ? MessageChannel.EMAIL
-                      : (channel as any),
+                      : channel === 'whatsapp'
+                        ? MessageChannel.WHATSAPP
+                        : (channel as any),
               },
               organizationId,
               customerId,
@@ -453,7 +459,9 @@ Return ONLY the message text.`;
                     ? MessageChannel.WIDGET
                     : channel === 'email'
                       ? MessageChannel.EMAIL
-                      : (channel as any),
+                      : channel === 'whatsapp'
+                        ? MessageChannel.WHATSAPP
+                        : (channel as any),
               },
               organizationId,
               customerId,

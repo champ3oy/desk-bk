@@ -16,6 +16,7 @@ import {
 } from './entities/pending-review.entity';
 import { Message, MessageSchema } from '../threads/entities/message.entity';
 import { Thread, ThreadSchema } from '../threads/entities/thread.entity';
+import { Ticket, TicketSchema } from '../tickets/entities/ticket.entity';
 import { OrganizationsModule } from '../organizations/organizations.module';
 import { CustomersModule } from '../customers/customers.module';
 import { TicketsModule } from '../tickets/tickets.module';
@@ -32,6 +33,7 @@ import { SocialIntegrationModule } from '../integrations/social/social-integrati
       { name: PendingReview.name, schema: PendingReviewSchema },
       { name: Message.name, schema: MessageSchema },
       { name: Thread.name, schema: ThreadSchema },
+      { name: Ticket.name, schema: TicketSchema },
     ]),
     OrganizationsModule,
     forwardRef(() => CustomersModule),

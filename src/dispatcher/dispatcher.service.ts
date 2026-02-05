@@ -236,8 +236,14 @@ export class DispatcherService {
       }
 
       // Get customer phone number
+      // Handle both populated and unpopulated customerId
+      const customerIdString =
+        typeof ticket.customerId === 'object' && (ticket.customerId as any)._id
+          ? (ticket.customerId as any)._id.toString()
+          : ticket.customerId.toString();
+
       const customer = await this.customersService.findOne(
-        ticket.customerId.toString(),
+        customerIdString,
         organizationId,
       );
 
