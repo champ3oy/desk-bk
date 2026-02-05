@@ -89,7 +89,10 @@ export const CustomerSchema = SchemaFactory.createForClass(Customer);
 // Create compound index for email uniqueness within organization
 CustomerSchema.index(
   { email: 1, organizationId: 1 },
-  { unique: true, sparse: true },
+  {
+    unique: true,
+    partialFilterExpression: { email: { $type: 'string' } },
+  },
 );
 
 // Index for externalId lookup

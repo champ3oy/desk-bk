@@ -335,8 +335,7 @@ export class CustomersService {
       }
     }
 
-    const newCustomer = new this.customerModel({
-      email: customerData.email?.toLowerCase().trim(),
+    const payload: any = {
       firstName: customerData.firstName,
       lastName: customerData.lastName,
       phone: customerData.phone,
@@ -344,7 +343,13 @@ export class CustomersService {
       externalId: customerData.externalId,
       organizationId: orgId,
       isActive: true,
-    });
+    };
+
+    if (customerData.email) {
+      payload.email = customerData.email.toLowerCase().trim();
+    }
+
+    const newCustomer = new this.customerModel(payload);
 
     return newCustomer.save();
   }
