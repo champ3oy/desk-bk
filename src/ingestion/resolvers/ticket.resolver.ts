@@ -93,16 +93,34 @@ export class TicketResolver {
         }
       }
 
-      // Strategy 3: Check thread ID (for SMS/WhatsApp)
+      // Strategy 4: Check thread ID (for SMS/WhatsApp/Widget)
+      // This primarily checks for Session ID matches
       if (message.threadId) {
         const ticketId = await this.findTicketByThreadId(
           message.threadId,
           organizationId,
-          customerId,
+          // We don't pass customerId here to avoid the fallback logic inside findTicketByThreadId
+          // We want to control the fallback logic explicitly in Step 5
+          '',
           message.channel,
         );
         if (ticketId) {
           this.logger.debug(`Found reply ticket ${ticketId} by thread ID`);
+          return ticketId;
+        }
+      }
+
+      // Strategy 5: Fallback - Check for any OPEN ticket for this customer
+      // This handles "continuous conversation" behavior for WhatsApp/SMS where users just send messages
+      if (customerId) {
+        const ticketId = await this.findMostRecentOpenTicket(
+          customerId,
+          organizationId,
+        );
+        if (ticketId) {
+          this.logger.debug(
+            `Found most recent open ticket ${ticketId} for customer ${customerId}`,
+          );
           return ticketId;
         }
       }
@@ -175,62 +193,74 @@ export class TicketResolver {
       return null;
     }
 
-    // Find messages with this thread ID in metadata
-    // For SMS/WhatsApp, we might store thread ID in externalMessageId or metadata
-    // For now, we'll check if there's a pattern we can use
-    // This might need to be enhanced based on how providers send thread IDs
-
     // Check strict match for widget session ID in metadata
-    if (threadId) {
-      const threadBySession = await this.threadModel.findOne({
-        'metadata.sessionId': threadId,
-        organizationId: new Types.ObjectId(organizationId),
-        isActive: true, // Only match valid/active threads
-      });
+    // or specific threadId provided by channel
+    const threadBySession = await this.threadModel.findOne({
+      'metadata.sessionId': threadId,
+      organizationId: new Types.ObjectId(organizationId),
+      isActive: true, // Only match valid/active threads
+    });
 
-      if (threadBySession) {
-        this.logger.debug(
-          `Found reply ticket ${threadBySession.ticketId} by session ID: ${threadId}`,
-        );
-        return threadBySession.ticketId.toString();
-      }
+    if (threadBySession) {
+      this.logger.debug(
+        `Found reply ticket ${threadBySession.ticketId} by session ID: ${threadId}`,
+      );
+      return threadBySession.ticketId.toString();
     }
 
-    // For Widget channel, we strictly require the session ID to match.
-    // If it doesn't match, it's a new session, so we should create a new ticket
-    // rather than attaching to an old one.
+    // For Widget channel, we strictly require the session ID to match if checking thread ID.
     if (channel === MessageChannel.WIDGET) {
       return null;
     }
 
-    // Alternative: Find most recent OPEN thread for this customer
-    // Only attach to tickets that are still open (not closed/resolved)
-    const threads = await this.threadModel
-      .find({
-        customerId: new Types.ObjectId(customerId),
-        organizationId: new Types.ObjectId(organizationId),
-        isActive: true,
-      })
-      .sort({ updatedAt: -1 })
-      .limit(10)
-      .exec();
-
-    // Check each thread's ticket status - only return if ticket is open
-    for (const thread of threads) {
-      const isOpen = await this.isTicketOpen(thread.ticketId.toString());
-      if (isOpen) {
-        this.logger.debug(
-          `Found open ticket ${thread.ticketId} for customer ${customerId}`,
-        );
-        return thread.ticketId.toString();
-      }
+    // Logic for finding open thread by Customer ID has been moved to findMostRecentOpenTicket
+    // But we keep it here for backward compatibility if called internally with customerId
+    if (customerId) {
+      return this.findMostRecentOpenTicket(customerId, organizationId);
     }
 
-    // No open tickets found - a new ticket will be created
-    this.logger.debug(
-      `No open tickets found for customer ${customerId} - will create new ticket`,
-    );
     return null;
+  }
+
+  /**
+   * Find the most recent OPEN ticket for a customer.
+   * Used as fallback to maintain continuous conversation.
+   */
+  private async findMostRecentOpenTicket(
+    customerId: string,
+    organizationId: string,
+  ): Promise<string | null> {
+    try {
+      // Find most recent active thread for this customer
+      const threads = await this.threadModel
+        .find({
+          customerId: new Types.ObjectId(customerId),
+          organizationId: new Types.ObjectId(organizationId),
+          isActive: true,
+        })
+        .sort({ updatedAt: -1 })
+        .limit(10) // Check last 10 threads just in case
+        .exec();
+
+      // Check each thread's ticket status - first open one wins
+      for (const thread of threads) {
+        const isOpen = await this.isTicketOpen(thread.ticketId.toString());
+        if (isOpen) {
+          return thread.ticketId.toString();
+        }
+      }
+
+      // No open tickets found
+      this.logger.debug(
+        `No open tickets found for customer ${customerId} among recent threads`,
+      );
+      return null;
+    } catch (error) {
+      this.logger.warn(
+        `Error searching for open tickets for customer ${customerId}: ${error.message}`,
+      );
+      return null;
+    }
   }
 
   /**
@@ -276,16 +306,6 @@ export class TicketResolver {
 
       // Verify this ticket actually exists and belongs to the org
       try {
-        // Use ticketsService to find ticket if possible, or query directly if we had the model.
-        // Since we injected ticketsService, let's see if it has a findOne capability we can use,
-        // or just rely on the ID being a valid format.
-        // Note: We don't have direct access to TicketModel here, only Message/Thread.
-        // But we DO have ticketsService injected.
-
-        // HOWEVER, TicketsService.findOne usually requires user context (userId, role) which we don't have.
-        // Safe bet: Query Thread model for this ticketId to see if it exists.
-
-        // If ticketId is not a valid ObjectId (if using Mongo ObjectIds), this might throw.
         if (!Types.ObjectId.isValid(ticketIdCandidate)) {
           return null;
         }
