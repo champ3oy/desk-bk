@@ -265,7 +265,7 @@ export class AIModelFactory {
 
     return new ChatOpenAI({
       modelName: modelName,
-      openAIApiKey: apiKey,
+      apiKey: apiKey,
       configuration: {
         baseURL: 'https://api.deepseek.com',
       },

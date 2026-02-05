@@ -20,4 +20,5 @@ export default registerAs('ai', () => ({
       process.env.ENABLE_WEB_SCRAPING !== 'true'),
   elevenLabsApiKey: process.env.ELEVENLABS_API_KEY,
   elevenLabsAgentId: process.env.ELEVENLABS_AGENT_ID,
+  deepseekApiKey: process.env.DEEPSEEK_API_KEY,
 }));

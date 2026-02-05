@@ -25,8 +25,10 @@ export class AttachmentsService {
     organizationId: string,
     ticketId?: string,
   ): Promise<Attachment> {
-    if (!organizationId) {
-      throw new Error('organizationId is required');
+    if (!organizationId || !Types.ObjectId.isValid(organizationId)) {
+      throw new Error(
+        `Invalid Organization ID provided: "${organizationId}". It must be a 24-character hex string.`,
+      );
     }
     const uploadedFile = await this.storageService.saveFile(
       file.originalname,
