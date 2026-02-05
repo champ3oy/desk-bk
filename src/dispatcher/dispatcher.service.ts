@@ -1,11 +1,18 @@
 import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { EmailIntegrationService } from '../integrations/email/email-integration.service';
+import { SocialIntegrationService } from '../integrations/social/social-integration.service'; // Ensure this import exists
 import {
   MessageDocument,
   MessageType,
   MessageChannel,
   MessageAuthorType,
 } from '../threads/entities/message.entity';
+import {
+  SocialIntegration,
+  SocialIntegrationDocument,
+  SocialProvider,
+  SocialIntegrationStatus,
+} from '../integrations/social/entities/social-integration.entity';
 import { TicketDocument } from '../tickets/entities/ticket.entity';
 import { CustomersService } from '../customers/customers.service';
 import { OrganizationsService } from '../organizations/organizations.service';
@@ -18,6 +25,7 @@ export class DispatcherService {
 
   constructor(
     private emailIntegrationService: EmailIntegrationService,
+    private socialIntegrationService: SocialIntegrationService,
     @Inject(forwardRef(() => CustomersService))
     private customersService: CustomersService,
     private organizationsService: OrganizationsService,
@@ -36,8 +44,12 @@ export class DispatcherService {
   ): Promise<boolean> {
     try {
       this.logger.debug(
-        `Dispatching message ${message._id} to ${recipientEmail}`,
+        `Dispatching message ${message._id} via channel ${message.channel} to ${recipientEmail}`,
       );
+
+      if (message.channel === MessageChannel.WHATSAPP) {
+        return await this.dispatchWhatsApp(message, ticket, recipientEmail);
+      }
 
       // We only handle EMAIL channel for now
       // Logic could be expanded for SMS/WhatsApp
@@ -193,6 +205,67 @@ export class DispatcherService {
       return true;
     } catch (error) {
       this.logger.error(`Error dispatching message: ${error.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Dispatch a message via WhatsApp
+   */
+  private async dispatchWhatsApp(
+    message: MessageDocument,
+    ticket: TicketDocument,
+    recipientEmail: string,
+  ): Promise<boolean> {
+    try {
+      const organizationId = message.organizationId.toString();
+
+      // Find active WhatsApp integration
+      const integrations = await this.socialIntegrationService.findByProvider(
+        organizationId,
+        SocialProvider.WHATSAPP,
+      );
+
+      const integration = integrations.find((i) => i.isActive);
+
+      if (!integration) {
+        this.logger.warn(
+          `No active WhatsApp integration found for organization ${organizationId}`,
+        );
+        return false;
+      }
+
+      // Get customer phone number
+      const customer = await this.customersService.findOne(
+        ticket.customerId.toString(),
+        organizationId,
+      );
+
+      const to = customer.phone;
+      if (!to) {
+        this.logger.warn(
+          `Cannot send WhatsApp: Customer ${customer._id} has no phone number`,
+        );
+        return false;
+      }
+
+      // Send via WhatsApp service
+      const externalMessageId =
+        await this.socialIntegrationService.sendWhatsAppMessage(
+          integration,
+          to,
+          message.content,
+        );
+
+      if (externalMessageId) {
+        message.externalMessageId = externalMessageId;
+        await message.save();
+      }
+
+      this.logger.log(`Dispatched WhatsApp message ${message._id} to ${to}`);
+      return true;
+    } catch (error) {
+      this.logger.error(`Error dispatching WhatsApp message: ${error.message}`);
       return false;
     }
   }

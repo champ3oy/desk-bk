@@ -5,9 +5,12 @@ import { CustomersModule } from '../customers/customers.module';
 import { OrganizationsModule } from '../organizations/organizations.module';
 import { UsersModule } from '../users/users.module';
 
+import { SocialIntegrationModule } from '../integrations/social/social-integration.module';
+
 @Module({
   imports: [
     EmailIntegrationModule,
+    SocialIntegrationModule,
     forwardRef(() => CustomersModule),
     OrganizationsModule,
     UsersModule,

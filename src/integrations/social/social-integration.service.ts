@@ -191,6 +191,66 @@ export class SocialIntegrationService {
     return integration;
   }
 
+  /**
+   * Send a WhatsApp message via Meta Graph API
+   */
+  async sendWhatsAppMessage(
+    integration: SocialIntegration,
+    to: string,
+    text: string,
+  ): Promise<string | null> {
+    if (!integration.phoneNumberId || !integration.accessToken) {
+      throw new BadRequestException(
+        'WhatsApp integration is not fully configured',
+      );
+    }
+
+    // WhatsApp expects numbers without + or leading zeros in some cases,
+    // but Meta usually wants the full number. Let's ensure it's digits only.
+    const cleanTo = to.replace(/\D/g, '');
+
+    try {
+      this.logger.debug(
+        `Sending WhatsApp message to ${cleanTo} via ${integration.phoneNumberId}`,
+      );
+
+      const response = await fetch(
+        `https://graph.facebook.com/v23.0/${integration.phoneNumberId}/messages`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${integration.accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            messaging_product: 'whatsapp',
+            recipient_type: 'individual',
+            to: cleanTo,
+            type: 'text',
+            text: { body: text },
+          }),
+        },
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        this.logger.error(`WhatsApp API Error: ${JSON.stringify(data)}`);
+        throw new Error(
+          data?.error?.message || 'Failed to send WhatsApp message',
+        );
+      }
+
+      this.logger.log(
+        `WhatsApp message sent successfully: ${data?.messages?.[0]?.id}`,
+      );
+      return data?.messages?.[0]?.id || null;
+    } catch (error) {
+      this.logger.error(`WhatsApp send error: ${error.message}`);
+      throw error;
+    }
+  }
+
   // ============================================
   // Instagram Integration Methods
   // ============================================
