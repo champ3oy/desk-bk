@@ -34,6 +34,7 @@ import { AIModelFactory } from '../ai/ai-model.factory';
 import { CustomersService } from '../customers/customers.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/entities/notification.entity';
+import { KnowledgeBaseService } from '../ai/knowledge-base.service'; // Import KnowledgeBaseService
 
 @Injectable()
 export class TicketsService {
@@ -50,6 +51,8 @@ export class TicketsService {
     @Inject(forwardRef(() => CustomersService))
     private customersService: CustomersService,
     private notificationsService: NotificationsService,
+    @Inject(forwardRef(() => KnowledgeBaseService))
+    private knowledgeBaseService: KnowledgeBaseService,
   ) {}
 
   /**
@@ -373,7 +376,7 @@ Sentiment:`;
             this.threadsService,
             this.configService,
             this.organizationsService,
-            null,
+            this.knowledgeBaseService, // Pass the injected service
             customerId,
             UserRole.CUSTOMER,
             organizationId,
@@ -447,7 +450,7 @@ ${contextMessages}
 
 Task: Write a polite, concise message to the customer explaining that you are passing the conversation to a human agent. 
 Do not apologize unless necessary. Be professional and reassuring.
-Return ONLY the message text.`;
+Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at the start or end.`;
 
               const aiResult = await model.invoke(prompt);
               const generatedText =
@@ -483,8 +486,8 @@ Return ONLY the message text.`;
                         : (channel as any),
               },
               organizationId,
-              customerId,
-              UserRole.CUSTOMER,
+              organizationId, // Use Organization ID as author (System)
+              UserRole.ADMIN, // Use Admin role to ensure permission
               MessageAuthorType.AI,
             );
           } else if (response.action === 'REPLY' && response.content) {
@@ -523,8 +526,8 @@ Return ONLY the message text.`;
                         : (channel as any),
               },
               organizationId,
-              customerId,
-              UserRole.CUSTOMER,
+              organizationId, // Use Organization ID as author (System)
+              UserRole.ADMIN, // Use Admin role to ensure permission
               MessageAuthorType.AI,
             );
 

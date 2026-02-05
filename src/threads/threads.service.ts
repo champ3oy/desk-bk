@@ -346,6 +346,9 @@ export class ThreadsService {
       )
     ) {
       try {
+        console.log(
+          `[ThreadsService] Attempting dispatch for message ${savedMessage._id}. Channel: ${savedMessage.channel}`,
+        );
         // Fetch ticket to get subject
         const ticket = await this.ticketsService.findOne(
           thread.ticketId.toString(),
@@ -371,6 +374,10 @@ export class ThreadsService {
           customer.email ||
           (savedMessage.channel === MessageChannel.WHATSAPP && customer.phone);
 
+        console.log(
+          `[ThreadsService] Dispatch Check: CustomerEmail=${!!customer.email}, CustomerPhone=${!!customer.phone}, Channel=${savedMessage.channel}, ShouldDispatch=${!!shouldDispatch}`,
+        );
+
         if (shouldDispatch) {
           // Find last message with external ID for threading
           const lastMessage = await this.messageModel
@@ -381,6 +388,7 @@ export class ThreadsService {
             })
             .sort({ createdAt: -1 });
 
+          console.log(`[ThreadsService] Calling dispatcherService.dispatch...`);
           await this.dispatcherService.dispatch(
             savedMessage,
             ticket,
@@ -397,6 +405,10 @@ export class ThreadsService {
         console.error('Failed to dispatch message:', error);
         // Don't fail the request, just log
       }
+    } else {
+      console.log(
+        `[ThreadsService] Skipping dispatch. Type=${savedMessage.messageType}, Author=${savedMessage.authorType}, Channel=${savedMessage.channel}`,
+      );
     }
 
     // Notifications logic

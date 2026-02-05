@@ -5,6 +5,7 @@ import { TicketsService } from './tickets.service';
 import { TicketsController } from './tickets.controller';
 import { CustomerTicketsController } from '../api/mobile/customer-tickets.controller';
 import { Ticket, TicketSchema } from './entities/ticket.entity';
+import { AiModule } from '../ai/ai.module'; // Import AiModule for forwardRef check
 import { Tag, TagSchema } from '../tags/entities/tag.entity';
 import { CustomersModule } from '../customers/customers.module';
 import { GroupsModule } from '../groups/groups.module';
@@ -21,9 +22,9 @@ import { NotificationsModule } from '../notifications/notifications.module';
     forwardRef(() => CustomersModule),
     GroupsModule,
     OrganizationsModule,
-    ConfigModule,
     forwardRef(() => ThreadsModule),
     NotificationsModule,
+    forwardRef(() => AiModule), // Add AiModule for KnowledgeBaseService
   ],
   controllers: [TicketsController, CustomerTicketsController],
   providers: [TicketsService],

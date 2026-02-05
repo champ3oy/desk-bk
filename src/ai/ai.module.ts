@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AiController } from './ai.controller';
 import { TicketsModule } from '../tickets/tickets.module';
@@ -12,13 +12,13 @@ import { AiVoiceGateway } from '../gateways/ai-voice.gateway';
 
 @Module({
   imports: [
-    TicketsModule,
+    forwardRef(() => TicketsModule),
     ThreadsModule,
     CommentsModule,
     OrganizationsModule,
     TrainingModule,
     ConfigModule,
-    CustomersModule,
+    forwardRef(() => CustomersModule),
   ],
   controllers: [AiController],
   providers: [KnowledgeBaseService, AiVoiceGateway],
