@@ -281,13 +281,72 @@ Sentiment:`;
       // Check if ticket is already escalated or closed
       if (
         ticket.status === TicketStatus.CLOSED ||
-        ticket.status === TicketStatus.RESOLVED ||
-        ticket.status === TicketStatus.ESCALATED ||
-        ticket.isAiEscalated
+        ticket.status === TicketStatus.RESOLVED
       ) {
         console.log(
-          `[AutoReply] Ticket ${ticketId} status prevents AI reply: ${ticket.status} / Escalated: ${ticket.isAiEscalated}`,
+          `[AutoReply] Ticket ${ticketId} status prevents AI reply: ${ticket.status}`,
         );
+        return;
+      }
+
+      // If ticket is escalated, send a notification to the customer (for social channels)
+      if (ticket.status === TicketStatus.ESCALATED || ticket.isAiEscalated) {
+        console.log(
+          `[AutoReply] Ticket ${ticketId} is escalated. Sending escalation notification.`,
+        );
+
+        // Only send notification for social/messaging channels where user can't see ticket status
+        const shouldNotify = [
+          'whatsapp',
+          'sms',
+          'social',
+          'widget',
+          'chat',
+        ].includes((channel || '').toLowerCase());
+
+        if (shouldNotify) {
+          // Send escalation notification in background
+          setTimeout(async () => {
+            try {
+              const thread = await this.threadsService.getOrCreateThread(
+                ticketId,
+                customerId,
+                organizationId,
+              );
+
+              const escalationNotice =
+                'Your conversation has been escalated to a human agent. They will respond to you as soon as possible. Thank you for your patience!';
+
+              await this.threadsService.createMessage(
+                thread._id.toString(),
+                {
+                  content: escalationNotice,
+                  messageType: MessageType.EXTERNAL,
+                  channel:
+                    channel === 'chat' || channel === 'widget'
+                      ? MessageChannel.WIDGET
+                      : channel === 'whatsapp'
+                        ? MessageChannel.WHATSAPP
+                        : (channel as any),
+                },
+                organizationId,
+                customerId,
+                UserRole.CUSTOMER,
+                MessageAuthorType.AI,
+              );
+
+              console.log(
+                `[AutoReply] Sent escalation notification to customer for ticket ${ticketId}`,
+              );
+            } catch (err) {
+              console.error(
+                `[AutoReply] Failed to send escalation notification for ticket ${ticketId}:`,
+                err,
+              );
+            }
+          }, 500);
+        }
+
         return;
       }
 
@@ -582,13 +641,21 @@ Return ONLY the message text.`;
     }
 
     // Call shared Auto-reply logic using the provided channel or defaulting to 'email'
+    console.log(
+      `[TicketsService.create] Calling handleAutoReply for ticket ${savedTicket._id}, channel: ${channel || 'email'}`,
+    );
     this.handleAutoReply(
       savedTicket._id.toString(),
       savedTicket.description,
       organizationId,
       createTicketDto.customerId,
       channel || 'email',
-    );
+    ).catch((err) => {
+      console.error(
+        `[TicketsService.create] handleAutoReply failed for ticket ${savedTicket._id}:`,
+        err,
+      );
+    });
 
     // Notify assigned agent
     if (savedTicket.assignedToId) {

@@ -10,6 +10,7 @@ import { OrganizationResolver } from './resolvers/organization.resolver';
 import { CustomerResolver } from './resolvers/customer.resolver';
 import { TicketResolver } from './resolvers/ticket.resolver';
 import { PendingReviewService } from './services/pending-review.service';
+import { MessageQueueService } from './services/message-queue.service';
 import {
   PendingReview,
   PendingReviewSchema,
@@ -55,8 +56,9 @@ import { SocialIntegrationModule } from '../integrations/social/social-integrati
     CustomerResolver,
     TicketResolver,
     PendingReviewService,
+    MessageQueueService,
     KnowledgeBaseService,
   ],
-  exports: [IngestionService, PendingReviewService],
+  exports: [IngestionService, PendingReviewService, MessageQueueService],
 })
 export class IngestionModule {}

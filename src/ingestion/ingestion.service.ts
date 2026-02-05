@@ -497,6 +497,9 @@ export class IngestionService {
       subject === 'New message'
     ) {
       // Use AI to generate title, sentiment, and priority from content
+      this.logger.debug(
+        `[handleNewTicket] Calling analyzeInitialContent for subject generation...`,
+      );
       const analysis = await this.ticketsService.analyzeInitialContent(
         message.content,
         organizationId,
@@ -504,18 +507,30 @@ export class IngestionService {
       subject = analysis.title;
       sentiment = analysis.sentiment;
       priority = analysis.priority;
+      this.logger.debug(
+        `[handleNewTicket] AI analysis complete: subject="${subject}", sentiment="${sentiment}", priority="${priority}"`,
+      );
     } else {
       // Even if subject exists, we might want to analyze sentiment/priority
+      this.logger.debug(
+        `[handleNewTicket] Calling analyzeInitialContent for sentiment/priority...`,
+      );
       const analysis = await this.ticketsService.analyzeInitialContent(
         message.content,
         organizationId,
       );
       sentiment = analysis.sentiment;
       priority = analysis.priority;
+      this.logger.debug(
+        `[handleNewTicket] AI analysis complete: sentiment="${sentiment}", priority="${priority}"`,
+      );
     }
 
     // Create ticket with the correct channel for auto-reply
     const channelName = this.getChannelName(message.channel);
+    this.logger.debug(
+      `[handleNewTicket] Creating ticket with channel="${channelName}", customerId="${customerId}"...`,
+    );
     const ticket = (await this.ticketsService.create(
       {
         subject: subject,
@@ -528,6 +543,10 @@ export class IngestionService {
       organizationId,
       channelName, // Pass channel for correct auto-reply routing
     )) as TicketDocument;
+
+    this.logger.debug(
+      `[handleNewTicket] Ticket created successfully: ticketId="${(ticket as any)._id}"`,
+    );
 
     // Get or create thread (should be auto-created, but ensure it exists)
     const thread = await this.threadsService.getOrCreateThread(

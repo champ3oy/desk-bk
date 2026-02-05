@@ -9,6 +9,7 @@ import {
   HttpStatus,
   Logger,
   BadRequestException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
@@ -32,10 +33,14 @@ import { playgroundChat } from '../ai/agents/playground';
 import { AttachmentsService } from '../attachments/attachments.service';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UploadedFile, UseInterceptors } from '@nestjs/common';
+import {
+  MessageQueueService,
+  QueuedMessage,
+} from './services/message-queue.service';
 
 @ApiTags('Webhooks')
 @Controller('webhooks')
-export class WebhooksController {
+export class WebhooksController implements OnModuleInit {
   private readonly logger = new Logger(WebhooksController.name);
 
   constructor(
@@ -45,7 +50,58 @@ export class WebhooksController {
     private customersService: CustomersService,
     private knowledgeBaseService: KnowledgeBaseService,
     private attachmentsService: AttachmentsService,
+    private messageQueueService: MessageQueueService,
   ) {}
+
+  /**
+   * Register the message processor when the module initializes
+   */
+  onModuleInit() {
+    this.messageQueueService.registerProcessor(async (job: QueuedMessage) => {
+      this.logger.debug(`[Queue Processor] Processing job ${job.id}`);
+
+      if (job.organizationId) {
+        // Use ingestWithOrganization for jobs that have org context
+        const result = await this.ingestionService.ingestWithOrganization(
+          job.payload,
+          job.provider,
+          job.channel,
+          job.organizationId,
+        );
+
+        if (!result.success) {
+          this.logger.warn(
+            `[Queue Processor] Job ${job.id} ingestion failed: ${result.error}`,
+          );
+          throw new Error(result.error); // Will trigger retry
+        }
+
+        this.logger.log(
+          `[Queue Processor] Job ${job.id} completed: ticketId=${result.ticketId}`,
+        );
+      } else {
+        // Use standard ingest for jobs without org context
+        const result = await this.ingestionService.ingest(
+          job.payload,
+          job.provider,
+          job.channel,
+        );
+
+        if (!result.success) {
+          this.logger.warn(
+            `[Queue Processor] Job ${job.id} ingestion failed: ${result.error}`,
+          );
+          throw new Error(result.error); // Will trigger retry
+        }
+
+        this.logger.log(
+          `[Queue Processor] Job ${job.id} completed: ticketId=${result.ticketId}`,
+        );
+      }
+    });
+
+    this.logger.log('Message queue processor initialized');
+  }
 
   @Post('email')
   @HttpCode(HttpStatus.OK)
@@ -200,6 +256,8 @@ export class WebhooksController {
       return { success: true, message: 'Acknowledged' };
     }
 
+    const enqueuedJobs: string[] = [];
+
     // Process each entry (usually just one)
     for (const entry of payload.entry) {
       const changes = entry.changes || [];
@@ -239,25 +297,26 @@ export class WebhooksController {
             `Processing WhatsApp message from ${normalizedPayload.from}: ${normalizedPayload.text?.substring(0, 50)}...`,
           );
 
-          const result = await this.ingestionService.ingest(
+          // Enqueue message for async processing instead of blocking
+          const jobId = this.messageQueueService.enqueue(
             normalizedPayload,
             'meta',
             MessageChannel.WHATSAPP,
           );
 
-          if (!result.success) {
-            this.logger.warn(`WhatsApp ingestion failed: ${result.error}`);
-          } else {
-            this.logger.log(
-              `WhatsApp message ingested: ticketId=${result.ticketId}`,
-            );
-          }
+          enqueuedJobs.push(jobId);
+          this.logger.log(`WhatsApp message enqueued: jobId=${jobId}`);
         }
       }
     }
 
-    // Always return 200 to acknowledge receipt
-    return { success: true };
+    // Return immediately - Meta requires fast responses
+    // Processing happens in the background via the queue
+    return {
+      success: true,
+      queued: enqueuedJobs.length,
+      jobIds: enqueuedJobs,
+    };
   }
 
   @Post('widget')

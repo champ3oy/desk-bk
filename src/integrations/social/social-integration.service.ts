@@ -184,11 +184,53 @@ export class SocialIntegrationService {
 
     await integration.save();
 
+    // Subscribe the WABA to our Meta app to receive webhooks
+    await this.subscribeWabaToApp(dto.wabaId, accessToken);
+
     this.logger.log(
       `WhatsApp integration created for organization: ${organizationId}, WABA: ${dto.wabaId}`,
     );
 
     return integration;
+  }
+
+  /**
+   * Subscribe a WhatsApp Business Account to our Meta app
+   * This is required to receive webhooks for messaging events
+   */
+  private async subscribeWabaToApp(
+    wabaId: string,
+    accessToken: string,
+  ): Promise<void> {
+    try {
+      const response = await fetch(
+        `https://graph.facebook.com/v21.0/${wabaId}/subscribed_apps`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        this.logger.warn(
+          `Failed to subscribe WABA ${wabaId} to app: ${JSON.stringify(data)}`,
+        );
+        // Don't throw - integration was created successfully, just log the warning
+        return;
+      }
+
+      this.logger.log(`WABA ${wabaId} successfully subscribed to Meta app`);
+    } catch (error: any) {
+      this.logger.warn(
+        `Error subscribing WABA ${wabaId} to app: ${error.message}`,
+      );
+      // Don't throw - integration was created successfully, just log the warning
+    }
   }
 
   /**
