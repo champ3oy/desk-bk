@@ -350,10 +350,20 @@ export class ThreadsService {
           `[ThreadsService] Attempting dispatch for message ${savedMessage._id}. Channel: ${savedMessage.channel}`,
         );
         // Fetch ticket to get subject
+        // If message is from AI (Admin), we need to use Admin role for lookup
+        const lookupRole =
+          savedMessage.authorType === MessageAuthorType.AI
+            ? UserRole.ADMIN
+            : userRole;
+        const lookupUserId =
+          savedMessage.authorType === MessageAuthorType.AI
+            ? organizationId // Use org ID for admin lookup
+            : userId;
+
         const ticket = await this.ticketsService.findOne(
           thread.ticketId.toString(),
-          userId,
-          userRole,
+          lookupUserId,
+          lookupRole,
           organizationId,
         );
 

@@ -415,31 +415,39 @@ Sentiment:`;
 
             console.log(`[AutoReply] Escalated ticket ${ticketId}: ${reason}`);
 
-            // Send friendly escalation message to customer
-            const thread = await this.threadsService.getOrCreateThread(
-              ticketId,
-              customerId,
-              organizationId,
-            );
-
-            // Generate AI escalation message
-            let escalationMessage = '';
-
             try {
-              const messages = await this.threadsService.getMessages(
-                thread._id.toString(),
-                organizationId,
-                organizationId, // Use org ID as user for admin access
-                UserRole.ADMIN,
+              console.log(
+                '[AutoReply] Getting thread for escalation message...',
               );
+              const thread = await this.threadsService.getOrCreateThread(
+                ticketId,
+                customerId,
+                organizationId,
+              );
+              console.log(`[AutoReply] Thread found: ${thread._id}`);
 
-              const contextMessages = messages
-                .slice(-5)
-                .map((m) => `${m.authorType}: ${m.content}`)
-                .join('\n');
+              // Generate AI escalation message
+              let escalationMessage = '';
 
-              const model = AIModelFactory.create(this.configService);
-              const prompt = `You are a helpful customer support AI. 
+              try {
+                console.log('[AutoReply] Fetching context messages...');
+                const messages = await this.threadsService.getMessages(
+                  thread._id.toString(),
+                  organizationId,
+                  organizationId, // Use org ID as user for admin access
+                  UserRole.ADMIN,
+                );
+                console.log(
+                  `[AutoReply] Found ${messages.length} context messages.`,
+                );
+
+                const contextMessages = messages
+                  .slice(-5)
+                  .map((m) => `${m.authorType}: ${m.content}`)
+                  .join('\n');
+
+                const model = AIModelFactory.create(this.configService);
+                const prompt = `You are a helpful customer support AI.
 The current conversation needs to be escalated to a human agent.
 Reason: ${reason}
 
@@ -448,48 +456,78 @@ Ticket Subject: ${ticket.subject}
 Recent Messages:
 ${contextMessages}
 
-Task: Write a polite, concise message to the customer explaining that you are passing the conversation to a human agent. 
+Task: Write a polite, concise message to the customer explaining that you are passing the conversation to a human agent.
 Do not apologize unless necessary. Be professional and reassuring.
 Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at the start or end.`;
 
-              const aiResult = await model.invoke(prompt);
-              const generatedText =
-                typeof aiResult.content === 'string' ? aiResult.content : '';
-              if (generatedText && generatedText.length > 5) {
-                escalationMessage = generatedText.trim().replace(/^"|"$/g, '');
+                console.log(
+                  '[AutoReply] Invoking AI for escalation message...',
+                );
+
+                // Add strict timeout for escalation generation
+                const aiResult = await Promise.race([
+                  model.invoke(prompt),
+                  new Promise<any>((_, reject) =>
+                    setTimeout(
+                      () =>
+                        reject(
+                          new Error('Escalation message generation timed out'),
+                        ),
+                      45000,
+                    ),
+                  ),
+                ]);
+
+                console.log('[AutoReply] AI response received.');
+                const generatedText =
+                  typeof aiResult.content === 'string' ? aiResult.content : '';
+                if (generatedText && generatedText.length > 5) {
+                  escalationMessage = generatedText
+                    .trim()
+                    .replace(/^"|"$/g, '');
+                }
+              } catch (e) {
+                console.error(
+                  'Failed to generate AI escalation message, using default.',
+                  e,
+                );
               }
-            } catch (e) {
+
+              // Fallback if AI fails
+              if (!escalationMessage) {
+                escalationMessage =
+                  "I'll connect you with a human agent to assist you further.";
+              }
+
+              console.log(
+                `[AutoReply] Sending escalation message: "${escalationMessage.substring(0, 30)}..."`,
+              );
+              await this.threadsService.createMessage(
+                thread._id.toString(),
+                {
+                  content: escalationMessage,
+                  messageType: MessageType.EXTERNAL,
+                  channel:
+                    channel === 'chat' || channel === 'widget'
+                      ? MessageChannel.WIDGET
+                      : channel === 'email'
+                        ? MessageChannel.EMAIL
+                        : channel === 'whatsapp'
+                          ? MessageChannel.WHATSAPP
+                          : (channel as any),
+                },
+                organizationId,
+                organizationId, // Use Organization ID as author (System)
+                UserRole.ADMIN, // Use Admin role to ensure permission
+                MessageAuthorType.AI,
+              );
+              console.log('[AutoReply] Escalation message sent.');
+            } catch (err) {
               console.error(
-                'Failed to generate AI escalation message, using default.',
-                e,
+                `[AutoReply] Failed to process escalation for ticket ${ticketId}`,
+                err,
               );
             }
-
-            // Fallback if AI fails
-            if (!escalationMessage) {
-              escalationMessage =
-                "I'll connect you with a human agent to assist you further.";
-            }
-
-            await this.threadsService.createMessage(
-              thread._id.toString(),
-              {
-                content: escalationMessage,
-                messageType: MessageType.EXTERNAL,
-                channel:
-                  channel === 'chat' || channel === 'widget'
-                    ? MessageChannel.WIDGET
-                    : channel === 'email'
-                      ? MessageChannel.EMAIL
-                      : channel === 'whatsapp'
-                        ? MessageChannel.WHATSAPP
-                        : (channel as any),
-              },
-              organizationId,
-              organizationId, // Use Organization ID as author (System)
-              UserRole.ADMIN, // Use Admin role to ensure permission
-              MessageAuthorType.AI,
-            );
           } else if (response.action === 'REPLY' && response.content) {
             const thread = await this.threadsService.getOrCreateThread(
               ticketId,
