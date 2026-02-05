@@ -19,6 +19,8 @@ import { OrganizationsService } from '../organizations/organizations.service';
 import { UsersService } from '../users/users.service';
 import * as marked from 'marked';
 
+import { convert } from 'html-to-text';
+
 @Injectable()
 export class DispatcherService {
   private readonly logger = new Logger(DispatcherService.name);
@@ -255,12 +257,17 @@ export class DispatcherService {
         return false;
       }
 
+      // Convert HTML to plain text
+      const plainContent = convert(message.content, {
+        wordwrap: false,
+      });
+
       // Send via WhatsApp service
       const externalMessageId =
         await this.socialIntegrationService.sendWhatsAppMessage(
           integration,
           to,
-          message.content,
+          plainContent,
         );
 
       if (externalMessageId) {

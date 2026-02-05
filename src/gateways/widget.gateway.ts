@@ -11,6 +11,7 @@ import { IncomingMessage } from 'http';
 import { CustomersService } from '../customers/customers.service';
 import { IngestionService } from '../ingestion/ingestion.service';
 import { MessageChannel } from '../threads/entities/message.entity';
+import { convert } from 'html-to-text';
 
 @Injectable()
 export class WidgetGateway implements OnModuleInit {
@@ -215,7 +216,7 @@ export class WidgetGateway implements OnModuleInit {
       // Format message for the client
       const clientMessage = {
         id: message._id.toString(),
-        text: message.content,
+        text: convert(message.content, { wordwrap: false }),
         sender: message.authorType === 'customer' ? 'user' : 'agent',
         authorType: message.authorType,
         authorName:
