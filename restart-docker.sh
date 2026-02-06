@@ -46,11 +46,13 @@ elif [ "$ENV" == "prod" ]; then
     echo "📄  Generating stack config..."
     docker compose -f docker-compose.prod.yml --env-file .env.production config > docker-stack.yml
 
-    # HACK: Fix docker compose config outputting strings for ports which breaks stack deploy
+    # HACK: Fix docker compose config outputting strings for ports AND top-level 'name' property
     if [ "$(uname)" == "Darwin" ]; then
         sed -i '' 's/published: "3000"/published: 3000/g' docker-stack.yml
+        sed -i '' '/^name:/d' docker-stack.yml
     else
         sed -i 's/published: "3000"/published: 3000/g' docker-stack.yml
+        sed -i '/^name:/d' docker-stack.yml
     fi
 
     echo "🚀  Deploying stack..."
@@ -81,11 +83,13 @@ elif [ "$ENV" == "all" ]; then
     echo "📄  Generating stack config..."
     docker compose -f docker-compose.prod.yml --env-file .env.production config > docker-stack.yml
 
-    # HACK: Fix docker compose config outputting strings for ports which breaks stack deploy
+    # HACK: Fix docker compose config outputting strings for ports AND top-level 'name' property
     if [ "$(uname)" == "Darwin" ]; then
         sed -i '' 's/published: "3000"/published: 3000/g' docker-stack.yml
+        sed -i '' '/^name:/d' docker-stack.yml
     else
         sed -i 's/published: "3000"/published: 3000/g' docker-stack.yml
+        sed -i '/^name:/d' docker-stack.yml
     fi
 
     echo "🚀  Deploying Prod stack..."
