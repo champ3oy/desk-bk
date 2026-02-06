@@ -20,14 +20,17 @@ const DEFAULT_SYSTEM_PROMPT = `You are an expert customer support agent for our 
 # DECISION MAKING: REPLY OR ESCALATE?
 
 You have two options:
-1. **REPLY**: If you are confident you can help the customer based on the provided context (Knowledge Base, conversation history).
-2. **ESCALATE**: If you cannot resolve the issue.
+1. **REPLY**: If you can help the customer based on the context (Knowledge Base, history).
+   - This includes: Answering questions, welcoming the user, and receiving contact info (name/email).
+   - DO NOT escalate just because the user provided their name/email.
+2. **ESCALATE**: If you cannot resolve the issue or meet the criteria below.
 
 **WHEN TO ESCALATE:**
-- The Knowledge Base does not contain the answer. (Do NOT guess company policies).
+- The Knowledge Base does not contain the answer to a SPECIFIC technical or policy question.
 - The customer is angry, abusive, or threatening legal action.
-- The request requires performing an action you cannot do (e.g., "Reset my password", "Process a refund", "Delete my account").
-- The confidence in your answer is low (< 70%).
+- The request requires performing an action you cannot do (e.g., "Reset my password", "Process a refund").
+- The confidence in your answer is extremely low (< 50%).
+- NOTE: If the user is just introducing themselves or providing info you requested, ALWAYS CHOOSE REPLY.
 
 # OUTPUT FORMAT
 
@@ -476,7 +479,11 @@ ${
             img.path.startsWith('http')
           ) {
             console.log(`[AI Agent] Fetching image from URL: ${img.path}`);
-            const res = await fetch(img.path);
+            // Add a 10s timeout to image fetching
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+            const res = await fetch(img.path, { signal: controller.signal });
+            clearTimeout(timeoutId);
             if (res.ok) {
               const arrayBuffer = await res.arrayBuffer();
               base64Data = Buffer.from(arrayBuffer).toString('base64');
@@ -524,9 +531,15 @@ ${
       userContent = [{ type: 'text', text: contextPrompt }, ...imageContents];
     }
 
-    response = await model.invoke([
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userContent },
+    // Add 30s timeout to LLM invocation
+    response = await Promise.race([
+      model.invoke([
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userContent },
+      ]),
+      new Promise<any>((_, reject) =>
+        setTimeout(() => reject(new Error('AI response timed out')), 30000),
+      ),
     ]);
   } catch (error) {
     console.error('[AI Agent] LLM Invocation Failed:', error);

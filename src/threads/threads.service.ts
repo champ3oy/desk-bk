@@ -464,7 +464,7 @@ export class ThreadsService {
             this.notificationsService.create({
               userId: recipientId,
               type: NotificationType.REPLY,
-              title: `New Reply on Ticket #${ticket._id}`,
+              title: `New Reply on Ticket #${ticket.displayId || ticket._id}`,
               body: `${createMessageDto.content.substring(0, 50)}${
                 createMessageDto.content.length > 50 ? '...' : ''
               }`,
@@ -513,7 +513,7 @@ export class ThreadsService {
             this.notificationsService.create({
               userId: recipientId,
               type: NotificationType.MENTION,
-              title: `New Internal Note on Ticket #${ticket._id}`,
+              title: `New Internal Note on Ticket #${ticket.displayId || ticket._id}`,
               body: `${createMessageDto.content.substring(0, 50)}${
                 createMessageDto.content.length > 50 ? '...' : ''
               }`,

@@ -405,7 +405,7 @@ Return ONLY a JSON object: {"trend": "IMPROVING" | "DECLINING" | "STABLE", "perc
         type,
         description:
           type === 'ai-resolved'
-            ? `AI resolved Ticket #${t._id.toString().substring(19)}`
+            ? `AI resolved Ticket #${t.displayId || t._id.toString().substring(19)}`
             : `Ticket created: ${t.subject.substring(0, 40)}`,
         time: t.createdAt,
       };

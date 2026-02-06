@@ -92,6 +92,14 @@ export class Ticket {
   @Prop({ default: false })
   aiAutoReplyDisabled?: boolean;
 
+  @ApiPropertyOptional({
+    description:
+      'Whether an AI response is currently being drafted for this ticket',
+    example: false,
+  })
+  @Prop({ default: false })
+  isAiProcessing?: boolean;
+
   @ApiProperty({
     description: 'Organization ID',
     example: '507f1f77bcf86cd799439011',
@@ -163,6 +171,20 @@ export class Ticket {
   })
   @Prop({ required: false })
   resolutionType?: 'ai' | 'human';
+
+  @ApiPropertyOptional({
+    description: 'Incremental ticket number per organization',
+    example: 1,
+  })
+  @Prop({ required: false })
+  ticketNumber?: number;
+
+  @ApiPropertyOptional({
+    description: 'Human-friendly display ID',
+    example: 'AC-000001',
+  })
+  @Prop({ required: false })
+  displayId?: string;
 
   @ApiPropertyOptional({
     description: 'Creation timestamp',

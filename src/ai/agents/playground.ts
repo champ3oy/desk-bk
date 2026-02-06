@@ -63,8 +63,10 @@ export const playgroundChat = async (
     1. If you do not know the user's name or email, politely ask for it naturally during the conversation (e.g., "To better assist you, could I get your name and email?").
     2. If the user provides their Name and/or Email, you MUST extract it into a special JSON block at the VERY START of your response.
     3. The JSON block must look exactly like this: [[CUSTOMER_INFO: {"firstName": "John", "lastName": "Doe", "email": "john@example.com"}]]
-    4. Provide the answer to their request AFTER this block.
-    5. Do not invent names. Only use what the user provides.`;
+    4. IMMIDIATELY AFTER the [[CUSTOMER_INFO]] block (or if no info was provided), you MUST output the structured JSON response as required by the system instructions.
+    5. The final output should look like: [[CUSTOMER_INFO: {...}]] {"action": "REPLY", "content": "...", "confidence": 100}
+    6. If no customer info is being extracted, just output the JSON object alone.
+    7. Do not invent names. Only use what the user provides.`;
   }
   // -------------------------------------------
 

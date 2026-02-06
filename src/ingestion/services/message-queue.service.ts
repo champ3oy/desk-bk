@@ -18,7 +18,7 @@ export class MessageQueueService implements OnModuleDestroy {
   private processing = false;
   private processor: ((job: QueuedMessage) => Promise<void>) | null = null;
   private readonly maxAttempts = 3;
-  private readonly concurrency = 1; // Process one at a time to avoid race conditions
+  private readonly concurrency = 3; // Process multiple messages at once to avoid blocking
   private activeJobs = 0;
   private shutdownRequested = false;
 

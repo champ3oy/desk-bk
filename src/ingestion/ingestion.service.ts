@@ -491,7 +491,7 @@ export class IngestionService {
         this.notificationsService.create({
           userId: recipientId,
           type: NotificationType.REPLY,
-          title: `New Reply on Ticket #${ticket._id}`,
+          title: `New Reply on Ticket #${ticket.displayId || ticket._id}`,
           body: `${content.substring(0, 50)}${
             content.length > 50 ? '...' : ''
           }`,

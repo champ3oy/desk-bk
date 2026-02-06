@@ -19,6 +19,7 @@ import { CreateTicketDto } from './dto/create-ticket.dto';
 import { UpdateTicketDto } from './dto/update-ticket.dto';
 import { UserRole } from '../users/entities/user.entity';
 import { Tag, TagDocument } from '../tags/entities/tag.entity';
+import { Counter, CounterDocument } from './entities/counter.entity';
 import { GroupsService } from '../groups/groups.service';
 import { ThreadsService } from '../threads/threads.service';
 import { OrganizationsService } from '../organizations/organizations.service';
@@ -55,7 +56,45 @@ export class TicketsService {
     private usersService: UsersService,
     @Inject(forwardRef(() => KnowledgeBaseService))
     private knowledgeBaseService: KnowledgeBaseService,
+    @InjectModel(Counter.name)
+    private counterModel: Model<CounterDocument>,
   ) {}
+
+  /**
+   * Get next sequence value for an organization
+   */
+  async getNextSequenceValue(
+    organizationId: string,
+    counterName: string,
+  ): Promise<number> {
+    const sequenceDocument = await this.counterModel.findOneAndUpdate(
+      { name: counterName, organizationId: new Types.ObjectId(organizationId) },
+      { $inc: { seq: 1 } },
+      { new: true, upsert: true },
+    );
+    return sequenceDocument.seq;
+  }
+
+  /**
+   * Generate a human-friendly display ID for a ticket
+   */
+  async generateDisplayId(
+    organizationId: string,
+    ticketNumber: number,
+  ): Promise<string> {
+    const organization =
+      await this.organizationsService.findOne(organizationId);
+    const orgName = organization?.name || 'TK';
+
+    const initials = orgName
+      .split(/\s+/)
+      .map((word) => word[0])
+      .join('')
+      .toUpperCase();
+
+    const paddedNumber = ticketNumber.toString().padStart(6, '0');
+    return `${initials}-${paddedNumber}`;
+  }
 
   /**
    * Check if ticket content matches any restricted topics
@@ -275,10 +314,10 @@ Sentiment:`;
         `[AutoReply] Processing ticket ${ticketId}. Channel: ${channel}. Org settings: LiveChat=${org.aiAutoReplyLiveChat} Email=${org.aiAutoReplyEmail}`,
       );
 
-      // Check if AI auto-reply is disabled for this ticket
-      if (ticket.aiAutoReplyDisabled) {
+      // Check if AI auto-reply is disabled for this ticket or if we are already processing
+      if (ticket.aiAutoReplyDisabled || (ticket as any).isAiProcessing) {
         console.log(
-          `Skipping auto-reply for ticket ${ticketId}: AI auto-reply disabled (human agent took over)`,
+          `Skipping auto-reply for ticket ${ticketId}: AI auto-reply disabled or already processing`,
         );
         return;
       }
@@ -371,6 +410,12 @@ Sentiment:`;
       // Use timeout to not block
       setTimeout(async () => {
         try {
+          // Set processing flag
+          await this.ticketModel.updateOne(
+            { _id: ticketId },
+            { $set: { isAiProcessing: true } },
+          );
+
           console.log(`[AutoReply] Drafting response for ${ticketId}...`);
           const response = await draftResponse(
             ticketId,
@@ -454,7 +499,6 @@ Sentiment:`;
                   .map((m) => `${m.authorType}: ${m.content}`)
                   .join('\n');
 
-                const model = AIModelFactory.create(this.configService);
                 const prompt = `You are a helpful customer support AI.
 The current conversation needs to be escalated to a human agent.
 Reason: ${reason}
@@ -472,7 +516,7 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
                   '[AutoReply] Invoking AI for escalation message...',
                 );
 
-                // Add strict timeout for escalation generation
+                const model = AIModelFactory.create(this.configService);
                 const aiResult = await Promise.race([
                   model.invoke(prompt),
                   new Promise<any>((_, reject) =>
@@ -481,7 +525,7 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
                         reject(
                           new Error('Escalation message generation timed out'),
                         ),
-                      45000,
+                      30000,
                     ),
                   ),
                 ]);
@@ -594,6 +638,13 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
           }
         } catch (err) {
           console.error('Failed to generate AI auto-reply:', err);
+        } finally {
+          // Clear processing flag
+          await this.ticketModel
+            .updateOne({ _id: ticketId }, { $set: { isAiProcessing: false } })
+            .catch((e) =>
+              console.error('Failed to clear isAiProcessing flag', e),
+            );
         }
       }, 1000);
     } catch (error) {
@@ -678,7 +729,21 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
       );
     }
 
-    const ticket = new this.ticketModel(ticketData);
+    // Generate incremental ticket number and display ID
+    const ticketNumber = await this.getNextSequenceValue(
+      organizationId,
+      'ticket_number',
+    );
+    const displayId = await this.generateDisplayId(
+      organizationId,
+      ticketNumber,
+    );
+
+    const ticket = new this.ticketModel({
+      ...ticketData,
+      ticketNumber,
+      displayId,
+    });
     const savedTicket = await ticket.save();
 
     // Auto-create thread for ticket (one thread per ticket)
@@ -718,7 +783,7 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
         userId: savedTicket.assignedToId.toString(),
         type: NotificationType.NEW_TICKET,
         title: 'New Ticket Assigned',
-        body: `You have been assigned to ticket #${savedTicket._id}: ${savedTicket.subject}`,
+        body: `You have been assigned to ticket #${savedTicket.displayId || savedTicket._id}: ${savedTicket.subject}`,
         metadata: { ticketId: savedTicket._id.toString() },
       });
     } else {
@@ -729,7 +794,7 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
           userId: admin._id.toString(),
           type: NotificationType.NEW_TICKET,
           title: 'New Unassigned Ticket',
-          body: `New ticket #${savedTicket._id}: ${savedTicket.subject}`,
+          body: `New ticket #${savedTicket.displayId || savedTicket._id}: ${savedTicket.subject}`,
           metadata: { ticketId: savedTicket._id.toString() },
         });
       }
@@ -1024,7 +1089,7 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
           userId,
           type: NotificationType.SYSTEM,
           title: `Ticket Escalated`,
-          body: `Ticket #${ticket._id} escalated. Reason: ${reason}`,
+          body: `Ticket #${ticket.displayId || ticket._id} escalated. Reason: ${reason}`,
           metadata: { ticketId: ticket._id.toString() },
         }),
       );
@@ -1150,7 +1215,7 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
         userId: updatedTicket.assignedToId._id.toString(),
         type: NotificationType.SYSTEM,
         title: 'Ticket Assigned',
-        body: `Ticket #${updatedTicket._id} has been assigned to you`,
+        body: `Ticket #${updatedTicket.displayId || updatedTicket._id} has been assigned to you`,
         metadata: { ticketId: updatedTicket._id.toString() },
       });
     }
@@ -1241,7 +1306,7 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
     await this.threadsService.createMessage(
       targetThread._id.toString(),
       {
-        content: `Ticket #${sourceTicketId} was merged into this ticket. All messages have been moved here.`,
+        content: `Ticket #${sourceTicket.displayId || sourceTicketId} was merged into this ticket. All messages have been moved here.`,
         messageType: MessageType.INTERNAL,
       },
       organizationId,

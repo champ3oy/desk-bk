@@ -298,27 +298,37 @@ export class TicketResolver {
     // Matches: [Ticket #507f1f...], Ticket #507f1f..., etc.
     // We assume ID is alphanumeric objectId or similar string
     const match = subject.match(
-      /(?:\[|\s)Ticket\s*#([a-zA-Z0-9]+)(?:\]|\s|$)/i,
+      /(?:\[|\s)Ticket\s*#([a-zA-Z0-9-]+)(?:\]|\s|$)/i,
     );
 
     if (match && match[1]) {
       const ticketIdCandidate = match[1];
 
-      // Verify this ticket actually exists and belongs to the org
       try {
-        if (!Types.ObjectId.isValid(ticketIdCandidate)) {
-          return null;
-        }
-
-        const thread = await this.threadModel
+        // 1. Try to find by displayId first
+        const ticketByDisplayId = await this.ticketModel
           .findOne({
-            ticketId: new Types.ObjectId(ticketIdCandidate),
+            displayId: ticketIdCandidate.toUpperCase(),
             organizationId: new Types.ObjectId(organizationId),
           })
           .exec();
 
-        if (thread) {
-          return thread.ticketId.toString();
+        if (ticketByDisplayId) {
+          return ticketByDisplayId._id.toString();
+        }
+
+        // 2. Try to find by ObjectId (legacy/fallback)
+        if (Types.ObjectId.isValid(ticketIdCandidate)) {
+          const thread = await this.threadModel
+            .findOne({
+              ticketId: new Types.ObjectId(ticketIdCandidate),
+              organizationId: new Types.ObjectId(organizationId),
+            })
+            .exec();
+
+          if (thread) {
+            return thread.ticketId.toString();
+          }
         }
       } catch (err) {
         this.logger.warn(`Error verifying ticket from subject: ${err.message}`);
