@@ -995,33 +995,7 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
     // Admins see all tickets in org
     // Agents see tickets assigned to them, their groups, or unassigned tickets
     // Admins see all tickets in org
-    if (userRole === UserRole.LIGHT_AGENT) {
-      // Get groups the user belongs to
-      const userGroups = await this.groupsService.findByMember(
-        userId,
-        organizationId,
-      );
-      const groupIds = userGroups.map((group) => group._id);
 
-      query.$or = [
-        { assignedToId: new Types.ObjectId(userId) },
-        { followers: new Types.ObjectId(userId) },
-        { assignedToGroupId: { $in: groupIds } },
-        // Unassigned tickets (matches null or missing)
-        {
-          assignedToId: null,
-          assignedToGroupId: null,
-        },
-        {
-          _id: {
-            $in: await this.threadsService.findTicketIdsByParticipant(
-              userId,
-              organizationId,
-            ),
-          },
-        },
-      ];
-    }
     // Admins see all tickets (no additional filter)
 
     const [data, total] = await Promise.all([
@@ -1089,59 +1063,6 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
 
     // Agents can see tickets assigned to them or their groups
     // Agents can see tickets assigned to them or their groups
-    if (userRole === UserRole.LIGHT_AGENT) {
-      if (ticketAssignedToId === userId) {
-        // Assigned directly to user
-        return ticket;
-      }
-
-      // Check if user is a follower
-      const followers = ticket.followers?.map((f: any) =>
-        f._id ? f._id.toString() : f.toString(),
-      );
-      if (followers && followers.includes(userId)) {
-        return ticket;
-      }
-
-      if (ticketAssignedToGroupId) {
-        // Check if user is in the assigned group
-        const userGroups = await this.groupsService.findByMember(
-          userId,
-          organizationId,
-        );
-        const isInGroup = userGroups.some(
-          (group) => group._id.toString() === ticketAssignedToGroupId,
-        );
-
-        if (isInGroup) {
-          return ticket;
-        }
-      }
-
-      // Check if ticket is unassigned (agents can see unassigned tickets)
-      if (!ticketAssignedToId && !ticketAssignedToGroupId) {
-        return ticket;
-      }
-
-      // Check if user is a participant in the ticket's thread
-      const ticketIdsWithUserParticipation =
-        await this.threadsService.findTicketIdsByParticipant(
-          userId,
-          organizationId,
-        );
-      const isParticipant = ticketIdsWithUserParticipation.some(
-        (ticketId) => ticketId.toString() === id,
-      );
-
-      if (isParticipant) {
-        return ticket;
-      }
-
-      // Not assigned to user or their groups
-      throw new ForbiddenException(
-        'You do not have permission to view this ticket',
-      );
-    }
 
     // Customers can only see their own tickets
     if (userRole === UserRole.CUSTOMER) {
