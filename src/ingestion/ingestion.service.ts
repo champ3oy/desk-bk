@@ -338,23 +338,23 @@ export class IngestionService {
     }
 
     // Check for content duplicate within last 2 minutes (to catch different Message-IDs for same content)
-    const contentDuplicate = await this.checkContentDuplicate(
-      message.content,
-      organizationId,
-      authorId, // Changed from customerId
-      thread._id.toString(),
-    );
+    // const contentDuplicate = await this.checkContentDuplicate(
+    //   message.content,
+    //   organizationId,
+    //   authorId, // Changed from customerId
+    //   thread._id.toString(),
+    // );
 
-    if (contentDuplicate) {
-      this.logger.debug(
-        `Duplicate content found in thread, skipping duplicate message.`,
-      );
-      return {
-        success: true,
-        ticketId,
-        messageId: contentDuplicate._id.toString(),
-      };
-    }
+    // if (contentDuplicate) {
+    //   this.logger.debug(
+    //     `Duplicate content found in thread, skipping duplicate message.`,
+    //   );
+    //   return {
+    //     success: true,
+    //     ticketId,
+    //     messageId: contentDuplicate._id.toString(),
+    //   };
+    // }
 
     // Create message in thread (directly, bypassing permission checks for customer messages)
     const createdMessage = new this.messageModel({
@@ -495,7 +495,10 @@ export class IngestionService {
           body: `${content.substring(0, 50)}${
             content.length > 50 ? '...' : ''
           }`,
-          metadata: { ticketId: ticket._id.toString() },
+          metadata: {
+            ticketId: ticket._id.toString(),
+            displayId: ticket.displayId,
+          },
         }),
       );
 

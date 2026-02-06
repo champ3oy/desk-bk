@@ -468,7 +468,10 @@ export class ThreadsService {
               body: `${createMessageDto.content.substring(0, 50)}${
                 createMessageDto.content.length > 50 ? '...' : ''
               }`,
-              metadata: { ticketId: ticket._id.toString() },
+              metadata: {
+                ticketId: ticket._id.toString(),
+                displayId: ticket.displayId,
+              },
             }),
           );
           await Promise.all(promises);
@@ -517,7 +520,10 @@ export class ThreadsService {
               body: `${createMessageDto.content.substring(0, 50)}${
                 createMessageDto.content.length > 50 ? '...' : ''
               }`,
-              metadata: { ticketId: ticket._id.toString() },
+              metadata: {
+                ticketId: ticket._id.toString(),
+                displayId: ticket.displayId,
+              },
             }),
           );
           await Promise.all(promises);

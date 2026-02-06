@@ -93,7 +93,11 @@ export class TicketsService {
       .toUpperCase();
 
     const paddedNumber = ticketNumber.toString().padStart(6, '0');
-    return `${initials}-${paddedNumber}`;
+    const result = `${initials}-${paddedNumber}`;
+    console.log(
+      `[TicketsService] Generated displayId: ${result} for Org: ${organizationId}`,
+    );
+    return result;
   }
 
   /**
@@ -525,6 +529,7 @@ Sentiment:`;
                     isAiEscalated: true,
                     aiEscalationReason: reason,
                     aiConfidenceScore: confidence,
+                    aiAutoReplyDisabled: true,
                     // Set status to ESCALATED
                     status: TicketStatus.ESCALATED,
                     // We'll set escalationNoticeSent to true after we actually send the message below
@@ -882,7 +887,10 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
         type: NotificationType.NEW_TICKET,
         title: 'New Ticket Assigned',
         body: `You have been assigned to ticket #${savedTicket.displayId || savedTicket._id}: ${savedTicket.subject}`,
-        metadata: { ticketId: savedTicket._id.toString() },
+        metadata: {
+          ticketId: savedTicket._id.toString(),
+          displayId: savedTicket.displayId,
+        },
       });
     } else {
       // Notify all admins if ticket is unassigned
@@ -893,7 +901,10 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
           type: NotificationType.NEW_TICKET,
           title: 'New Unassigned Ticket',
           body: `New ticket #${savedTicket.displayId || savedTicket._id}: ${savedTicket.subject}`,
-          metadata: { ticketId: savedTicket._id.toString() },
+          metadata: {
+            ticketId: savedTicket._id.toString(),
+            displayId: savedTicket.displayId,
+          },
         });
       }
     }
@@ -1188,7 +1199,10 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
           type: NotificationType.SYSTEM,
           title: `Ticket Escalated`,
           body: `Ticket #${ticket.displayId || ticket._id} escalated. Reason: ${reason}`,
-          metadata: { ticketId: ticket._id.toString() },
+          metadata: {
+            ticketId: ticket._id.toString(),
+            displayId: ticket.displayId,
+          },
         }),
       );
 
@@ -1317,7 +1331,10 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
         type: NotificationType.SYSTEM,
         title: 'Ticket Assigned',
         body: `Ticket #${updatedTicket.displayId || updatedTicket._id} has been assigned to you`,
-        metadata: { ticketId: updatedTicket._id.toString() },
+        metadata: {
+          ticketId: updatedTicket._id.toString(),
+          displayId: updatedTicket.displayId,
+        },
       });
     }
 
@@ -1407,7 +1424,7 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
     await this.threadsService.createMessage(
       targetThread._id.toString(),
       {
-        content: `Ticket #${sourceTicket.displayId || sourceTicketId} was merged into this ticket. All messages have been moved here.`,
+        content: `Ticket #${sourceTicket.displayId || (sourceTicket as any)._id || sourceTicketId} was merged into this ticket. All messages have been moved here.`,
         messageType: MessageType.INTERNAL,
       },
       organizationId,
