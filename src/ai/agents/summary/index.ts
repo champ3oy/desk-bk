@@ -63,7 +63,7 @@ export const summarizeTicket = async (
       );
       return {
         ...thread.toObject(),
-        messages: messages.map((msg) => msg.toObject()),
+        messages: messages,
       };
     }),
   );
