@@ -569,8 +569,8 @@ export class ThreadsService {
       // If no filter specified, show all messages user can see
       // For customers, only show external messages
       // For agents/admins, show all messages if they're participants or admins
-      if (userRole === UserRole.ADMIN) {
-        // Admins see all messages
+      if (userRole === UserRole.ADMIN || userRole === UserRole.LIGHT_AGENT) {
+        // Admins and Light Agents see all messages (unless filtered by type)
       } else {
         // Check if user is a participant (can see internal messages)
         const isParticipant = thread.participantUserIds.some(
