@@ -7,7 +7,11 @@ import {
   IsBoolean,
 } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { TicketStatus, TicketPriority } from '../entities/ticket.entity';
+import {
+  TicketStatus,
+  TicketPriority,
+  TicketChannel,
+} from '../entities/ticket.entity';
 
 export class UpdateTicketDto {
   @ApiPropertyOptional({
@@ -44,6 +48,15 @@ export class UpdateTicketDto {
   @IsEnum(TicketPriority)
   @IsOptional()
   priority?: TicketPriority;
+
+  @ApiPropertyOptional({
+    description: 'Ticket channel',
+    enum: TicketChannel,
+    example: TicketChannel.WHATSAPP,
+  })
+  @IsEnum(TicketChannel)
+  @IsOptional()
+  channel?: TicketChannel;
 
   @ApiPropertyOptional({
     description: 'ID of the user assigned to this ticket',

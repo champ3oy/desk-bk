@@ -14,6 +14,7 @@ import {
   TicketDocument,
   TicketStatus,
   TicketPriority,
+  TicketChannel,
 } from './entities/ticket.entity';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { UpdateTicketDto } from './dto/update-ticket.dto';
@@ -796,6 +797,7 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
       ...createTicketDto,
       customerId: new Types.ObjectId(createTicketDto.customerId),
       organizationId: new Types.ObjectId(organizationId),
+      channel: channel || TicketChannel.EMAIL,
     };
 
     if (createTicketDto.assignedToId) {

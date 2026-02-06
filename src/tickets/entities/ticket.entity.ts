@@ -18,6 +18,15 @@ export enum TicketPriority {
   URGENT = 'urgent',
 }
 
+export enum TicketChannel {
+  EMAIL = 'email',
+  WHATSAPP = 'whatsapp',
+  SMS = 'sms',
+  WIDGET = 'widget',
+  VOICE = 'voice',
+  API = 'api',
+}
+
 export type TicketDocument = Ticket & Document;
 
 @Schema({ timestamps: true })
@@ -56,6 +65,18 @@ export class Ticket {
     default: TicketPriority.MEDIUM,
   })
   priority: TicketPriority;
+
+  @ApiProperty({
+    description: 'Channel through which the ticket was created/last active',
+    enum: TicketChannel,
+    example: TicketChannel.EMAIL,
+  })
+  @Prop({
+    type: String,
+    enum: TicketChannel,
+    default: TicketChannel.EMAIL,
+  })
+  channel: TicketChannel;
 
   @ApiPropertyOptional({
     description: 'Whether the ticket was escalated by AI',

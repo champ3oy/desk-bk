@@ -207,7 +207,7 @@ export const draftHumanResponse = async (
       );
       return {
         ...thread.toObject(),
-        messages: messages.map((msg) => msg.toObject()),
+        messages: messages,
       };
     }),
   );
