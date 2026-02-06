@@ -26,7 +26,9 @@ import { TrainingModule } from '../training/training.module';
 import { KnowledgeBaseService } from '../ai/knowledge-base.service';
 import { UsersModule } from '../users/users.module';
 import { AttachmentsModule } from '../attachments/attachments.module';
+
 import { SocialIntegrationModule } from '../integrations/social/social-integration.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -43,7 +45,9 @@ import { SocialIntegrationModule } from '../integrations/social/social-integrati
     AttachmentsModule,
     TrainingModule, // For KnowledgeBaseService
     UsersModule,
+
     SocialIntegrationModule,
+    NotificationsModule,
   ],
   controllers: [WebhooksController],
   providers: [

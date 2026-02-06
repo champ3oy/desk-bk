@@ -12,6 +12,7 @@ import { GroupsModule } from '../groups/groups.module';
 import { ThreadsModule } from '../threads/threads.module';
 import { OrganizationsModule } from '../organizations/organizations.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { UsersModule } from '../users/users.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     OrganizationsModule,
     forwardRef(() => ThreadsModule),
     NotificationsModule,
+    UsersModule,
     forwardRef(() => AiModule), // Add AiModule for KnowledgeBaseService
   ],
   controllers: [TicketsController, CustomerTicketsController],

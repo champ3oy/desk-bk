@@ -346,4 +346,20 @@ export class UsersService {
     const { password: _, ...result } = savedUser.toObject();
     return result as UserResponse;
   }
+
+  async findAdmins(organizationId: string): Promise<UserDocument[]> {
+    const orgIdObj = new Types.ObjectId(organizationId);
+    return this.userModel
+      .find({
+        $or: [
+          { organizationId: orgIdObj, role: UserRole.ADMIN },
+          {
+            organizations: {
+              $elemMatch: { organizationId: orgIdObj, role: UserRole.ADMIN },
+            },
+          },
+        ],
+      })
+      .exec();
+  }
 }

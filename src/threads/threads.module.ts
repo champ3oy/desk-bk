@@ -11,6 +11,7 @@ import { GroupsModule } from '../groups/groups.module';
 import { DispatcherModule } from '../dispatcher/dispatcher.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { IngestionModule } from '../ingestion/ingestion.module';
+import { UsersModule } from '../users/users.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { IngestionModule } from '../ingestion/ingestion.module';
     DispatcherModule,
 
     NotificationsModule,
+    UsersModule,
     forwardRef(() => IngestionModule),
   ],
   controllers: [ThreadsController],

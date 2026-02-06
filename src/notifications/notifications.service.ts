@@ -6,12 +6,14 @@ import {
   NotificationDocument,
 } from './entities/notification.entity';
 import { CreateNotificationDto } from './dto/create-notification.dto';
+import { NotificationsGateway } from './notifications.gateway';
 
 @Injectable()
 export class NotificationsService {
   constructor(
     @InjectModel(Notification.name)
     private notificationModel: Model<NotificationDocument>,
+    private notificationsGateway: NotificationsGateway,
   ) {}
 
   async create(
@@ -20,28 +22,49 @@ export class NotificationsService {
     const createdNotification = new this.notificationModel(
       createNotificationDto,
     );
-    return createdNotification.save();
+    const saved = await createdNotification.save();
+    console.log(
+      `[NotificationsService] Created notification for user ${createNotificationDto.userId}: ${createNotificationDto.title}`,
+    );
+
+    // Real-time update
+    this.notificationsGateway.sendToUser(
+      createNotificationDto.userId.toString(),
+      'custom_notification',
+      saved,
+    );
+
+    return saved;
   }
 
   async findAll(userId: string): Promise<Notification[]> {
+    console.log(`[NotificationsService] Finding all for user: ${userId}`);
+    const oid = new Types.ObjectId(userId);
     return this.notificationModel
-      .find({ userId: new Types.ObjectId(userId) })
+      .find({
+        $or: [{ userId: oid }, { userId: userId }],
+      })
       .sort({ createdAt: -1 })
       .limit(50) // Limit to last 50 notifications
       .exec();
   }
 
   async getUnreadCount(userId: string): Promise<number> {
+    const oid = new Types.ObjectId(userId);
     return this.notificationModel.countDocuments({
-      userId: new Types.ObjectId(userId),
+      $or: [{ userId: oid }, { userId: userId }],
       read: false,
     });
   }
 
   async markAsRead(id: string, userId: string): Promise<Notification> {
+    const oid = new Types.ObjectId(userId);
     return this.notificationModel
       .findOneAndUpdate(
-        { _id: id, userId: new Types.ObjectId(userId) },
+        {
+          _id: id,
+          $or: [{ userId: oid }, { userId: userId }],
+        },
         { read: true },
         { new: true },
       )
@@ -49,11 +72,18 @@ export class NotificationsService {
   }
 
   async markAllAsRead(userId: string): Promise<void> {
-    await this.notificationModel
+    const oid = new Types.ObjectId(userId);
+    const result = await this.notificationModel
       .updateMany(
-        { userId: new Types.ObjectId(userId), read: false },
+        {
+          $or: [{ userId: oid }, { userId: userId }],
+          read: false,
+        },
         { read: true },
       )
       .exec();
+    console.log(
+      `[NotificationsService] Marked ${result.modifiedCount} notifications as read for user ${userId}`,
+    );
   }
 }

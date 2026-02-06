@@ -35,6 +35,7 @@ import { CustomersService } from '../customers/customers.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/entities/notification.entity';
 import { KnowledgeBaseService } from '../ai/knowledge-base.service'; // Import KnowledgeBaseService
+import { UsersService } from '../users/users.service';
 
 @Injectable()
 export class TicketsService {
@@ -51,6 +52,7 @@ export class TicketsService {
     @Inject(forwardRef(() => CustomersService))
     private customersService: CustomersService,
     private notificationsService: NotificationsService,
+    private usersService: UsersService,
     @Inject(forwardRef(() => KnowledgeBaseService))
     private knowledgeBaseService: KnowledgeBaseService,
   ) {}
@@ -415,6 +417,12 @@ Sentiment:`;
 
             console.log(`[AutoReply] Escalated ticket ${ticketId}: ${reason}`);
 
+            // Notify agents about escalation
+            this.notifyAgentsOfEscalation(ticket, reason, organizationId).catch(
+              (err) =>
+                console.error('Failed to notify agents of escalation', err),
+            );
+
             try {
               console.log(
                 '[AutoReply] Getting thread for escalation message...',
@@ -649,6 +657,9 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
           organization.defaultAgentId,
         );
       }
+      console.log(
+        `[TicketsService] Auto-assign check. OrgId: ${organizationId}, DefaultAgent: ${organization?.defaultAgentId}, Assigned: ${!!ticketData.assignedToId}`,
+      );
     }
 
     if (createTicketDto.assignedToGroupId) {
@@ -699,6 +710,9 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
     });
 
     // Notify assigned agent
+    console.log(
+      `[TicketsService] Notification Check. TicketID: ${savedTicket._id}, AssignedTo: ${savedTicket.assignedToId}`,
+    );
     if (savedTicket.assignedToId) {
       await this.notificationsService.create({
         userId: savedTicket.assignedToId.toString(),
@@ -707,6 +721,18 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
         body: `You have been assigned to ticket #${savedTicket._id}: ${savedTicket.subject}`,
         metadata: { ticketId: savedTicket._id.toString() },
       });
+    } else {
+      // Notify all admins if ticket is unassigned
+      const admins = await this.usersService.findAdmins(organizationId);
+      for (const admin of admins) {
+        await this.notificationsService.create({
+          userId: admin._id.toString(),
+          type: NotificationType.NEW_TICKET,
+          title: 'New Unassigned Ticket',
+          body: `New ticket #${savedTicket._id}: ${savedTicket.subject}`,
+          metadata: { ticketId: savedTicket._id.toString() },
+        });
+      }
     }
 
     return savedTicket;
@@ -958,6 +984,58 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
     }
 
     return ticket;
+  }
+
+  /**
+   * Notify agents about an escalation
+   */
+  private async notifyAgentsOfEscalation(
+    ticket: TicketDocument,
+    reason: string,
+    organizationId: string,
+  ): Promise<void> {
+    try {
+      const recipients = new Set<string>();
+
+      // Notify assigned agent
+      if (ticket.assignedToId) {
+        const assignedId = (ticket.assignedToId as any)._id
+          ? (ticket.assignedToId as any)._id.toString()
+          : ticket.assignedToId.toString();
+        recipients.add(assignedId);
+      }
+
+      // Notify followers
+      if (ticket.followers && ticket.followers.length > 0) {
+        ticket.followers.forEach((f: any) => {
+          const fId = f._id ? f._id.toString() : f.toString();
+          recipients.add(fId);
+        });
+      }
+
+      // If no agent is assigned, notify all admins
+      if (!ticket.assignedToId) {
+        const admins = await this.usersService.findAdmins(organizationId);
+        admins.forEach((admin) => recipients.add(admin._id.toString()));
+      }
+
+      const promises = Array.from(recipients).map((userId) =>
+        this.notificationsService.create({
+          userId,
+          type: NotificationType.SYSTEM,
+          title: `Ticket Escalated`,
+          body: `Ticket #${ticket._id} escalated. Reason: ${reason}`,
+          metadata: { ticketId: ticket._id.toString() },
+        }),
+      );
+
+      await Promise.all(promises);
+      console.log(
+        `[TicketsService] Notified ${recipients.size} agents of escalation`,
+      );
+    } catch (error) {
+      console.error('Failed to notify agents of escalation', error);
+    }
   }
 
   async update(

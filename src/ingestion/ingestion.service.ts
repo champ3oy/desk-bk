@@ -28,6 +28,8 @@ import {
   TicketDocument,
   TicketPriority,
 } from '../tickets/entities/ticket.entity';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationType } from '../notifications/entities/notification.entity';
 
 @Injectable()
 export class IngestionService {
@@ -54,6 +56,7 @@ export class IngestionService {
     private usersService: UsersService,
     @Inject(forwardRef(() => WidgetGateway))
     private widgetGateway: WidgetGateway,
+    private notificationsService: NotificationsService,
   ) {}
 
   /**
@@ -423,11 +426,86 @@ export class IngestionService {
       );
     }
 
+    // Notify agents about the reply
+    if (!isAgent) {
+      this.notifyAgentsOfReply(ticketId, message.content, organizationId).catch(
+        (e) =>
+          this.logger.error(
+            `Failed to notify agents of reply for ticket ${ticketId}`,
+            e,
+          ),
+      );
+    }
+
     return {
       success: true,
       ticketId,
       messageId: createdMessage._id.toString(),
     };
+  }
+
+  /**
+   * Notify agents about a new reply from a customer
+   */
+  private async notifyAgentsOfReply(
+    ticketId: string,
+    content: string,
+    organizationId: string,
+  ): Promise<void> {
+    try {
+      const ticket = await this.ticketsService.findOne(
+        ticketId,
+        organizationId, // Use orgId to bypass user permission check
+        UserRole.ADMIN, // Use Admin role to ensure access
+        organizationId,
+      );
+
+      if (!ticket) return;
+
+      const recipients = new Set<string>();
+
+      // Notify assigned agent
+      if (ticket.assignedToId) {
+        const assignedToId = ticket.assignedToId as any;
+        recipients.add(
+          assignedToId._id
+            ? assignedToId._id.toString()
+            : assignedToId.toString(),
+        );
+      }
+
+      // Notify followers
+      if (ticket.followers && ticket.followers.length > 0) {
+        ticket.followers.forEach((f: any) =>
+          recipients.add(f._id ? f._id.toString() : f.toString()),
+        );
+      }
+
+      // If no agent is assigned, notify all admins
+      if (!ticket.assignedToId) {
+        const admins = await this.usersService.findAdmins(organizationId);
+        admins.forEach((admin) => recipients.add(admin._id.toString()));
+      }
+
+      const promises = Array.from(recipients).map((recipientId) =>
+        this.notificationsService.create({
+          userId: recipientId,
+          type: NotificationType.REPLY,
+          title: `New Reply on Ticket #${ticket._id}`,
+          body: `${content.substring(0, 50)}${
+            content.length > 50 ? '...' : ''
+          }`,
+          metadata: { ticketId: ticket._id.toString() },
+        }),
+      );
+
+      await Promise.all(promises);
+      this.logger.debug(
+        `Notified ${recipients.size} recipients of reply on ticket ${ticketId}`,
+      );
+    } catch (error) {
+      this.logger.error('Failed to notify agents of reply:', error);
+    }
   }
 
   /**

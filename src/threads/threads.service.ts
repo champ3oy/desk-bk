@@ -26,6 +26,7 @@ import { DispatcherService } from '../dispatcher/dispatcher.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/entities/notification.entity';
 import { WidgetGateway } from '../gateways/widget.gateway';
+import { UsersService } from '../users/users.service';
 
 @Injectable()
 export class ThreadsService {
@@ -43,6 +44,7 @@ export class ThreadsService {
 
     private notificationsService: NotificationsService,
     private widgetGateway: WidgetGateway,
+    private usersService: UsersService,
   ) {}
 
   /**
@@ -430,8 +432,8 @@ export class ThreadsService {
         // Customer replied -> Notify assigned agent or followers
         const ticket = await this.ticketsService.findOne(
           thread.ticketId.toString(),
-          userId, // userId might be customer's ID here, permissions checked in ticketsService
-          userRole,
+          organizationId, // USe org ID to bypass user permission check for system notification
+          UserRole.ADMIN, // Use Admin role to ensure we find the ticket
           organizationId,
         );
 
@@ -449,6 +451,12 @@ export class ThreadsService {
             ticket.followers.forEach((f: any) =>
               recipients.add(f._id ? f._id.toString() : f.toString()),
             );
+          }
+
+          // If no agent is assigned, notify all admins
+          if (!ticket.assignedToId) {
+            const admins = await this.usersService.findAdmins(organizationId);
+            admins.forEach((admin) => recipients.add(admin._id.toString()));
           }
 
           // Create notifications
