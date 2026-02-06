@@ -236,6 +236,7 @@ export const draftResponse = async (
   organizationId: string,
   additionalContext?: string,
   channel?: string,
+  isWaitingForNewTopicCheck = false,
 ): Promise<AgentResponse> => {
   const totalStart = Date.now();
   console.log(`[PERF] draftResponse started for ticket ${ticket_id}`);
@@ -303,6 +304,38 @@ export const draftResponse = async (
   const model = AIModelFactory.create(configService);
   console.log(`[PERF] Model initialization: ${Date.now() - modelStart}ms`);
 
+  // ========== TOOL DEFINITION ==========
+  const tools = [
+    {
+      name: 'create_new_ticket',
+      description:
+        'Create a NEW ticket for a NEW issue that is different from the current one.',
+      parameters: {
+        type: 'object',
+        properties: {
+          subject: {
+            type: 'string',
+            description: 'A concise subject for the new ticket',
+          },
+          description: {
+            type: 'string',
+            description: 'Detailed description of the new issue',
+          },
+        },
+        required: ['subject', 'description'],
+      },
+    },
+  ];
+
+  let modelWithTools = model;
+  if (isWaitingForNewTopicCheck && (model as any).bindTools) {
+    try {
+      modelWithTools = (model as any).bindTools(tools);
+    } catch (e) {
+      console.warn('Tool binding failed, falling back to standard model', e);
+    }
+  }
+
   // ========== BUILD CONTEXT ==========
   const ticketData = {
     ticket: ticket.toObject(),
@@ -337,11 +370,23 @@ ${msg.content}`,
   )
   .join('\n')}
 
-# TASK
 ${
   additionalContext
     ? `Analyze this ticket and decide whether to reply or escalate. Additional context: ${additionalContext}`
     : `Analyze this ticket and decide whether to reply or escalate. Consider all threads, messages, ticket details, conversation history, and customer sentiment.`
+}
+
+${
+  isWaitingForNewTopicCheck
+    ? `
+# SECONDARY SUPPORT BUFFER (ACTIVE)
+The user is currently waiting on an escalated issue. 
+Your task is to determine if their latest message refers to a NEW, DIFFERENT problem.
+- If they want to discuss a NEW topic or asked for help with something else: Use the 'create_new_ticket' tool.
+- If they are still talking about the SAME escalated issue: Just reply normally (usually with empathy/patience).
+- If they answer "yes" to "is there anything else I can help with": Use the tool to start a new ticket for them.
+`
+    : ''
 }
 `;
 
@@ -533,7 +578,7 @@ ${
 
     // Add 30s timeout to LLM invocation
     response = await Promise.race([
-      model.invoke([
+      modelWithTools.invoke([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userContent },
       ]),
@@ -541,6 +586,46 @@ ${
         setTimeout(() => reject(new Error('AI response timed out')), 30000),
       ),
     ]);
+
+    // ========== HANDLE TOOL CALLS ==========
+    if (response.tool_calls && response.tool_calls.length > 0) {
+      console.log(
+        `[AI Agent] Tool call detected: ${response.tool_calls[0].name}`,
+      );
+      const toolCall = response.tool_calls[0];
+
+      if (toolCall.name === 'create_new_ticket') {
+        const { subject, description } = toolCall.args;
+        console.log(`[AI Agent] Creating new ticket: ${subject}`);
+
+        // Execute ticket creation
+        const newTicket = await ticketsService.create(
+          {
+            subject,
+            description,
+            status: 'open' as any,
+            customerId:
+              (ticket.customerId as any)._id?.toString() ||
+              ticket.customerId.toString(),
+            priority: 'medium' as any,
+          },
+          organizationId,
+          channel,
+        );
+
+        // Return a special response indicating tool execution
+        return {
+          action: 'REPLY',
+          content: `I've created a new ticket (#${(newTicket as any).displayId || (newTicket as any)._id}) for your inquiry about "${subject}". I'll help you with that there, while our team continues to work on your other escalated request.`,
+          confidence: 100,
+          metadata: {
+            tokenUsage: (response as any)?.usage_metadata,
+            knowledgeBaseUsed: false,
+            performanceMs: Date.now() - totalStart,
+          },
+        };
+      }
+    }
   } catch (error) {
     console.error('[AI Agent] LLM Invocation Failed:', error);
 

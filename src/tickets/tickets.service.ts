@@ -333,23 +333,28 @@ Sentiment:`;
         return;
       }
 
-      // If ticket is escalated, send a notification to the customer (for social channels)
+      // If ticket is escalated, handle counter and possible intervention
       if (ticket.status === TicketStatus.ESCALATED || ticket.isAiEscalated) {
-        console.log(
-          `[AutoReply] Ticket ${ticketId} is escalated. Sending escalation notification.`,
+        // Increment reply count
+        const newCount = (ticket.escalationReplyCount || 0) + 1;
+        await this.ticketModel.updateOne(
+          { _id: ticketId },
+          { $set: { escalationReplyCount: newCount } },
         );
 
-        // Only send notification for social/messaging channels where user can't see ticket status
-        const shouldNotify = [
-          'whatsapp',
-          'sms',
-          'social',
-          'widget',
-          'chat',
-        ].includes((channel || '').toLowerCase());
+        // If we are waiting for a new topic check, we let it fall through to the AI drafting section below
+        // but if not, we handle the standard escalation logic.
+        if (ticket.isWaitingForNewTopicCheck) {
+          console.log(
+            `[AutoReply] Ticket ${ticketId} is waiting for new topic check. Falling through to AI...`,
+          );
+          // Fall through to drafting logic
+        } else if (newCount === 4) {
+          console.log(
+            `[AutoReply] Ticket ${ticketId} reached message #4. Sending intervention.`,
+          );
 
-        if (shouldNotify) {
-          // Send escalation notification in background
+          // Intervention: Send "Anything else?" message
           setTimeout(async () => {
             try {
               const thread = await this.threadsService.getOrCreateThread(
@@ -358,40 +363,106 @@ Sentiment:`;
                 organizationId,
               );
 
-              const escalationNotice =
-                'Your conversation has been escalated to a human agent. They will respond to you as soon as possible. Thank you for your patience!';
+              const interventionMessage =
+                "I notice you've been waiting for a while. I want to make sure your time is used effectively—is there anything else I can help you with or any other query I can answer while the agent gets to your previous request?";
 
               await this.threadsService.createMessage(
                 thread._id.toString(),
                 {
-                  content: escalationNotice,
+                  content: interventionMessage,
                   messageType: MessageType.EXTERNAL,
                   channel:
                     channel === 'chat' || channel === 'widget'
                       ? MessageChannel.WIDGET
                       : channel === 'whatsapp'
                         ? MessageChannel.WHATSAPP
-                        : (channel as any),
+                        : channel === 'email'
+                          ? MessageChannel.EMAIL
+                          : (channel as any),
                 },
                 organizationId,
-                customerId,
-                UserRole.CUSTOMER,
+                organizationId, // System author
+                UserRole.ADMIN,
                 MessageAuthorType.AI,
               );
 
-              console.log(
-                `[AutoReply] Sent escalation notification to customer for ticket ${ticketId}`,
+              await this.ticketModel.updateOne(
+                { _id: ticketId },
+                { $set: { isWaitingForNewTopicCheck: true } },
               );
-            } catch (err) {
+            } catch (e) {
               console.error(
-                `[AutoReply] Failed to send escalation notification for ticket ${ticketId}:`,
-                err,
+                `[AutoReply] Failed to send intervention for ticket ${ticketId}`,
+                e,
               );
             }
           }, 500);
-        }
+          return;
+        } else {
+          // Standard escalation notice (first reply only)
+          if (ticket.escalationNoticeSent) {
+            console.log(
+              `[AutoReply] Ticket ${ticketId} is escalated but escalation notice was already sent. Skipping.`,
+            );
+            return;
+          }
 
-        return;
+          console.log(
+            `[AutoReply] Ticket ${ticketId} is escalated. Sending escalation notification.`,
+          );
+
+          const shouldNotify = [
+            'whatsapp',
+            'sms',
+            'social',
+            'widget',
+            'chat',
+          ].includes((channel || '').toLowerCase());
+
+          if (shouldNotify) {
+            setTimeout(async () => {
+              try {
+                const thread = await this.threadsService.getOrCreateThread(
+                  ticketId,
+                  customerId,
+                  organizationId,
+                );
+
+                const escalationNotice =
+                  'Your conversation has been escalated to a human agent. They will respond to you as soon as possible. Thank you for your patience!';
+
+                await this.threadsService.createMessage(
+                  thread._id.toString(),
+                  {
+                    content: escalationNotice,
+                    messageType: MessageType.EXTERNAL,
+                    channel:
+                      channel === 'chat' || channel === 'widget'
+                        ? MessageChannel.WIDGET
+                        : channel === 'whatsapp'
+                          ? MessageChannel.WHATSAPP
+                          : (channel as any),
+                  },
+                  organizationId,
+                  customerId,
+                  UserRole.CUSTOMER,
+                  MessageAuthorType.AI,
+                );
+
+                await this.ticketModel.updateOne(
+                  { _id: ticketId },
+                  { $set: { escalationNoticeSent: true } },
+                );
+              } catch (err) {
+                console.error(
+                  `[AutoReply] Failed to send escalation notification for ticket ${ticketId}:`,
+                  err,
+                );
+              }
+            }, 500);
+          }
+          return;
+        }
       }
 
       const isRestricted = this.checkRestrictedTopics(
@@ -429,6 +500,7 @@ Sentiment:`;
             organizationId,
             undefined,
             channel,
+            ticket.isWaitingForNewTopicCheck,
           );
 
           console.log(
@@ -455,6 +527,7 @@ Sentiment:`;
                     aiConfidenceScore: confidence,
                     // Set status to ESCALATED
                     status: TicketStatus.ESCALATED,
+                    // We'll set escalationNoticeSent to true after we actually send the message below
                   },
                 },
               )
@@ -574,6 +647,12 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
                 MessageAuthorType.AI,
               );
               console.log('[AutoReply] Escalation message sent.');
+
+              // Update flag so we don't send it again (even if they send more messages)
+              await this.ticketModel.updateOne(
+                { _id: ticketId },
+                { $set: { escalationNoticeSent: true } },
+              );
             } catch (err) {
               console.error(
                 `[AutoReply] Failed to process escalation for ticket ${ticketId}`,
@@ -641,7 +720,16 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
         } finally {
           // Clear processing flag
           await this.ticketModel
-            .updateOne({ _id: ticketId }, { $set: { isAiProcessing: false } })
+            .updateOne(
+              { _id: ticketId },
+              {
+                $set: {
+                  isAiProcessing: false,
+                  // If we were waiting for a new topic check, we've now processed it
+                  isWaitingForNewTopicCheck: false,
+                },
+              },
+            )
             .catch((e) =>
               console.error('Failed to clear isAiProcessing flag', e),
             );
@@ -661,7 +749,12 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
       await this.ticketModel.updateOne(
         { _id: ticketId },
         {
-          $set: { status: TicketStatus.OPEN },
+          $set: {
+            status: TicketStatus.OPEN,
+            escalationNoticeSent: false,
+            escalationReplyCount: 0,
+            isWaitingForNewTopicCheck: false,
+          },
           $unset: {
             isAiEscalated: '',
             aiEscalationReason: '',
@@ -678,6 +771,11 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
             isAiEscalated: '',
             aiEscalationReason: '',
             aiConfidenceScore: '',
+          },
+          $set: {
+            escalationNoticeSent: false,
+            escalationReplyCount: 0,
+            isWaitingForNewTopicCheck: false,
           },
         },
       );
@@ -1183,6 +1281,9 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
       // If ticket is re-opened, clear resolution data
       updateData.resolvedAt = null;
       updateData.resolutionType = null;
+      updateData.escalationNoticeSent = false;
+      updateData.escalationReplyCount = 0;
+      updateData.isWaitingForNewTopicCheck = false;
     }
 
     // Use findByIdAndUpdate to avoid validation errors on existing valid/invalid documents involved in full save()

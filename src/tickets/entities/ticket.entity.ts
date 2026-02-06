@@ -100,6 +100,28 @@ export class Ticket {
   @Prop({ default: false })
   isAiProcessing?: boolean;
 
+  @ApiPropertyOptional({
+    description: 'Whether the escalation notice has been sent to the customer',
+    example: false,
+  })
+  @Prop({ default: false })
+  escalationNoticeSent?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Number of messages received from user since escalation',
+    example: 0,
+  })
+  @Prop({ default: 0 })
+  escalationReplyCount?: number;
+
+  @ApiPropertyOptional({
+    description:
+      'Whether the AI is waiting for a confirmation to create a new ticket',
+    example: false,
+  })
+  @Prop({ default: false })
+  isWaitingForNewTopicCheck?: boolean;
+
   @ApiProperty({
     description: 'Organization ID',
     example: '507f1f77bcf86cd799439011',
