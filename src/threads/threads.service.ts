@@ -225,13 +225,13 @@ export class ThreadsService {
         );
     }
 
-    // Notify Widget via WebSocket if applicable
-    if (thread.metadata?.sessionId) {
-      // Populate author for the socket event
-      await savedMessage.populate({
-        path: 'authorId',
-        select: 'firstName lastName email',
-      });
+    // Dispatcher will now handle WIDGET delivery for USER and AI messages.
+    // We still echo CUSTOMER messages here if needed, but usually Ingestion handles that.
+    if (
+      thread.metadata?.sessionId &&
+      savedMessage.authorType === MessageAuthorType.CUSTOMER
+    ) {
+      await savedMessage.populate('authorId');
       this.widgetGateway.sendNewMessage(
         organizationId,
         thread.metadata.sessionId,
@@ -341,7 +341,7 @@ export class ThreadsService {
       savedMessage.messageType === MessageType.EXTERNAL &&
       (savedMessage.authorType === MessageAuthorType.USER ||
         savedMessage.authorType === MessageAuthorType.AI) &&
-      savedMessage.channel !== MessageChannel.WIDGET &&
+      // Removed the exclusion of WIDGET to allow Dispatcher to handle it
       !(
         savedMessage.channel === MessageChannel.PLATFORM &&
         thread.metadata?.sessionId

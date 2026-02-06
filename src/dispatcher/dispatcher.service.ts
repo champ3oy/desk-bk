@@ -1,12 +1,18 @@
 import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { EmailIntegrationService } from '../integrations/email/email-integration.service';
 import { SocialIntegrationService } from '../integrations/social/social-integration.service'; // Ensure this import exists
+import { WidgetGateway } from '../gateways/widget.gateway';
+import { convert } from 'html-to-text';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
 import {
+  Message,
   MessageDocument,
   MessageType,
   MessageChannel,
   MessageAuthorType,
 } from '../threads/entities/message.entity';
+import { Thread, ThreadDocument } from '../threads/entities/thread.entity';
 import {
   SocialIntegration,
   SocialIntegrationDocument,
@@ -19,8 +25,6 @@ import { OrganizationsService } from '../organizations/organizations.service';
 import { UsersService } from '../users/users.service';
 import * as marked from 'marked';
 
-import { convert } from 'html-to-text';
-
 @Injectable()
 export class DispatcherService {
   private readonly logger = new Logger(DispatcherService.name);
@@ -30,6 +34,12 @@ export class DispatcherService {
     private socialIntegrationService: SocialIntegrationService,
     @Inject(forwardRef(() => CustomersService))
     private customersService: CustomersService,
+    @Inject(forwardRef(() => WidgetGateway))
+    private widgetGateway: WidgetGateway,
+    @InjectModel(Message.name)
+    private messageModel: Model<MessageDocument>,
+    @InjectModel(Thread.name)
+    private threadModel: Model<ThreadDocument>,
     private organizationsService: OrganizationsService,
     private usersService: UsersService,
   ) {}
@@ -51,6 +61,14 @@ export class DispatcherService {
 
       if (message.channel === MessageChannel.WHATSAPP) {
         return await this.dispatchWhatsApp(message, ticket, recipientEmail);
+      }
+
+      if (message.channel === MessageChannel.WIDGET) {
+        return await this.dispatchWidget(message, ticket);
+      }
+
+      if (message.channel === MessageChannel.WEBHOOK) {
+        return await this.dispatchWebhook(message, ticket);
       }
 
       // We only handle EMAIL channel for now
@@ -279,6 +297,78 @@ export class DispatcherService {
       return true;
     } catch (error) {
       this.logger.error(`Error dispatching WhatsApp message: ${error.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Dispatch message via Live Chat Widget
+   */
+  private async dispatchWidget(
+    message: MessageDocument,
+    ticket: TicketDocument,
+  ): Promise<boolean> {
+    try {
+      this.logger.debug(`Dispatching widget message for ticket ${ticket._id}`);
+
+      // Convert HTML to plain text for widget if needed (as requested by user)
+      // Note: we use this to ensure consistent plain text delivery to simple widgets
+      const plainContent = convert(message.content, {
+        wordwrap: false,
+      });
+
+      // Find the thread to get sessionId
+      const thread = await this.threadModel.findById(message.threadId);
+
+      if (thread && thread.metadata?.sessionId) {
+        // We need to pass the "text" version to the gateway
+        // But the gateway's sendNewMessage also does its own convert.
+        // To be safe and fulfill the request of having it in the dispatcher, we do it here.
+        // We wrap it in a plain object that gateway expects or modify gateway later.
+        this.widgetGateway.sendNewMessage(
+          ticket.organizationId.toString(),
+          thread.metadata.sessionId,
+          {
+            ...message.toObject(),
+            content: plainContent, // Pass the converted content
+          },
+        );
+        return true;
+      }
+
+      this.logger.warn(
+        `No active session found for widget thread ${message.threadId}`,
+      );
+      return false;
+    } catch (error) {
+      this.logger.error(`Failed to dispatch widget message: ${error.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Dispatch message via generic Webhook
+   */
+  private async dispatchWebhook(
+    message: MessageDocument,
+    ticket: TicketDocument,
+  ): Promise<boolean> {
+    try {
+      this.logger.debug(`Dispatching webhook message for ticket ${ticket._id}`);
+
+      // Convert HTML to plain text
+      const plainContent = convert(message.content, {
+        wordwrap: false,
+      });
+
+      // This is a placeholder for actual webhook logic (e.g. POST to a URL)
+      this.logger.log(
+        `[Webhook Dispatcher] (NOT IMPLEMENTED) Sending message to webhook: ${plainContent.substring(0, 50)}...`,
+      );
+
+      return true;
+    } catch (error) {
+      this.logger.error(`Failed to dispatch webhook message: ${error.message}`);
       return false;
     }
   }

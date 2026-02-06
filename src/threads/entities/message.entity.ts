@@ -7,6 +7,7 @@ export enum MessageChannel {
   SMS = 'sms',
   WHATSAPP = 'whatsapp',
   WIDGET = 'widget',
+  WEBHOOK = 'webhook',
   PLATFORM = 'platform', // Direct platform messaging
 }
 

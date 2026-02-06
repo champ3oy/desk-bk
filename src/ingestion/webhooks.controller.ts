@@ -25,6 +25,7 @@ import {
   MessageChannel,
   MessageType,
 } from '../threads/entities/message.entity';
+import { convert } from 'html-to-text';
 
 import { OrganizationsService } from '../organizations/organizations.service';
 import { CustomersService } from '../customers/customers.service';
@@ -487,7 +488,7 @@ export class WebhooksController implements OnModuleInit {
 
         return {
           id: msg._id.toString(),
-          text: msg.content,
+          text: convert(msg.content, { wordwrap: false }),
           sender: msg.authorType === 'customer' ? 'user' : 'agent',
           authorType: msg.authorType, // Include authorType to differentiate AI vs human agents
           authorName, // Include author name for human agents
