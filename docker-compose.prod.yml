@@ -7,7 +7,7 @@ services:
     env_file:
       - .env.production
     deploy:
-      replicas: 2
+      replicas: 1
       update_config:
         parallelism: 1
         order: start-first
@@ -15,11 +15,11 @@ services:
       restart_policy:
         condition: on-failure
     healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://localhost:${PORT:-3000}/health']
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
+      test: ['CMD', 'curl', '-f', 'http://localhost:3000/api/health']
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     # Required for Playwright/Chromium to work properly (replacing shm_size/ipc which Swarm may ignore)
     volumes:
       - type: tmpfs
