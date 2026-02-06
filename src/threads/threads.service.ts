@@ -16,6 +16,11 @@ import {
   MessageType,
   MessageChannel,
 } from './entities/message.entity';
+import { User, UserDocument } from '../users/entities/user.entity';
+import {
+  Customer,
+  CustomerDocument,
+} from '../customers/entities/customer.entity';
 import { CreateThreadDto } from './dto/create-thread.dto';
 import { CreateMessageDto } from './dto/create-message.dto';
 import { TicketsService } from '../tickets/tickets.service';
@@ -35,6 +40,10 @@ export class ThreadsService {
     private threadModel: Model<ThreadDocument>,
     @InjectModel(Message.name)
     private messageModel: Model<MessageDocument>,
+    @InjectModel(User.name)
+    private userModel: Model<UserDocument>,
+    @InjectModel(Customer.name)
+    private customerModel: Model<CustomerDocument>,
     @Inject(forwardRef(() => TicketsService))
     private ticketsService: TicketsService,
     @Inject(forwardRef(() => CustomersService))
@@ -627,11 +636,61 @@ export class ThreadsService {
       }
     }
 
-    return this.messageModel
+    const messages = await this.messageModel
       .find(query)
-      .populate('authorId')
       .sort({ createdAt: 1 })
+      .lean()
       .exec();
+
+    // Manual population for authorId
+    const userIds = new Set<string>();
+    const customerIds = new Set<string>();
+
+    messages.forEach((msg) => {
+      if (msg.authorType === MessageAuthorType.USER && msg.authorId) {
+        userIds.add(msg.authorId.toString());
+      } else if (
+        msg.authorType === MessageAuthorType.CUSTOMER &&
+        msg.authorId
+      ) {
+        customerIds.add(msg.authorId.toString());
+      }
+    });
+
+    const [users, customers] = await Promise.all([
+      this.userModel
+        .find({ _id: { $in: Array.from(userIds) } })
+        .select('firstName lastName email role')
+        .lean()
+        .exec(),
+      this.customerModel
+        .find({ _id: { $in: Array.from(customerIds) } })
+        .select('firstName lastName email')
+        .lean()
+        .exec(),
+    ]);
+
+    const userMap = new Map(users.map((u) => [u._id.toString(), u]));
+    const customerMap = new Map(customers.map((c) => [c._id.toString(), c]));
+
+    // Attach authors
+    return messages.map((msg: any) => {
+      if (msg.authorType === MessageAuthorType.USER) {
+        msg.authorId = userMap.get(msg.authorId.toString()) || msg.authorId;
+      } else if (msg.authorType === MessageAuthorType.CUSTOMER) {
+        msg.authorId = customerMap.get(msg.authorId.toString()) || msg.authorId;
+      } else if (msg.authorType === MessageAuthorType.AI) {
+        // Mock AI author object
+        msg.authorId = {
+          _id: msg.authorId,
+          firstName: 'AI',
+          lastName: 'Assistant',
+          email: 'ai@system',
+          role: 'ai',
+        };
+      }
+      return msg;
+    });
   }
 
   async markAsRead(

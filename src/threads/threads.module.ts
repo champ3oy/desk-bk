@@ -5,6 +5,11 @@ import { ThreadsService } from './threads.service';
 import { ThreadsController } from './threads.controller';
 import { Thread, ThreadSchema } from './entities/thread.entity';
 import { Message, MessageSchema } from './entities/message.entity';
+import { User, UserSchema } from '../users/entities/user.entity';
+import {
+  Customer,
+  CustomerSchema,
+} from '../customers/entities/customer.entity';
 import { TicketsModule } from '../tickets/tickets.module';
 import { CustomersModule } from '../customers/customers.module';
 import { GroupsModule } from '../groups/groups.module';
@@ -18,6 +23,8 @@ import { UsersModule } from '../users/users.module';
     MongooseModule.forFeature([
       { name: Thread.name, schema: ThreadSchema },
       { name: Message.name, schema: MessageSchema },
+      { name: User.name, schema: UserSchema },
+      { name: Customer.name, schema: CustomerSchema },
     ]),
     forwardRef(() => TicketsModule),
     forwardRef(() => CustomersModule),
