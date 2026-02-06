@@ -1,6 +1,9 @@
 # Use Playwright's official image which includes browser binaries
 FROM mcr.microsoft.com/playwright:v1.58.0-noble
 
+# Install curl for healthcheck
+RUN apt-get update && apt-get install -y curl
+
 WORKDIR /app
 
 # Copy package files

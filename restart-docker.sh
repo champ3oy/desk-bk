@@ -31,29 +31,52 @@ if [ "$ENV" == "dev" ]; then
     echo "Logs: docker compose -p desk-dev -f docker-compose.yml logs -f"
 
 elif [ "$ENV" == "prod" ]; then
-    echo "🔄  Restarting PRODUCTION environment..."
+    echo "🔄  Restarting PRODUCTION environment (Swarm Mode)..."
     echo "---------------------------------------"
     
-    echo "🛑  Stopping containers..."
-    docker compose -p desk-prod -f docker-compose.prod.yml --env-file .env.production down --remove-orphans || true
+    # 0. Ensure Swarm is active
+    if ! docker info | grep -q "Swarm: active"; then
+        echo "⚠️  Swarm not active. Initializing..."
+        docker swarm init
+    fi
+
+    echo "🏗️   Building image..."
+    docker build -t morph-backend:prod -f Dockerfile .
     
-    echo "🏗️   Building and starting containers..."
-    docker compose -p desk-prod -f docker-compose.prod.yml --env-file .env.production up -d --build
+    echo "📄  Generating stack config..."
+    docker compose -f docker-compose.prod.yml --env-file .env.production config > docker-stack.yml
+
+    echo "🚀  Deploying stack..."
+    # Note: We rely on the internal healthchecks and 'update_config' in docker-compose.prod.yml
+    # to handle the zero-downtime rollover.
+    docker stack deploy -c docker-stack.yml desk-prod
+    rm docker-stack.yml
     
-    echo "✅  Production environment started!"
-    echo "Logs: docker compose -p desk-prod -f docker-compose.prod.yml logs -f"
+    echo "✅  Production deployment triggered!"
+    echo "Check status: docker stack services desk-prod"
 
 elif [ "$ENV" == "all" ]; then
     echo "🔄  Restarting BOTH Development and Production environments..."
     echo "---------------------------------------------------------"
     
-    # 1. Restart PROD (Primary)
+    # 1. Restart PROD (Primary) - SWARM
     echo "🔹  Step 1/2: Production Environment"
-    echo "🛑  Stopping Prod containers..."
-    docker compose -p desk-prod -f docker-compose.prod.yml --env-file .env.production down --remove-orphans || true
     
-    echo "🏗️   Starting Prod containers (Port: 3000)..."
-    docker compose -p desk-prod -f docker-compose.prod.yml --env-file .env.production up -d --build
+     # Ensure Swarm is active
+    if ! docker info | grep -q "Swarm: active"; then
+        echo "⚠️  Swarm not active. Initializing..."
+        docker swarm init
+    fi
+
+    echo "🏗️   Building Prod image..."
+    docker build -t morph-backend:prod -f Dockerfile .
+
+    echo "📄  Generating stack config..."
+    docker compose -f docker-compose.prod.yml --env-file .env.production config > docker-stack.yml
+
+    echo "🚀  Deploying Prod stack..."
+    docker stack deploy -c docker-stack.yml desk-prod
+    rm docker-stack.yml
     
     echo ""
     

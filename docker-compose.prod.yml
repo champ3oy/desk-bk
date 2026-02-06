@@ -1,14 +1,25 @@
 services:
   api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: morph-backend-prod
+    image: morph-backend:prod
     ports:
       - '${PORT:-3000}:${PORT:-3000}'
     env_file:
       - .env.production
-    restart: always
-    # Required for Playwright/Chromium to work properly
-    shm_size: '2gb'
-    ipc: host
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        order: start-first
+        failure_action: rollback
+      restart_policy:
+        condition: on-failure
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:${PORT:-3000}/health']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    # Required for Playwright/Chromium to work properly (replacing shm_size/ipc which Swarm may ignore)
+    volumes:
+      - type: tmpfs
+        target: /dev/shm
