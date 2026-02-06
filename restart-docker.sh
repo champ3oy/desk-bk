@@ -44,7 +44,7 @@ elif [ "$ENV" == "prod" ]; then
     docker build -t morph-backend:prod -f Dockerfile .
     
     echo "📄  Generating stack config..."
-    docker compose -f docker-compose.prod.yml --env-file .env.production config > docker-stack.yml
+    docker compose -p desk-prod -f docker-compose.prod.yml --env-file .env.production config > docker-stack.yml
 
     # HACK: Fix docker compose config outputting strings for ports AND top-level 'name' property
     if [ "$(uname)" == "Darwin" ]; then
@@ -81,7 +81,7 @@ elif [ "$ENV" == "all" ]; then
     docker build -t morph-backend:prod -f Dockerfile .
 
     echo "📄  Generating stack config..."
-    docker compose -f docker-compose.prod.yml --env-file .env.production config > docker-stack.yml
+    docker compose -p desk-prod -f docker-compose.prod.yml --env-file .env.production config > docker-stack.yml
 
     # HACK: Fix docker compose config outputting strings for ports AND top-level 'name' property
     if [ "$(uname)" == "Darwin" ]; then
