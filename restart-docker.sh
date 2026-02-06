@@ -46,6 +46,13 @@ elif [ "$ENV" == "prod" ]; then
     echo "📄  Generating stack config..."
     docker compose -f docker-compose.prod.yml --env-file .env.production config > docker-stack.yml
 
+    # HACK: Fix docker compose config outputting strings for ports which breaks stack deploy
+    if [ "$(uname)" == "Darwin" ]; then
+        sed -i '' 's/published: "3000"/published: 3000/g' docker-stack.yml
+    else
+        sed -i 's/published: "3000"/published: 3000/g' docker-stack.yml
+    fi
+
     echo "🚀  Deploying stack..."
     # Note: We rely on the internal healthchecks and 'update_config' in docker-compose.prod.yml
     # to handle the zero-downtime rollover.
@@ -73,6 +80,13 @@ elif [ "$ENV" == "all" ]; then
 
     echo "📄  Generating stack config..."
     docker compose -f docker-compose.prod.yml --env-file .env.production config > docker-stack.yml
+
+    # HACK: Fix docker compose config outputting strings for ports which breaks stack deploy
+    if [ "$(uname)" == "Darwin" ]; then
+        sed -i '' 's/published: "3000"/published: 3000/g' docker-stack.yml
+    else
+        sed -i 's/published: "3000"/published: 3000/g' docker-stack.yml
+    fi
 
     echo "🚀  Deploying Prod stack..."
     docker stack deploy -c docker-stack.yml desk-prod
