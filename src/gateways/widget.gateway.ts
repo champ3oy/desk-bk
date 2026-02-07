@@ -101,8 +101,8 @@ export class WidgetGateway implements OnModuleInit {
     }
 
     ws.on('message', async (message: Buffer) => {
+      const rawData = message.toString();
       try {
-        const rawData = message.toString();
         const parsed = JSON.parse(rawData);
 
         // Protocol: { event: 'message', data: { ... } }
@@ -119,7 +119,9 @@ export class WidgetGateway implements OnModuleInit {
           this.logger.debug(`Received unknown event or format: ${rawData}`);
         }
       } catch (e) {
-        this.logger.error(`Failed to parse WS message: ${e.message}`);
+        this.logger.error(
+          `Failed to parse WS message: ${e.message}. Raw data: ${rawData}`,
+        );
       }
     });
 
@@ -251,6 +253,10 @@ export class WidgetGateway implements OnModuleInit {
         }
       });
       this.logger.debug(`Emitted raw WS message to ${roomName}`);
+    } else {
+      this.logger.warn(
+        `Failed to find active room ${roomName} for message delivery. Room exists: ${!!room}, Size: ${room?.size || 0}`,
+      );
     }
   }
 }

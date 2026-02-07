@@ -390,8 +390,11 @@ export class ThreadsService {
           organizationId,
         );
 
-        // Dispatch based on channel: email needs email, WhatsApp needs phone
+        // Dispatch based on channel: Widget and Webhook always dispatch if active.
+        // Email needs email, WhatsApp needs phone.
         const shouldDispatch =
+          savedMessage.channel === MessageChannel.WIDGET ||
+          savedMessage.channel === MessageChannel.WEBHOOK ||
           customer.email ||
           (savedMessage.channel === MessageChannel.WHATSAPP && customer.phone);
 
@@ -413,7 +416,7 @@ export class ThreadsService {
           await this.dispatcherService.dispatch(
             savedMessage,
             ticket,
-            (customer.email || customer.phone)!, // Use email or phone as recipient identifier
+            (customer.email || customer.phone || '') as string,
             lastMessage?.externalMessageId,
             lastMessage?.externalMessageId, // Simple threading: use last ID as references too
           );

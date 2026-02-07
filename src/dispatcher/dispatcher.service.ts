@@ -321,23 +321,29 @@ export class DispatcherService {
       const thread = await this.threadModel.findById(message.threadId);
 
       if (thread && thread.metadata?.sessionId) {
+        // Extract the organizationId correctly, handling both populated and unpopulated cases
+        const orgId =
+          typeof ticket.organizationId === 'object' &&
+          (ticket.organizationId as any)._id
+            ? (ticket.organizationId as any)._id.toString()
+            : ticket.organizationId.toString();
+
+        this.logger.debug(
+          `Found sessionId ${thread.metadata.sessionId} for room ${orgId}:${thread.metadata.sessionId}`,
+        );
         // We need to pass the "text" version to the gateway
         // But the gateway's sendNewMessage also does its own convert.
         // To be safe and fulfill the request of having it in the dispatcher, we do it here.
         // We wrap it in a plain object that gateway expects or modify gateway later.
-        this.widgetGateway.sendNewMessage(
-          ticket.organizationId.toString(),
-          thread.metadata.sessionId,
-          {
-            ...message.toObject(),
-            content: plainContent, // Pass the converted content
-          },
-        );
+        this.widgetGateway.sendNewMessage(orgId, thread.metadata.sessionId, {
+          ...message.toObject(),
+          content: plainContent, // Pass the converted content
+        });
         return true;
       }
 
       this.logger.warn(
-        `No active session found for widget thread ${message.threadId}`,
+        `No active session found for widget thread ${message.threadId}. Metadata: ${JSON.stringify(thread?.metadata || {})}`,
       );
       return false;
     } catch (error) {
