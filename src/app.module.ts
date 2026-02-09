@@ -32,7 +32,12 @@ import aiConfig from './config/ai.config';
 import jwtConfig from './config/jwt.config';
 
 import { EmailModule } from './email/email.module';
+
 import { StorageModule } from './storage/storage.module';
+import { LoggerModule } from './logger/logger.module';
+import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
+import { LoggingInterceptor } from './logger/logging.interceptor';
+import { AllExceptionsFilter } from './logger/all-exceptions.filter';
 
 @Module({
   imports: [
@@ -78,6 +83,8 @@ import { StorageModule } from './storage/storage.module';
       },
       inject: [ConfigService],
     }),
+
+    LoggerModule,
     CommonModule,
     EmailModule,
     AuthModule,
@@ -100,11 +107,21 @@ import { StorageModule } from './storage/storage.module';
     NotificationsModule,
     MacrosModule,
     AnalyticsModule,
-    AnalyticsModule, // Line 67
+
     StorageModule, // Line 68
     IngestionModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: LoggingInterceptor,
+    },
+    {
+      provide: APP_FILTER,
+      useClass: AllExceptionsFilter,
+    },
+  ],
 })
 export class AppModule {}
