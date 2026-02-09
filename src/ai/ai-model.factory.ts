@@ -50,8 +50,31 @@ export class AIModelFactory {
       modelName = 'gemma3:4b';
     }
 
+    // Check for cached model with rotated key consideration
+    let selectedApiKey: string | undefined;
+    let apiKeyHash = '';
+
+    // Pre-resolve API Key for Google to support rotation
+    if (!provider || provider.toLowerCase() === 'google') {
+      const allKeys = (
+        configService.get<string>('ai.geminiApiKey') ||
+        process.env.GEMINI_API_KEY ||
+        process.env.GOOGLE_API_KEY ||
+        ''
+      ).split(',');
+
+      if (allKeys.length > 1) {
+        // Pick a random key from the list
+        const randomIndex = Math.floor(Math.random() * allKeys.length);
+        selectedApiKey = allKeys[randomIndex].trim();
+        apiKeyHash = `:${randomIndex}`; // Append index to cache key
+      } else if (allKeys.length === 1 && allKeys[0].trim()) {
+        selectedApiKey = allKeys[0].trim();
+      }
+    }
+
     // Check cache first
-    const cacheKey = `${provider}:${modelName}`;
+    const cacheKey = `${provider}:${modelName}${apiKeyHash}`;
     const cachedModel = this.modelCache.get(cacheKey);
     if (cachedModel) {
       this.logger.debug(
@@ -70,7 +93,7 @@ export class AIModelFactory {
     } else if (provider?.toLowerCase() === 'deepseek') {
       model = this.createDeepseekClient(configService, modelName);
     } else {
-      model = this.createGeminiClient(configService, modelName);
+      model = this.createGeminiClient(configService, modelName, selectedApiKey);
     }
 
     // Cache the model instance
@@ -97,6 +120,7 @@ export class AIModelFactory {
       process.env.GOOGLE_API_KEY;
 
     if (googleKey) {
+      // If comma separated, just check if at least one exists
       models.push(
         {
           provider: 'google',
@@ -195,8 +219,10 @@ export class AIModelFactory {
   private static createGeminiClient(
     configService: ConfigService,
     modelName: string,
+    apiKeyOverride?: string,
   ): ChatGoogleGenerativeAI {
     const apiKey =
+      apiKeyOverride ||
       configService.get<string>('ai.geminiApiKey') ||
       process.env.GEMINI_API_KEY ||
       process.env.GOOGLE_API_KEY; // Fallback
@@ -217,19 +243,19 @@ export class AIModelFactory {
       safetySettings: [
         {
           category: 'HARM_CATEGORY_HARASSMENT',
-          threshold: 'BLOCK_ONLY_HIGH',
+          threshold: 'BLOCK_NONE',
         },
         {
           category: 'HARM_CATEGORY_HATE_SPEECH',
-          threshold: 'BLOCK_ONLY_HIGH',
+          threshold: 'BLOCK_NONE',
         },
         {
           category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
-          threshold: 'BLOCK_ONLY_HIGH',
+          threshold: 'BLOCK_NONE',
         },
         {
           category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
-          threshold: 'BLOCK_ONLY_HIGH',
+          threshold: 'BLOCK_NONE',
         },
       ] as any,
     });

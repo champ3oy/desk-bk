@@ -43,12 +43,19 @@ export class WhatsAppParser {
         });
       }
 
+      let content = payload.text || '';
+      if (!content && attachments.length > 0) {
+        content = '[Attachment]';
+      } else if (!content) {
+        content = '[Message]';
+      }
+
       return {
         channel: MessageChannel.WHATSAPP,
         senderPhone: payload.from,
         recipientPhone: payload.to, // This is the display_phone_number
         senderName: payload.fromName,
-        content: payload.text || '',
+        content,
         threadId: payload.originalPayload?.context?.from,
         messageId: payload.id,
         attachments,
@@ -84,12 +91,23 @@ export class WhatsAppParser {
       });
     }
 
+    let content = message?.text?.body || message?.caption || '';
+    if (!content) {
+      if (attachments.length > 0) {
+        content = '[Attachment]';
+      } else if (message?.type) {
+        content = `[${message.type}]`;
+      } else {
+        content = '[Message]';
+      }
+    }
+
     return {
       channel: MessageChannel.WHATSAPP,
       senderPhone,
       recipientPhone,
       senderName: contact?.profile?.name,
-      content: message?.text?.body || message?.caption || '',
+      content,
       threadId: message?.context?.from || value?.conversation?.id,
       messageId: message?.id,
       attachments,
@@ -143,7 +161,7 @@ export class WhatsAppParser {
         payload.text ||
         payload.message ||
         payload.content ||
-        '',
+        '[Message]',
       threadId:
         payload.threadId || payload.conversationId || payload.conversation_id,
       messageId: payload.messageId || payload.id || payload.wa_id,
