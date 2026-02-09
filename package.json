@@ -47,6 +47,7 @@
     "dotenv": "^17.2.3",
     "googleapis": "^167.0.0",
     "html-to-text": "^9.0.5",
+    "ioredis": "^5.9.2",
     "langchain": "^1.1.2",
     "mammoth": "^1.11.0",
     "marked": "^17.0.1",

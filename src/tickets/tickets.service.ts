@@ -38,6 +38,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/entities/notification.entity';
 import { KnowledgeBaseService } from '../ai/knowledge-base.service'; // Import KnowledgeBaseService
 import { UsersService } from '../users/users.service';
+import { RedisLockService } from '../common/services/redis-lock.service';
 
 @Injectable()
 export class TicketsService {
@@ -59,6 +60,7 @@ export class TicketsService {
     private knowledgeBaseService: KnowledgeBaseService,
     @InjectModel(Counter.name)
     private counterModel: Model<CounterDocument>,
+    private redisLockService: RedisLockService,
   ) {}
 
   /**
@@ -275,6 +277,16 @@ Sentiment:`;
       // If no channel is provided (legacy calls), we might default to checking 'email' or just general active state?
       // Given the previous code just checked aiAutoReplyEmail, let's enable strict checks now.
 
+      // Use Redis lock to prevent race conditions for AutoReply of same ticket
+      const lockKey = `autoreply:${ticketId}`;
+      const locked = await this.redisLockService.acquireLock(lockKey, 30); // 30s lock
+      if (!locked) {
+        console.warn(
+          `[AutoReply] Skipped ticket ${ticketId} - Locked by another process`,
+        );
+        return;
+      }
+
       let shouldAutoReply = false;
 
       if (!channel) {
@@ -309,11 +321,15 @@ Sentiment:`;
         console.log(
           `[AutoReply] Skipping auto-reply for ticket ${ticketId}: Auto-reply not enabled for channel '${channel}'`,
         );
+        await this.redisLockService.releaseLock(lockKey); // Release lock
         return;
       }
 
       const ticket = await this.ticketModel.findById(ticketId);
-      if (!ticket) return;
+      if (!ticket) {
+        await this.redisLockService.releaseLock(lockKey); // Release lock
+        return;
+      }
 
       console.log(
         `[AutoReply] Processing ticket ${ticketId}. Channel: ${channel}. Org settings: LiveChat=${org.aiAutoReplyLiveChat} Email=${org.aiAutoReplyEmail}`,
@@ -324,6 +340,7 @@ Sentiment:`;
         console.log(
           `Skipping auto-reply for ticket ${ticketId}: AI auto-reply disabled or already processing`,
         );
+        await this.redisLockService.releaseLock(lockKey);
         return;
       }
 
@@ -335,6 +352,7 @@ Sentiment:`;
         console.log(
           `[AutoReply] Ticket ${ticketId} status prevents AI reply: ${ticket.status}`,
         );
+        await this.redisLockService.releaseLock(lockKey); // Release lock
         return;
       }
 
@@ -500,6 +518,7 @@ Sentiment:`;
             this.configService,
             this.organizationsService,
             this.knowledgeBaseService, // Pass the injected service
+            this.customersService, // Pass customers service for agent context
             customerId,
             UserRole.CUSTOMER,
             organizationId,
@@ -528,7 +547,9 @@ Sentiment:`;
                 {
                   $set: {
                     isAiEscalated: true,
-                    aiEscalationReason: reason,
+                    aiEscalationReason: response.escalationSummary
+                      ? `${reason}\n\nSummary: ${response.escalationSummary}`
+                      : reason,
                     aiConfidenceScore: confidence,
                     aiAutoReplyDisabled: true,
                     // Set status to ESCALATED
@@ -543,8 +564,12 @@ Sentiment:`;
 
             // Notify agents about escalation
             this.notifyAgentsOfEscalation(ticket, reason, organizationId).catch(
-              (err) =>
-                console.error('Failed to notify agents of escalation', err),
+              (err) => {
+                console.error('Failed to notify agents of escalation', err);
+                this.redisLockService
+                  .releaseLock(lockKey)
+                  .catch((err) => console.error('Failed to release lock', err));
+              },
             );
 
             try {
@@ -664,6 +689,9 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
                 `[AutoReply] Failed to process escalation for ticket ${ticketId}`,
                 err,
               );
+              this.redisLockService
+                .releaseLock(lockKey)
+                .catch((e) => console.error(e));
             }
           } else if (response.action === 'REPLY' && response.content) {
             const thread = await this.threadsService.getOrCreateThread(
@@ -736,13 +764,21 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
                 },
               },
             )
-            .catch((e) =>
-              console.error('Failed to clear isAiProcessing flag', e),
-            );
+            .catch((e) => {
+              console.error('Failed to clear isAiProcessing flag', e);
+              // Ensure lock is released even if update fails (though flag update failing is rare)
+              this.redisLockService
+                .releaseLock(lockKey)
+                .catch((err) => console.error('Failed to release lock', err));
+            });
+
+          // Release the lock when done processing
+          await this.redisLockService.releaseLock(lockKey);
         }
       }, 1000);
     } catch (error) {
       console.error('Failed to check auto-reply settings:', error);
+      await this.redisLockService.releaseLock(`autoreply:${ticketId}`);
     }
   }
 

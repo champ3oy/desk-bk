@@ -4,6 +4,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { UsersModule } from './users/users.module';
+import { CommonModule } from './common/common.module';
 import { AuthModule } from './auth/auth.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { CustomersModule } from './customers/customers.module';
@@ -45,6 +46,7 @@ import { StorageModule } from './storage/storage.module';
       }),
       inject: [ConfigService],
     }),
+    CommonModule,
     EmailModule,
     AuthModule,
     UsersModule,

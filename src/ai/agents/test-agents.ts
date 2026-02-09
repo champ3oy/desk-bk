@@ -55,6 +55,7 @@ export async function testResponseAgent(
   configService: ConfigService,
   organizationsService: any,
   knowledgeBaseService: any,
+  customersService: any,
   userId: string,
   userRole: UserRole,
   organizationId: string,
@@ -70,6 +71,7 @@ export async function testResponseAgent(
       configService,
       organizationsService,
       knowledgeBaseService,
+      customersService,
       userId,
       userRole,
       organizationId,
@@ -162,6 +164,7 @@ export async function testBothAgents(
     configService,
     null, // organizationsService - pass actual service if available
     null, // knowledgeBaseService - pass actual service if available
+    null, // customersService
     userId,
     userRole,
     organizationId,
