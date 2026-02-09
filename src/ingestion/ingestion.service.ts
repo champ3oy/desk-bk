@@ -623,6 +623,7 @@ export class IngestionService {
       },
       organizationId,
       channelName, // Pass channel for correct auto-reply routing
+      message.integrationId, // Pass integrationId for default agent assignment
     )) as TicketDocument;
 
     this.logger.debug(

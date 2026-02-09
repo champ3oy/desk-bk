@@ -1,5 +1,6 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
+import { EmailIntegrationModule } from '../integrations/email/email-integration.module';
 import { IngestionService } from './ingestion.service';
 import { WebhooksController } from './webhooks.controller';
 import { EmailParser } from './parsers/email.parser';
@@ -47,6 +48,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     UsersModule,
 
     SocialIntegrationModule,
+    forwardRef(() => EmailIntegrationModule),
     NotificationsModule,
   ],
   controllers: [WebhooksController],

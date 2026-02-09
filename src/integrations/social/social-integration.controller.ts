@@ -24,6 +24,7 @@ import {
   ExchangeInstagramCodeDto,
 } from './dto/social-integration.dto';
 import { SocialProvider } from './entities/social-integration.entity';
+import { UpdateDefaultAgentDto } from '../common/dto/update-default-agent.dto';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
@@ -208,5 +209,20 @@ export class SocialIntegrationController {
   async deleteIntegration(@Param('id') id: string, @Request() req) {
     await this.socialIntegrationService.remove(id, req.user.organizationId);
     return { success: true, message: 'Integration deleted' };
+  }
+
+  @Patch(':id/default-agent')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Update default agent for integration' })
+  async setDefaultAgent(
+    @Param('id') id: string,
+    @Body() dto: UpdateDefaultAgentDto,
+    @Request() req,
+  ) {
+    return this.socialIntegrationService.setDefaultAgent(
+      id,
+      req.user.organizationId,
+      dto.defaultAgentId ?? null,
+    );
   }
 }

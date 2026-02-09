@@ -1,6 +1,8 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+
 export type SocialIntegrationDocument = SocialIntegration & Document;
 
 export enum SocialProvider {
@@ -80,8 +82,13 @@ export class SocialIntegration {
   isActive: boolean;
 
   // Metadata
+  @ApiPropertyOptional({ description: 'Metadata' })
   @Prop({ type: Object })
   metadata?: Record<string, any>;
+
+  @ApiPropertyOptional({ description: 'Default agent ID for auto-assignment' })
+  @Prop({ type: Types.ObjectId, ref: 'User', required: false })
+  defaultAgentId?: Types.ObjectId;
 }
 
 export const SocialIntegrationSchema =

@@ -310,6 +310,13 @@ export class EmailIntegrationService {
   }
 
   /**
+   * Get integration by ID
+   */
+  async findById(id: string): Promise<EmailIntegrationDocument | null> {
+    return this.emailIntegrationModel.findById(id).exec();
+  }
+
+  /**
    * Get all active integrations for system polling
    */
   async findAllActiveSystem(): Promise<EmailIntegrationDocument[]> {
@@ -654,5 +661,28 @@ export class EmailIntegrationService {
     this.logger.log(
       `Removed email integration ${id} for org ${organizationId}`,
     );
+  }
+
+  /**
+   * Update default agent for an integration
+   */
+  async setDefaultAgent(
+    id: string,
+    organizationId: string,
+    agentId: string | null,
+  ): Promise<EmailIntegration> {
+    const integration = await this.emailIntegrationModel.findOne({
+      _id: new Types.ObjectId(id),
+      organizationId: new Types.ObjectId(organizationId),
+    });
+
+    if (!integration) {
+      throw new NotFoundException('Integration not found');
+    }
+
+    integration.defaultAgentId = agentId
+      ? new Types.ObjectId(agentId)
+      : (undefined as any);
+    return await integration.save();
   }
 }

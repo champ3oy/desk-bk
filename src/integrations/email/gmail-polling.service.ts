@@ -112,6 +112,7 @@ export class GmailPollingService {
           fullMsg.data,
           integration.email,
           gmail,
+          integration,
         );
 
         this.logger.debug(
@@ -191,6 +192,7 @@ export class GmailPollingService {
     gmailMsg: any,
     connectedEmail: string,
     gmail: any,
+    integration: any,
   ): Promise<IncomingMessageDto> {
     const headers = gmailMsg.payload.headers;
 
@@ -433,6 +435,9 @@ export class GmailPollingService {
         labelIds: gmailMsg.labelIds,
       },
       attachments: attachments,
+      integrationId: integration['_id']
+        ? integration['_id'].toString()
+        : undefined,
     };
   }
 }

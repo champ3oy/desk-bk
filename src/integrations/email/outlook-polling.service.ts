@@ -154,6 +154,7 @@ export class OutlookPollingService {
             msg,
             integration.email,
             client,
+            integration,
           );
 
           // Ingest with organizationId from the integration
@@ -190,6 +191,7 @@ export class OutlookPollingService {
     msg: any,
     connectedEmail: string,
     client: any,
+    integration: any,
   ): Promise<IncomingMessageDto> {
     // Extract sender information with multiple fallbacks
     let fromEmail = '';
@@ -419,6 +421,9 @@ export class OutlookPollingService {
         receivedDateTime: msg.receivedDateTime,
       },
       attachments: attachments,
+      integrationId: integration['_id']
+        ? integration['_id'].toString()
+        : undefined,
     };
 
     this.logger.debug(

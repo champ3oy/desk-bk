@@ -1,3 +1,4 @@
+import { IsString, IsOptional } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { MessageChannel } from '../../threads/entities/message.entity';
 
@@ -87,6 +88,13 @@ export class IncomingMessageDto {
     example: 'thread-123',
   })
   threadId?: string;
+
+  @ApiPropertyOptional({
+    description: 'ID of the integration (email/social) this message belongs to',
+  })
+  @IsString()
+  @IsOptional()
+  integrationId?: string;
 
   @ApiPropertyOptional({
     description: 'Provider-specific metadata',

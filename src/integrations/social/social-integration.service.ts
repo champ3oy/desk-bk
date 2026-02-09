@@ -719,4 +719,27 @@ export class SocialIntegrationService {
 
     return integration;
   }
+
+  /**
+   * Update default agent for an integration
+   */
+  async setDefaultAgent(
+    id: string,
+    organizationId: string,
+    agentId: string | null,
+  ): Promise<SocialIntegration> {
+    const integration = await this.socialIntegrationModel.findOne({
+      _id: new Types.ObjectId(id),
+      organizationId: new Types.ObjectId(organizationId),
+    });
+
+    if (!integration) {
+      throw new NotFoundException('Integration not found');
+    }
+
+    integration.defaultAgentId = agentId
+      ? new Types.ObjectId(agentId)
+      : (undefined as any);
+    return await integration.save();
+  }
 }

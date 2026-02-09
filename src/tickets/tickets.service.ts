@@ -9,6 +9,8 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { ConfigService } from '@nestjs/config';
 import { Model, Types } from 'mongoose';
+import { EmailIntegrationService } from '../integrations/email/email-integration.service';
+import { SocialIntegrationService } from '../integrations/social/social-integration.service';
 import {
   Ticket,
   TicketDocument,
@@ -64,6 +66,10 @@ export class TicketsService {
     private counterModel: Model<CounterDocument>,
     private redisLockService: RedisLockService,
     @InjectQueue('ai-reply') private aiReplyQueue: Queue,
+    @Inject(forwardRef(() => EmailIntegrationService))
+    private emailIntegrationService: EmailIntegrationService,
+    @Inject(forwardRef(() => SocialIntegrationService))
+    private socialIntegrationService: SocialIntegrationService,
   ) {}
 
   /**
@@ -561,11 +567,11 @@ Sentiment:`;
       );
     }
   }
-
   async create(
     createTicketDto: CreateTicketDto,
     organizationId: string,
     channel?: string, // Optional: 'email' | 'widget' | 'whatsapp' | 'sms' - defaults to 'email'
+    integrationId?: string,
   ): Promise<Ticket> {
     const ticketData: any = {
       ...createTicketDto,
@@ -579,17 +585,74 @@ Sentiment:`;
         createTicketDto.assignedToId,
       );
     } else {
-      // Auto-assign to default agent if no assignee specified
+      // Auto-assign check order:
+      // 1. Channel-specific default agent (if integrationId provided)
+      // 2. Organization-level default agent
+
+      let defaultAgentApplied = false;
+
+      if (integrationId) {
+        // Try to find default agent for the specific integration
+        let integration: any = null;
+        try {
+          // Check Email integrations first
+          integration = await this.emailIntegrationService.findByEmail(
+            integrationId, // Note: findByEmail is used for email Lookups, but here we might have ID
+          );
+
+          // Wait, the ingestion service passes integrationId which is likely the _id.
+          // Let's check EmailIntegrationService for findById.
+          // It doesn't have it explicitly but we can use emailIntegrationModel.
+        } catch (e) {}
+
+        // Re-thinking: IngestionService passes message.integrationId.
+        // Let's make sure we can find the integration by ID.
+      }
+
       const organization =
         await this.organizationsService.findOne(organizationId);
-      if (organization?.defaultAgentId) {
+
+      // Check for integration-specific default agent first
+      if (integrationId) {
+        let channelDefaultAgentId: string | undefined;
+
+        // Try Email Integration
+        try {
+          const emailIntegration =
+            await this.emailIntegrationService.findById(integrationId);
+          if (emailIntegration?.defaultAgentId) {
+            channelDefaultAgentId = emailIntegration.defaultAgentId.toString();
+          }
+        } catch (e) {
+          // If not email, try Social
+          try {
+            const socialIntegration =
+              await this.socialIntegrationService.findById(integrationId);
+            if (socialIntegration?.defaultAgentId) {
+              channelDefaultAgentId =
+                socialIntegration.defaultAgentId.toString();
+            }
+          } catch (e2) {}
+        }
+
+        if (channelDefaultAgentId) {
+          ticketData.assignedToId = new Types.ObjectId(channelDefaultAgentId);
+          defaultAgentApplied = true;
+          console.log(
+            `[TicketsService] Integration-specific auto-assign. OrgId: ${organizationId}, IntegrationId: ${integrationId}, Agent: ${channelDefaultAgentId}`,
+          );
+        }
+      }
+
+      // Fallback to Org Default if not assigned yet
+      if (!defaultAgentApplied && organization?.defaultAgentId) {
         ticketData.assignedToId = new Types.ObjectId(
           organization.defaultAgentId,
         );
+        console.log(
+          `[TicketsService] Org-level auto-assign. OrgId: ${organizationId}, DefaultAgent: ${organization?.defaultAgentId}`,
+        );
       }
-      console.log(
-        `[TicketsService] Auto-assign check. OrgId: ${organizationId}, DefaultAgent: ${organization?.defaultAgentId}, Assigned: ${!!ticketData.assignedToId}`,
-      );
     }
 
     if (createTicketDto.assignedToGroupId) {

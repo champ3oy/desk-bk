@@ -16,6 +16,8 @@ import { ThreadsModule } from '../threads/threads.module';
 import { OrganizationsModule } from '../organizations/organizations.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { UsersModule } from '../users/users.module';
+import { EmailIntegrationModule } from '../integrations/email/email-integration.module';
+import { SocialIntegrationModule } from '../integrations/social/social-integration.module';
 
 @Module({
   imports: [
@@ -30,6 +32,8 @@ import { UsersModule } from '../users/users.module';
     forwardRef(() => ThreadsModule),
     NotificationsModule,
     UsersModule,
+    forwardRef(() => EmailIntegrationModule),
+    forwardRef(() => SocialIntegrationModule),
     forwardRef(() => AiModule), // Add AiModule for KnowledgeBaseService
     BullModule.registerQueue({
       name: 'ai-reply',

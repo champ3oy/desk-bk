@@ -27,6 +27,7 @@ import {
 } from './dto/connect-email.dto';
 import { EmailIntegrationService } from './email-integration.service';
 import { EmailProvider } from './entities/email-integration.entity';
+import { UpdateDefaultAgentDto } from '../common/dto/update-default-agent.dto';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
@@ -149,5 +150,20 @@ export class EmailIntegrationController {
   @ApiOperation({ summary: 'Remove email integration' })
   async remove(@Param('id') id: string, @Request() req) {
     return this.emailIntegrationService.remove(id, req.user.organizationId);
+  }
+
+  @Patch(':id/default-agent')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Update default agent for integration' })
+  async setDefaultAgent(
+    @Param('id') id: string,
+    @Body() dto: UpdateDefaultAgentDto,
+    @Request() req,
+  ) {
+    return this.emailIntegrationService.setDefaultAgent(
+      id,
+      req.user.organizationId,
+      dto.defaultAgentId ?? null,
+    );
   }
 }

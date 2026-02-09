@@ -1,6 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export type EmailIntegrationDocument = EmailIntegration & Document;
 
@@ -67,6 +67,10 @@ export class EmailIntegration {
 
   @Prop({ required: false })
   lastSyncedAt?: Date;
+
+  @ApiPropertyOptional({ description: 'Default agent ID for auto-assignment' })
+  @Prop({ type: Types.ObjectId, ref: 'User', required: false })
+  defaultAgentId?: Types.ObjectId;
 }
 
 export const EmailIntegrationSchema =
