@@ -14,6 +14,11 @@ import { LocalAuthGuard } from './guards/local-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CreateUserDto } from '../users/dto/create-user.dto';
 import { UsersService } from '../users/users.service';
+import {
+  ForgotPasswordDto,
+  VerifyOtpDto,
+  ResetPasswordDto,
+} from './dto/password-reset.dto';
 import { UserRole, UserResponseDto } from '../users/entities/user.entity';
 
 @ApiTags('Auth')
@@ -90,5 +95,29 @@ export class AuthController {
   @ApiUnauthorizedResponse({ description: 'Invalid refresh token' })
   async refresh(@Body() refreshTokenDto: RefreshTokenDto) {
     return this.authService.refreshToken(refreshTokenDto.refresh_token);
+  }
+
+  @Post('forgot-password')
+  @ApiOperation({ summary: 'Request password reset OTP' })
+  @ApiBody({ type: ForgotPasswordDto })
+  @ApiResponse({ status: 200, description: 'OTP sent if user exists' })
+  async forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(forgotPasswordDto);
+  }
+
+  @Post('verify-otp')
+  @ApiOperation({ summary: 'Verify password reset OTP' })
+  @ApiBody({ type: VerifyOtpDto })
+  @ApiResponse({ status: 200, description: 'OTP verification result' })
+  async verifyOtp(@Body() verifyOtpDto: VerifyOtpDto) {
+    return this.authService.verifyOtp(verifyOtpDto);
+  }
+
+  @Post('reset-password')
+  @ApiOperation({ summary: 'Reset password using OTP' })
+  @ApiBody({ type: ResetPasswordDto })
+  @ApiResponse({ status: 200, description: 'Password reset successful' })
+  async resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
+    return this.authService.resetPassword(resetPasswordDto);
   }
 }

@@ -362,4 +362,59 @@ export class UsersService {
       })
       .exec();
   }
+
+  async setOTP(email: string, otp: string, expires: Date): Promise<void> {
+    // Find any user with this email (might be in multiple orgs, but shared account)
+    const user = await this.userModel.findOne({ email }).exec();
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    await this.userModel.updateMany(
+      { email },
+      {
+        resetPasswordOTP: otp,
+        resetPasswordOTPExpires: expires,
+      },
+    );
+  }
+
+  async verifyOTP(email: string, otp: string): Promise<boolean> {
+    const user = await this.userModel
+      .findOne({
+        email,
+        resetPasswordOTP: otp,
+        resetPasswordOTPExpires: { $gt: new Date() },
+      })
+      .exec();
+    return !!user;
+  }
+
+  async resetPassword(
+    email: string,
+    otp: string,
+    newPasswordRaw: string,
+  ): Promise<void> {
+    const user = await this.userModel
+      .findOne({
+        email,
+        resetPasswordOTP: otp,
+        resetPasswordOTPExpires: { $gt: new Date() },
+      })
+      .exec();
+
+    if (!user) {
+      throw new Error('Invalid or expired OTP');
+    }
+
+    const hashedPassword = await bcrypt.hash(newPasswordRaw, 10);
+
+    // Update all user instances with this email
+    await this.userModel.updateMany(
+      { email },
+      {
+        password: hashedPassword,
+        $unset: { resetPasswordOTP: 1, resetPasswordOTPExpires: 1 },
+      },
+    );
+  }
 }

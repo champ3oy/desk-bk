@@ -210,6 +210,12 @@ export class User {
   })
   @Prop({ select: false }) // Do not return by default
   twoFactorSecret?: string;
+
+  @Prop({ select: false })
+  resetPasswordOTP?: string;
+
+  @Prop({ select: false })
+  resetPasswordOTPExpires?: Date;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

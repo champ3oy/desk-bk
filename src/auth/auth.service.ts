@@ -5,6 +5,12 @@ import { UsersService } from '../users/users.service';
 import { SessionsService } from '../sessions/sessions.service';
 import * as bcrypt from 'bcrypt';
 import { LoginDto } from './dto/login.dto';
+import { EmailService } from '../email/email.service';
+import {
+  ForgotPasswordDto,
+  VerifyOtpDto,
+  ResetPasswordDto,
+} from './dto/password-reset.dto';
 
 @Injectable()
 export class AuthService {
@@ -13,6 +19,7 @@ export class AuthService {
     private jwtService: JwtService,
     private configService: ConfigService,
     private sessionsService: SessionsService,
+    private emailService: EmailService,
   ) {}
 
   async validateUser(
@@ -124,5 +131,33 @@ export class AuthService {
       organizationId,
       sessionId,
     };
+  }
+
+  async forgotPassword(forgotPasswordDto: ForgotPasswordDto): Promise<void> {
+    const { email } = forgotPasswordDto;
+    const user = await this.usersService.findByEmail(email);
+    if (!user) {
+      // Don't leak user existence? Actually for internal apps it's fine.
+      // But lets be generic.
+      return;
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    await this.usersService.setOTP(email, otp, expires);
+    await this.emailService.sendPasswordResetOTP(email, otp);
+  }
+
+  async verifyOtp(verifyOtpDto: VerifyOtpDto): Promise<{ success: boolean }> {
+    const { email, otp } = verifyOtpDto;
+    const isValid = await this.usersService.verifyOTP(email, otp);
+    return { success: isValid };
+  }
+
+  async resetPassword(resetPasswordDto: ResetPasswordDto): Promise<void> {
+    const { email, otp, newPassword } = resetPasswordDto;
+    // resetPassword in usersService handles hashing
+    await this.usersService.resetPassword(email, otp, newPassword);
   }
 }

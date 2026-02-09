@@ -32,11 +32,6 @@ export class EmailService {
     const { to, inviteLink, organizationName, inviterName } = props;
 
     try {
-      if (!this.resend.apiKeys) {
-        // Simple check if client is ready, though Resend constructor doesn't throw immediately usually
-        // actually Resend throws on send if no key.
-      }
-
       const subject = `You've been invited to join ${organizationName} on Morpheus Desk`;
 
       const html = `
@@ -78,8 +73,6 @@ export class EmailService {
         </html>
       `;
 
-      // const { data, error } = await this.resend.emails.send({ ... }); // newer resend SDK returns object
-      // Let's use standard try/catch
       const response = await this.resend.emails.send({
         from: this.fromEmail,
         to: [to],
@@ -100,7 +93,60 @@ export class EmailService {
       );
     } catch (error) {
       this.logger.error(`Failed to send invitation email to ${to}`, error);
-      // We should probably rethrow if it's a critical failure, or at least ensure the caller knows.
+    }
+  }
+
+  async sendPasswordResetOTP(to: string, otp: string): Promise<void> {
+    try {
+      const subject = `Password Reset OTP - Morpheus Desk`;
+      const html = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <style>
+              body { font-family: 'Inter', sans-serif; background-color: #f4f4f5; padding: 20px; }
+              .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 8px; padding: 40px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
+              .otp-box { background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 20px; text-align: center; font-size: 32px; font-weight: 700; letter-spacing: 4px; color: #0891b2; margin: 24px 0; }
+              .footer { margin-top: 30px; font-size: 12px; color: #71717a; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <h2>Reset Your Password</h2>
+              <p>You requested a password reset for your Morpheus Desk account. Use the following code to continue:</p>
+              
+              <div class="otp-box">${otp}</div>
+              
+              <p>This code will expire in 10 minutes. If you did not request this, please ignore this email.</p>
+              
+              <div class="footer">
+                <p>&copy; ${new Date().getFullYear()} Morpheus Technologies. All rights reserved.</p>
+              </div>
+            </div>
+          </body>
+        </html>
+      `;
+
+      const response = await this.resend.emails.send({
+        from: this.fromEmail,
+        to: [to],
+        subject,
+        html,
+      });
+
+      if (response.error) {
+        this.logger.error(
+          `Failed to send password reset OTP to ${to}: ${response.error.message}`,
+        );
+        throw new Error(`Email sending failed: ${response.error.message}`);
+      }
+
+      this.logger.log(
+        `Password reset OTP sent to ${to}. ID: ${response.data?.id}`,
+      );
+    } catch (error) {
+      this.logger.error(`Failed to send password reset OTP to ${to}`, error);
+      throw error;
     }
   }
 }
