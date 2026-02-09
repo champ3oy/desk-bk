@@ -769,6 +769,7 @@ Sentiment:`;
       status,
       priority,
       assignedToId: filterAssignedToId,
+      assignedToGroupId,
       customerId,
       sentiment,
     } = paginationDto;
@@ -797,6 +798,12 @@ Sentiment:`;
     if (filterAssignedToId) {
       query.assignedToId = new Types.ObjectId(filterAssignedToId);
     }
+    if (assignedToGroupId) {
+      const groupList = assignedToGroupId.split(',');
+      const groupIds = groupList.map((id) => new Types.ObjectId(id));
+      query.assignedToGroupId =
+        groupIds.length > 1 ? { $in: groupIds } : groupIds[0];
+    }
     if (customerId) {
       query.customerId = new Types.ObjectId(customerId);
     }
@@ -813,7 +820,14 @@ Sentiment:`;
       const searchConditions: any[] = [
         { subject: searchRegex },
         { description: searchRegex },
+        { displayId: searchRegex },
       ];
+
+      // Check if search term is a number (for ticketNumber)
+      const searchNumber = Number(paginationDto.search);
+      if (!isNaN(searchNumber)) {
+        searchConditions.push({ ticketNumber: searchNumber });
+      }
 
       if (matchingCustomerIds.length > 0) {
         searchConditions.push({ customerId: { $in: matchingCustomerIds } });

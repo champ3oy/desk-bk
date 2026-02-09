@@ -18,6 +18,11 @@ export class TicketPaginationDto extends PaginationDto {
   @IsMongoId()
   assignedToId?: string;
 
+  @ApiPropertyOptional({ description: 'Filter by assigned group' })
+  @IsOptional()
+  @IsString()
+  assignedToGroupId?: string;
+
   @ApiPropertyOptional({ description: 'Filter by customer ID' })
   @IsOptional()
   @IsMongoId()
