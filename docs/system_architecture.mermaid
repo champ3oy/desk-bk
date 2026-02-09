@@ -1,0 +1,82 @@
+---
+config:
+  layout: dagre
+---
+flowchart TB
+ subgraph subGraph0["API Layer (NestJS Controllers)"]
+        AuthController["Auth Controller"]
+        TicketController["Tickets Controller"]
+        WebhookController["Webhooks Controller"]
+        UserController["Users Controller"]
+  end
+ subgraph subGraph1["Service Layer"]
+        AuthService["Auth Service"]
+        IngestService["Ingestion Service"]
+        TicketService["Tickets Service"]
+        ThreadService["Threads Service"]
+        UserService["Users Service"]
+        OrgService["Organizations Service"]
+        NotifService["Notifications Service"]
+  end
+ subgraph subGraph2["AI Module"]
+        AIService["AI Service"]
+        KBService["Knowledge Base Service"]
+        AgentFactory["AI Agent Factory"]
+  end
+ subgraph subGraph3["Async / Queue Layer (BullMQ)"]
+        IngestQueue["Queue: email-ingestion"]
+        AIQueue["Queue: ai-reply"]
+        IngestProc["Email Ingestion Processor"]
+        AIProc["AI Reply Processor"]
+  end
+ subgraph subGraph4["Data Persistence"]
+        MongoDB[("MongoDB")]
+        Redis[("Redis")]
+  end
+ subgraph subGraph5["External Integrations"]
+        OpenAI["LLM Provider OpenAI/Anthropic"]
+        EmailPro["Email Providers Gmail/Outlook"]
+        Twilio["SMS / WhatsApp Provider"]
+  end
+    Client["Web / Mobile Client"] --> AuthController & TicketController
+    Widget["Chat Widget"] --> WebhookController
+    ExtSources["Email / SMS / WhatsApp"] --> WebhookController
+    AuthController --> AuthService
+    TicketController --> TicketService
+    WebhookController --> IngestService
+    UserController --> UserService
+    IngestService -- Parses Payload --> IngestService
+    IngestService -- Resolves Customer/Org --> OrgService
+    IngestService -- Creates Ticket --> TicketService
+    IngestService -- Push Job --> IngestQueue
+    IngestQueue --> IngestProc
+    IngestProc --> TicketService
+    TicketService -- Analyze Mood/Subject --> AIService
+    TicketService -- "Push Auto-Reply Job" --> AIQueue
+    AIQueue --> AIProc
+    AIProc -- Generate Reply --> AgentFactory
+    AgentFactory -- Call LLM --> OpenAI
+    AgentFactory -- RAG Context --> KBService
+    AuthService --> MongoDB
+    IngestService --> Redis & EmailPro & Twilio
+    TicketService --> NotifService
+    NotifService --> Client
+
+     AuthService:::service
+     IngestService:::service
+     TicketService:::service
+     ThreadService:::service
+     AIService:::service
+     IngestQueue:::queue
+     AIQueue:::queue
+     IngestProc:::queue
+     AIProc:::queue
+     MongoDB:::storage
+     Redis:::storage
+     OpenAI:::external
+     EmailPro:::external
+     Twilio:::external
+    classDef service fill:#f9f,stroke:#333,stroke-width:2px
+    classDef storage fill:#ff9,stroke:#333,stroke-width:2px
+    classDef external fill:#9cf,stroke:#333,stroke-width:2px
+    classDef queue fill:#fca,stroke:#333,stroke-width:2px
