@@ -13,6 +13,9 @@ import { StorageService } from '../../storage/storage.service';
 
 import { ConfigService } from '@nestjs/config';
 
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
+
 @Injectable()
 export class OutlookPollingService {
   private readonly logger = new Logger(OutlookPollingService.name);
@@ -24,6 +27,7 @@ export class OutlookPollingService {
     private ingestionService: IngestionService,
     private storageService: StorageService,
     private configService: ConfigService,
+    @InjectQueue('email-ingestion') private emailQueue: Queue,
   ) {}
 
   /**
@@ -84,7 +88,7 @@ export class OutlookPollingService {
       `Starting manual sync for ${integration.email} looking back ${days} days (>= ${queryDate})...`,
     );
 
-    await this.fetchMessages(integration, queryDate);
+    await this.fetchMessagesAndQueue(integration, queryDate);
 
     this.logger.log(`Manual sync completed for ${integration.email}`);
   }
@@ -106,14 +110,14 @@ export class OutlookPollingService {
     // Capture the time BEFORE functionality to update lastSyncedAt safely
     const newSyncTime = new Date();
 
-    await this.fetchMessages(integration, queryDate);
+    await this.fetchMessagesAndQueue(integration, queryDate);
 
     // Update lastSyncedAt
     integration.lastSyncedAt = newSyncTime;
     await integration.save();
   }
 
-  private async fetchMessages(integration: any, dateIsoString: string) {
+  private async fetchMessagesAndQueue(integration: any, dateIsoString: string) {
     const { client } = await this.emailIntegrationService.getOutlookClient(
       integration.email,
     );
@@ -123,9 +127,6 @@ export class OutlookPollingService {
     // Also order by receivedDateTime desc
 
     let url = `/me/messages?$filter=receivedDateTime ge ${dateIsoString} and from/emailAddress/address ne '${integration.email}'&$orderby=receivedDateTime desc&$top=50&$select=id,receivedDateTime,from,toRecipients,subject,body,internetMessageHeaders,conversationId,isRead`;
-
-    // Handle pagination? For now fetch top 50. In a real loop we should follow @odata.nextLink
-    // Let's implement basic pagination loop
 
     let hasNext = true;
     let pageCount = 0;
@@ -149,33 +150,11 @@ export class OutlookPollingService {
       const messagesToProcess = [...messages].reverse();
 
       for (const msg of messagesToProcess) {
-        try {
-          const mappedMessage = await this.mapOutlookMessageToDto(
-            msg,
-            integration.email,
-            client,
-            integration,
-          );
-
-          // Ingest with organizationId from the integration
-          const result = await this.ingestionService.ingestWithOrganization(
-            mappedMessage,
-            'outlook-polling',
-            MessageChannel.EMAIL,
-            integration.organizationId.toString(),
-          );
-
-          if (result.success) {
-            this.logger.debug(
-              `Ingested Outlook message ${mappedMessage.messageId}`,
-            );
-          }
-          // We ignore duplicates gracefully usually
-        } catch (err) {
-          this.logger.error(
-            `Error processing Outlook message ${msg.id}: ${err.message}`,
-          );
-        }
+        await this.emailQueue.add('outlook-job', {
+          integrationId: integration._id,
+          messageId: msg.id,
+          provider: 'outlook',
+        });
       }
 
       if (response['@odata.nextLink']) {
@@ -184,6 +163,62 @@ export class OutlookPollingService {
       } else {
         hasNext = false;
       }
+    }
+  }
+
+  /**
+   * Public method called by worker to process a single message
+   */
+  async processSingleMessage(integrationId: string, messageId: string) {
+    try {
+      const integration =
+        await this.emailIntegrationService.findById(integrationId);
+      if (!integration) {
+        this.logger.error(
+          `Integration ${integrationId} not found during processing`,
+        );
+        return;
+      }
+
+      const { client } = await this.emailIntegrationService.getOutlookClient(
+        integration.email,
+      );
+
+      // Fetch full message details
+      // We need same fields as listing or just all relevant ones
+      // $select is good practice to avoid over-fetching
+      const msg = await client
+        .api(`/me/messages/${messageId}`)
+        .select(
+          'id,receivedDateTime,from,toRecipients,subject,body,internetMessageHeaders,conversationId,isRead,sender',
+        )
+        .get();
+
+      const mappedMessage = await this.mapOutlookMessageToDto(
+        msg,
+        integration.email,
+        client,
+        integration,
+      );
+
+      // Ingest with organizationId from the integration
+      const result = await this.ingestionService.ingestWithOrganization(
+        mappedMessage,
+        'outlook-polling',
+        MessageChannel.EMAIL,
+        integration.organizationId.toString(),
+      );
+
+      if (result.success) {
+        this.logger.debug(
+          `Ingested Outlook message ${mappedMessage.messageId}`,
+        );
+      }
+    } catch (err) {
+      this.logger.error(
+        `Error processing Outlook message ${messageId}: ${err.message}`,
+      );
+      throw err;
     }
   }
 

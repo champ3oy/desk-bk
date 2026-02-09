@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
+import { BullModule } from '@nestjs/bullmq';
 import { EmailIntegrationController } from './email-integration.controller';
 import { EmailIntegrationService } from './email-integration.service';
 import { GmailPollingService } from './gmail-polling.service';
@@ -22,9 +23,20 @@ import {
     ScheduleModule.forRoot(),
     forwardRef(() => IngestionModule),
     OrganizationsModule,
+    BullModule.registerQueue({
+      name: 'email-ingestion',
+    }),
   ],
   controllers: [EmailIntegrationController],
-  providers: [EmailIntegrationService, GmailPollingService, OutlookPollingService],
-  exports: [EmailIntegrationService],
+  providers: [
+    EmailIntegrationService,
+    GmailPollingService,
+    OutlookPollingService,
+  ],
+  exports: [
+    EmailIntegrationService,
+    GmailPollingService,
+    OutlookPollingService,
+  ],
 })
 export class EmailIntegrationModule {}

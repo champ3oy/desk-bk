@@ -1,5 +1,6 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
+import { BullModule } from '@nestjs/bullmq';
 import { EmailIntegrationModule } from '../integrations/email/email-integration.module';
 import { IngestionService } from './ingestion.service';
 import { WebhooksController } from './webhooks.controller';
@@ -30,6 +31,7 @@ import { AttachmentsModule } from '../attachments/attachments.module';
 
 import { SocialIntegrationModule } from '../integrations/social/social-integration.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { EmailIngestionProcessor } from './email-ingestion.processor';
 
 @Module({
   imports: [
@@ -50,6 +52,9 @@ import { NotificationsModule } from '../notifications/notifications.module';
     SocialIntegrationModule,
     forwardRef(() => EmailIntegrationModule),
     NotificationsModule,
+    BullModule.registerQueue({
+      name: 'email-ingestion',
+    }),
   ],
   controllers: [WebhooksController],
   providers: [
@@ -64,6 +69,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     PendingReviewService,
     MessageQueueService,
     KnowledgeBaseService,
+    EmailIngestionProcessor,
   ],
   exports: [IngestionService, PendingReviewService, MessageQueueService],
 })

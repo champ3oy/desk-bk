@@ -1,5 +1,7 @@
 import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { convert } from 'html-to-text';
 import { EmailIntegrationService } from './email-integration.service';
 import { IngestionService } from '../../ingestion/ingestion.service';
@@ -21,6 +23,7 @@ export class GmailPollingService {
     private ingestionService: IngestionService,
     private storageService: StorageService,
     private configService: ConfigService,
+    @InjectQueue('email-ingestion') private emailQueue: Queue,
   ) {}
 
   /**
@@ -40,14 +43,10 @@ export class GmailPollingService {
 
     this.isPolling = true;
     try {
-      this.logger.log('Starting email polling...');
-      // 1. Get all active integrations
-      // Note: We need a way to get ALL active integrations across organizations for the system job
-      // We'll add a findAllActive method to the service
+      this.logger.log('Starting email polling (Queue Mode)...');
       const integrations =
         await this.emailIntegrationService.findAllActiveSystem();
 
-      // Filter to only Gmail integrations
       const gmailIntegrations = integrations.filter(
         (i) => i.provider === 'gmail',
       );
@@ -61,7 +60,7 @@ export class GmailPollingService {
           this.logger.debug(
             `Polling integration for email: ${integration.email}`,
           );
-          await this.pollIntegration(integration);
+          await this.listAndQueueMessages(integration);
         } catch (error) {
           this.logger.error(
             `Error polling for ${integration.email}: ${error.message}`,
@@ -75,70 +74,85 @@ export class GmailPollingService {
     }
   }
 
-  private async fetchMessages(integration: any, query: string) {
-    const { gmail } = await this.emailIntegrationService.getGmailClient(
-      integration.email,
-    );
+  private async listAndQueueMessages(integration: any) {
+    let query = '';
 
-    const res = await gmail.users.messages.list({
-      userId: 'me',
-      q: query,
-      maxResults: 50, // Batch size
-    });
-
-    const messages = res.data.messages;
-
-    if (!messages || messages.length === 0) {
-      return;
+    if (integration.lastSyncedAt) {
+      // Convert to seconds
+      const after = Math.floor(integration.lastSyncedAt.getTime() / 1000);
+      query = `after:${after} -from:${integration.email}`;
+    } else {
+      // First sync: start from when the integration was added/created
+      // This prevents ingesting old emails prior to connection
+      const startTime = integration['createdAt']
+        ? new Date(integration['createdAt']).getTime()
+        : Date.now();
+      const after = Math.floor(startTime / 1000);
+      query = `after:${after} -from:${integration.email}`;
     }
 
-    this.logger.debug(
-      `Found ${messages.length} messages for ${integration.email} with query: ${query}`,
-    );
+    await this.fetchMessagesAndQueue(integration, query);
 
-    // Fetch full content for each message
-    // Process oldest to newest
-    const messagesToProcess = messages.reverse();
+    // Update lastSyncedAt
+    integration.lastSyncedAt = new Date();
+    await integration.save();
+  }
 
-    for (const msgStub of messagesToProcess) {
-      try {
-        const fullMsg = await gmail.users.messages.get({
-          userId: 'me',
-          id: msgStub.id,
-          format: 'full',
-        });
-
-        const mappedMessage = await this.mapGmailMessageToDto(
-          fullMsg.data,
-          integration.email,
-          gmail,
-          integration,
-        );
-
-        this.logger.debug(
-          `Mapped message before ingestion: senderEmail=${mappedMessage.senderEmail}, senderName=${mappedMessage.senderName}`,
-        );
-
-        // Ingest with organizationId from the integration
-        const result = await this.ingestionService.ingestWithOrganization(
-          mappedMessage,
-          'gmail-polling',
-          MessageChannel.EMAIL,
-          integration.organizationId.toString(),
-        );
-
-        if (result.success) {
-          this.logger.debug(`Ingested message ${mappedMessage.messageId}`);
-        } else {
-          this.logger.warn(
-            `Failed to ingest message ${mappedMessage.messageId}: ${result.error}`,
-          );
-        }
-      } catch (err) {
+  /**
+   * Public method called by worker to process a single message
+   */
+  async processSingleMessage(integrationId: string, messageId: string) {
+    try {
+      const integration =
+        await this.emailIntegrationService.findById(integrationId);
+      if (!integration) {
         this.logger.error(
-          `Error processing message ${msgStub.id}: ${err.message}`,
+          `Integration ${integrationId} not found during processing`,
+        );
+        return;
+      }
+
+      const { gmail } = await this.emailIntegrationService.getGmailClient(
+        integration.email,
+      );
+
+      const fullMsg = await gmail.users.messages.get({
+        userId: 'me',
+        id: messageId,
+        format: 'full',
+      });
+
+      const mappedMessage = await this.mapGmailMessageToDto(
+        fullMsg.data,
+        integration.email,
+        gmail,
+        integration,
+      );
+
+      this.logger.debug(
+        `Mapped message before ingestion: senderEmail=${mappedMessage.senderEmail}, senderName=${mappedMessage.senderName}`,
+      );
+
+      // Ingest with organizationId from the integration
+      const result = await this.ingestionService.ingestWithOrganization(
+        mappedMessage,
+        'gmail-polling',
+        MessageChannel.EMAIL,
+        integration.organizationId.toString(),
+      );
+
+      if (result.success) {
+        this.logger.debug(`Ingested message ${mappedMessage.messageId}`);
+      } else {
+        this.logger.warn(
+          `Failed to ingest message ${mappedMessage.messageId}: ${result.error}`,
         );
       }
+    } catch (err) {
+      this.logger.error(
+        `Error processing message ${messageId}: ${err.message}`,
+      );
+      throw err; // Re-throw to let BullMQ retry
     }
   }
 
@@ -160,32 +174,41 @@ export class GmailPollingService {
     this.logger.log(
       `Starting manual sync for ${integration.email} looking back ${days} days...`,
     );
-    await this.fetchMessages(integration, query);
-    this.logger.log(`Manual sync completed for ${integration.email}`);
+    await this.fetchMessagesAndQueue(integration, query);
+    this.logger.log(`Manual sync request queued for ${integration.email}`);
   }
 
-  private async pollIntegration(integration: any) {
-    let query = '';
+  private async fetchMessagesAndQueue(integration: any, query: string) {
+    const { gmail } = await this.emailIntegrationService.getGmailClient(
+      integration.email,
+    );
 
-    if (integration.lastSyncedAt) {
-      // Convert to seconds
-      const after = Math.floor(integration.lastSyncedAt.getTime() / 1000);
-      query = `after:${after} -from:${integration.email}`;
-    } else {
-      // First sync: start from when the integration was added/created
-      // This prevents ingesting old emails prior to connection
-      const startTime = integration['createdAt']
-        ? new Date(integration['createdAt']).getTime()
-        : Date.now();
-      const after = Math.floor(startTime / 1000);
-      query = `after:${after} -from:${integration.email}`;
+    const res = await gmail.users.messages.list({
+      userId: 'me',
+      q: query,
+      maxResults: 50, // Batch size
+    });
+
+    const messages = res.data.messages;
+
+    if (!messages || messages.length === 0) {
+      return;
     }
 
-    await this.fetchMessages(integration, query);
+    this.logger.debug(
+      `Found ${messages.length} messages for ${integration.email} with query: ${query}`,
+    );
 
-    // Update lastSyncedAt
-    integration.lastSyncedAt = new Date();
-    await integration.save();
+    // Process oldest to newest
+    const messagesToProcess = messages.reverse();
+
+    for (const msgStub of messagesToProcess) {
+      await this.emailQueue.add('gmail-job', {
+        integrationId: integration._id,
+        messageId: msgStub.id,
+        provider: 'gmail',
+      });
+    }
   }
 
   private async mapGmailMessageToDto(
