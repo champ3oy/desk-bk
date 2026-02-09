@@ -1,7 +1,9 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
+import { BullModule } from '@nestjs/bullmq';
 import { TicketsService } from './tickets.service';
+import { AiReplyProcessor } from './processors/ai-reply.processor';
 import { TicketsController } from './tickets.controller';
 import { CustomerTicketsController } from '../api/mobile/customer-tickets.controller';
 import { Ticket, TicketSchema } from './entities/ticket.entity';
@@ -29,9 +31,12 @@ import { UsersModule } from '../users/users.module';
     NotificationsModule,
     UsersModule,
     forwardRef(() => AiModule), // Add AiModule for KnowledgeBaseService
+    BullModule.registerQueue({
+      name: 'ai-reply',
+    }),
   ],
   controllers: [TicketsController, CustomerTicketsController],
-  providers: [TicketsService],
+  providers: [TicketsService, AiReplyProcessor],
   exports: [TicketsService],
 })
 export class TicketsModule {}

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
+import { BullModule } from '@nestjs/bullmq';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { UsersModule } from './users/users.module';
@@ -44,6 +45,37 @@ import { StorageModule } from './storage/storage.module';
       useFactory: async (configService: ConfigService) => ({
         uri: configService.get<string>('MONGODB_URI'),
       }),
+      inject: [ConfigService],
+    }),
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      useFactory: async (configService: ConfigService) => {
+        const redisUrl = configService.get<string>('REDIS_URL');
+        let connection = {};
+
+        if (redisUrl) {
+          try {
+            const url = new URL(redisUrl);
+            connection = {
+              host: url.hostname,
+              port: Number(url.port),
+              username: url.username,
+              password: url.password,
+              db:
+                url.pathname && url.pathname.length > 1
+                  ? Number(url.pathname.substring(1))
+                  : 0,
+            };
+          } catch (e) {
+            // Fallback or leave empty to default to localhost
+            console.warn('Invalid REDIS_URL, using defaults', e);
+          }
+        }
+
+        return {
+          connection,
+        };
+      },
       inject: [ConfigService],
     }),
     CommonModule,

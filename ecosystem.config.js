@@ -14,7 +14,7 @@ module.exports = {
       },
       env_production: {
         NODE_ENV: 'production',
-        PORT: 3000,
+        PORT: 3001,
       },
       // Graceful shutdown
       kill_timeout: 5000,

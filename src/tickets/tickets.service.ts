@@ -39,6 +39,8 @@ import { NotificationType } from '../notifications/entities/notification.entity'
 import { KnowledgeBaseService } from '../ai/knowledge-base.service'; // Import KnowledgeBaseService
 import { UsersService } from '../users/users.service';
 import { RedisLockService } from '../common/services/redis-lock.service';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 
 @Injectable()
 export class TicketsService {
@@ -61,7 +63,26 @@ export class TicketsService {
     @InjectModel(Counter.name)
     private counterModel: Model<CounterDocument>,
     private redisLockService: RedisLockService,
+    @InjectQueue('ai-reply') private aiReplyQueue: Queue,
   ) {}
+
+  /**
+   * Resolve tag names to ObjectIds. Only returns IDs for existing tags.
+   */
+  async resolveTags(
+    tagNames: string[],
+    organizationId: string,
+  ): Promise<Types.ObjectId[]> {
+    if (!tagNames || tagNames.length === 0) return [];
+
+    const normalizedNames = tagNames.map((t) => t.trim());
+    const tags = await this.tagModel.find({
+      organizationId: new Types.ObjectId(organizationId),
+      name: { $in: normalizedNames.map((n) => new RegExp(`^${n}$`, 'i')) }, // Case insensitive match
+    });
+
+    return tags.map((t) => t._id);
+  }
 
   /**
    * Get next sequence value for an organization
@@ -129,17 +150,21 @@ export class TicketsService {
     content: string,
     organizationId: string,
   ): Promise<{ title: string; sentiment: string; priority: TicketPriority }> {
-    try {
-      if (!content || content.length < 2) {
-        return {
-          title: 'New Conversation',
-          sentiment: 'neutral',
-          priority: TicketPriority.MEDIUM,
-        };
-      }
+    const maxRetries = 2;
+    let attempt = 0;
 
-      const model = AIModelFactory.create(this.configService);
-      const prompt = `Analyze the following customer support message and provide:
+    while (attempt <= maxRetries) {
+      try {
+        if (!content || content.length < 2) {
+          return {
+            title: 'New Conversation',
+            sentiment: 'neutral',
+            priority: TicketPriority.MEDIUM,
+          };
+        }
+
+        const model = AIModelFactory.create(this.configService);
+        const prompt = `Analyze the following customer support message and provide:
 1. A very short, precise 3-5 word title (no quotes, no "ID", just the title).
 2. The sentiment/mood of the customer (one of: angry, sad, happy, frustrated, neutral, concerned, grateful, confused).
 3. The priority level (one of: low, medium, high, urgent).
@@ -148,38 +173,54 @@ Return ONLY a JSON object with keys: "title", "sentiment", "priority".
 
 Message: "${content.substring(0, 1000)}"`;
 
-      const response = await model.invoke(prompt);
-      let rawContent =
-        typeof response.content === 'string' ? response.content : '';
+        const response = await model.invoke(prompt);
+        let rawContent =
+          typeof response.content === 'string' ? response.content : '';
 
-      if (Array.isArray(response.content)) {
-        rawContent = (response.content as any)
-          .map((c: any) => c.text || '')
-          .join('');
+        if (Array.isArray(response.content)) {
+          rawContent = (response.content as any)
+            .map((c: any) => c.text || '')
+            .join('');
+        }
+
+        // Extract JSON
+        const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
+        const jsonString = jsonMatch ? jsonMatch[0] : rawContent;
+        const parsed = JSON.parse(jsonString);
+
+        return {
+          title: (parsed.title || 'New Conversation')
+            .trim()
+            .replace(/^"|"$/g, ''),
+          sentiment: (parsed.sentiment || 'neutral').toLowerCase(),
+          priority:
+            (parsed.priority?.toLowerCase() as TicketPriority) ||
+            TicketPriority.MEDIUM,
+        };
+      } catch (e) {
+        attempt++;
+        if (attempt > maxRetries) {
+          console.error(
+            'Failed to analyze initial AI content after retries',
+            e,
+          );
+          return {
+            title: content.substring(0, 30) + '...',
+            sentiment: 'neutral',
+            priority: TicketPriority.MEDIUM,
+          };
+        }
+        console.warn(
+          `Retry ${attempt}/${maxRetries} for analyzeInitialContent due to error: ${e.message}`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
       }
-
-      // Extract JSON
-      const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
-      const jsonString = jsonMatch ? jsonMatch[0] : rawContent;
-      const parsed = JSON.parse(jsonString);
-
-      return {
-        title: (parsed.title || 'New Conversation')
-          .trim()
-          .replace(/^"|"$/g, ''),
-        sentiment: (parsed.sentiment || 'neutral').toLowerCase(),
-        priority:
-          (parsed.priority?.toLowerCase() as TicketPriority) ||
-          TicketPriority.MEDIUM,
-      };
-    } catch (e) {
-      console.error('Failed to analyze initial AI content', e);
-      return {
-        title: content.substring(0, 30) + '...',
-        sentiment: 'neutral',
-        priority: TicketPriority.MEDIUM,
-      };
     }
+    return {
+      title: 'New Conversation',
+      sentiment: 'neutral',
+      priority: TicketPriority.MEDIUM,
+    };
   }
 
   /**
@@ -190,36 +231,40 @@ Message: "${content.substring(0, 1000)}"`;
     messageContent: string,
     organizationId: string,
   ): Promise<void> {
-    try {
-      const ticket = await this.ticketModel.findById(ticketId);
-      if (!ticket) return;
+    const maxRetries = 2;
+    let attempt = 0;
 
-      // Get recent messages for context
-      const thread = await this.threadsService.findByTicket(
-        ticketId,
-        organizationId,
-        organizationId, // Dummy userId for admin bypass
-        UserRole.ADMIN, // Use admin role to bypass checks
-      );
+    while (attempt <= maxRetries) {
+      try {
+        const ticket = await this.ticketModel.findById(ticketId);
+        if (!ticket) return;
 
-      if (!thread) return;
+        // Get recent messages for context
+        const thread = await this.threadsService.findByTicket(
+          ticketId,
+          organizationId,
+          organizationId, // Dummy userId for admin bypass
+          UserRole.ADMIN, // Use admin role to bypass checks
+        );
 
-      const messages = await this.threadsService.getMessages(
-        thread._id.toString(),
-        organizationId,
-        organizationId, // Dummy userId for admin bypass
-        UserRole.ADMIN,
-      );
+        if (!thread) return;
 
-      // Focus on recent customer messages
-      const customerMessages = messages
-        .filter((m) => m.authorType === MessageAuthorType.CUSTOMER)
-        .slice(-5)
-        .map((m) => m.content)
-        .join('\n---\n');
+        const messages = await this.threadsService.getMessages(
+          thread._id.toString(),
+          organizationId,
+          organizationId, // Dummy userId for admin bypass
+          UserRole.ADMIN,
+        );
 
-      const model = AIModelFactory.create(this.configService);
-      const prompt = `Analyze the sentiment/mood of the customer based on their recent messages. 
+        // Focus on recent customer messages
+        const customerMessages = messages
+          .filter((m) => m.authorType === MessageAuthorType.CUSTOMER)
+          .slice(-5)
+          .map((m) => m.content)
+          .join('\n---\n');
+
+        const model = AIModelFactory.create(this.configService);
+        const prompt = `Analyze the sentiment/mood of the customer based on their recent messages. 
 Return ONLY one of the following words in lowercase: angry, sad, happy, frustrated, neutral, concerned, grateful, confused.
 
 Recent messages:
@@ -230,35 +275,45 @@ ${messageContent}
 
 Sentiment:`;
 
-      const response = await model.invoke(prompt);
-      let sentiment = (
-        typeof response.content === 'string' ? response.content : 'neutral'
-      )
-        .trim()
-        .toLowerCase();
+        const response = await model.invoke(prompt);
+        let sentiment = (
+          typeof response.content === 'string' ? response.content : 'neutral'
+        )
+          .trim()
+          .toLowerCase();
 
-      // Clean up sentiment (sometimes LLM returns more than one word)
-      const validSentiments = [
-        'angry',
-        'sad',
-        'happy',
-        'frustrated',
-        'neutral',
-        'concerned',
-        'grateful',
-        'confused',
-      ];
-      const detected = validSentiments.find((s) => sentiment.includes(s));
+        // Clean up sentiment (sometimes LLM returns more than one word)
+        const validSentiments = [
+          'angry',
+          'sad',
+          'happy',
+          'frustrated',
+          'neutral',
+          'concerned',
+          'grateful',
+          'confused',
+        ];
+        const detected = validSentiments.find((s) => sentiment.includes(s));
 
-      if (detected) {
-        await this.ticketModel.updateOne(
-          { _id: ticketId },
-          { $set: { sentiment: detected } },
+        if (detected) {
+          await this.ticketModel.updateOne(
+            { _id: ticketId },
+            { $set: { sentiment: detected } },
+          );
+          console.log(`Updated ticket ${ticketId} sentiment to: ${detected}`);
+        }
+        return; // Success
+      } catch (e) {
+        attempt++;
+        if (attempt > maxRetries) {
+          console.error('Failed to re-analyze ticket mood after retries', e);
+          return;
+        }
+        console.warn(
+          `Retry ${attempt}/${maxRetries} for analyzeTicketMood due to error: ${e.message}`,
         );
-        console.log(`Updated ticket ${ticketId} sentiment to: ${detected}`);
+        await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
       }
-    } catch (e) {
-      console.error('Failed to re-analyze ticket mood', e);
     }
   }
 
@@ -378,48 +433,11 @@ Sentiment:`;
           );
 
           // Intervention: Send "Anything else?" message
-          setTimeout(async () => {
-            try {
-              const thread = await this.threadsService.getOrCreateThread(
-                ticketId,
-                customerId,
-                organizationId,
-              );
-
-              const interventionMessage =
-                "I notice you've been waiting for a while. I want to make sure your time is used effectively—is there anything else I can help you with or any other query I can answer while the agent gets to your previous request?";
-
-              await this.threadsService.createMessage(
-                thread._id.toString(),
-                {
-                  content: interventionMessage,
-                  messageType: MessageType.EXTERNAL,
-                  channel:
-                    channel === 'chat' || channel === 'widget'
-                      ? MessageChannel.WIDGET
-                      : channel === 'whatsapp'
-                        ? MessageChannel.WHATSAPP
-                        : channel === 'email'
-                          ? MessageChannel.EMAIL
-                          : (channel as any),
-                },
-                organizationId,
-                organizationId, // System author
-                UserRole.ADMIN,
-                MessageAuthorType.AI,
-              );
-
-              await this.ticketModel.updateOne(
-                { _id: ticketId },
-                { $set: { isWaitingForNewTopicCheck: true } },
-              );
-            } catch (e) {
-              console.error(
-                `[AutoReply] Failed to send intervention for ticket ${ticketId}`,
-                e,
-              );
-            }
-          }, 500);
+          await this.aiReplyQueue.add(
+            'send-intervention',
+            { ticketId, customerId, organizationId, channel },
+            { delay: 500, removeOnComplete: true },
+          );
           return;
         } else {
           // Standard escalation notice (first reply only)
@@ -443,46 +461,11 @@ Sentiment:`;
           ].includes((channel || '').toLowerCase());
 
           if (shouldNotify) {
-            setTimeout(async () => {
-              try {
-                const thread = await this.threadsService.getOrCreateThread(
-                  ticketId,
-                  customerId,
-                  organizationId,
-                );
-
-                const escalationNotice =
-                  'Your conversation has been escalated to a human agent. They will respond to you as soon as possible. Thank you for your patience!';
-
-                await this.threadsService.createMessage(
-                  thread._id.toString(),
-                  {
-                    content: escalationNotice,
-                    messageType: MessageType.EXTERNAL,
-                    channel:
-                      channel === 'chat' || channel === 'widget'
-                        ? MessageChannel.WIDGET
-                        : channel === 'whatsapp'
-                          ? MessageChannel.WHATSAPP
-                          : (channel as any),
-                  },
-                  organizationId,
-                  customerId,
-                  UserRole.CUSTOMER,
-                  MessageAuthorType.AI,
-                );
-
-                await this.ticketModel.updateOne(
-                  { _id: ticketId },
-                  { $set: { escalationNoticeSent: true } },
-                );
-              } catch (err) {
-                console.error(
-                  `[AutoReply] Failed to send escalation notification for ticket ${ticketId}:`,
-                  err,
-                );
-              }
-            }, 500);
+            await this.aiReplyQueue.add(
+              'send-escalation-notice',
+              { ticketId, customerId, organizationId, channel },
+              { delay: 500, removeOnComplete: true },
+            );
           }
           return;
         }
@@ -501,281 +484,36 @@ Sentiment:`;
         return;
       }
 
-      // Use timeout to not block
-      setTimeout(async () => {
-        try {
-          // Set processing flag
-          await this.ticketModel.updateOne(
-            { _id: ticketId },
-            { $set: { isAiProcessing: true } },
-          );
+      // Add to BullMQ Queue
+      // We set isAiProcessing to true here to prevent immediate re-triggering,
+      // but the Processor will also handle locks and flags.
+      await this.ticketModel.updateOne(
+        { _id: ticketId },
+        { $set: { isAiProcessing: true } },
+      );
 
-          console.log(`[AutoReply] Drafting response for ${ticketId}...`);
-          const response = await draftResponse(
-            ticketId,
-            this,
-            this.threadsService,
-            this.configService,
-            this.organizationsService,
-            this.knowledgeBaseService, // Pass the injected service
-            this.customersService, // Pass customers service for agent context
-            customerId,
-            UserRole.CUSTOMER,
-            organizationId,
-            undefined,
-            channel,
-            ticket.isWaitingForNewTopicCheck,
-          );
+      await this.aiReplyQueue.add(
+        'generate-reply',
+        {
+          ticketId,
+          messageContent,
+          organizationId,
+          customerId,
+          channel,
+        },
+        {
+          delay: 1000, // 1s delay to simulate "thinking" or batch updates
+          attempts: 3,
+          backoff: {
+            type: 'exponential',
+            delay: 2000,
+          },
+          removeOnComplete: true,
+        },
+      );
 
-          console.log(
-            `[AutoReply] Draft result: Action=${response.action}, Confidence=${response.confidence}`,
-          );
-
-          const confidence = response.confidence || 0;
-          const threshold = org.aiConfidenceThreshold || 85;
-
-          if (response.action === 'ESCALATE' || confidence < threshold) {
-            const reason =
-              response.escalationReason ||
-              (confidence < threshold
-                ? `Confidence ${confidence}% below threshold ${threshold}%`
-                : 'AI decided to escalate');
-
-            await this.ticketModel
-              .updateOne(
-                { _id: ticketId },
-                {
-                  $set: {
-                    isAiEscalated: true,
-                    aiEscalationReason: response.escalationSummary
-                      ? `${reason}\n\nSummary: ${response.escalationSummary}`
-                      : reason,
-                    aiConfidenceScore: confidence,
-                    aiAutoReplyDisabled: true,
-                    // Set status to ESCALATED
-                    status: TicketStatus.ESCALATED,
-                    // We'll set escalationNoticeSent to true after we actually send the message below
-                  },
-                },
-              )
-              .exec();
-
-            console.log(`[AutoReply] Escalated ticket ${ticketId}: ${reason}`);
-
-            // Notify agents about escalation
-            this.notifyAgentsOfEscalation(ticket, reason, organizationId).catch(
-              (err) => {
-                console.error('Failed to notify agents of escalation', err);
-                this.redisLockService
-                  .releaseLock(lockKey)
-                  .catch((err) => console.error('Failed to release lock', err));
-              },
-            );
-
-            try {
-              console.log(
-                '[AutoReply] Getting thread for escalation message...',
-              );
-              const thread = await this.threadsService.getOrCreateThread(
-                ticketId,
-                customerId,
-                organizationId,
-              );
-              console.log(`[AutoReply] Thread found: ${thread._id}`);
-
-              // Generate AI escalation message
-              let escalationMessage = '';
-
-              try {
-                console.log('[AutoReply] Fetching context messages...');
-                const messages = await this.threadsService.getMessages(
-                  thread._id.toString(),
-                  organizationId,
-                  organizationId, // Use org ID as user for admin access
-                  UserRole.ADMIN,
-                );
-                console.log(
-                  `[AutoReply] Found ${messages.length} context messages.`,
-                );
-
-                const contextMessages = messages
-                  .slice(-5)
-                  .map((m) => `${m.authorType}: ${m.content}`)
-                  .join('\n');
-
-                const prompt = `You are a helpful customer support AI.
-The current conversation needs to be escalated to a human agent.
-Reason: ${reason}
-
-Context:
-Ticket Subject: ${ticket.subject}
-Recent Messages:
-${contextMessages}
-
-Task: Write a polite, concise message to the customer explaining that you are passing the conversation to a human agent.
-Do not apologize unless necessary. Be professional and reassuring.
-Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at the start or end.`;
-
-                console.log(
-                  '[AutoReply] Invoking AI for escalation message...',
-                );
-
-                const model = AIModelFactory.create(this.configService);
-                const aiResult = await Promise.race([
-                  model.invoke(prompt),
-                  new Promise<any>((_, reject) =>
-                    setTimeout(
-                      () =>
-                        reject(
-                          new Error('Escalation message generation timed out'),
-                        ),
-                      30000,
-                    ),
-                  ),
-                ]);
-
-                console.log('[AutoReply] AI response received.');
-                const generatedText =
-                  typeof aiResult.content === 'string' ? aiResult.content : '';
-                if (generatedText && generatedText.length > 5) {
-                  escalationMessage = generatedText
-                    .trim()
-                    .replace(/^"|"$/g, '');
-                }
-              } catch (e) {
-                console.error(
-                  'Failed to generate AI escalation message, using default.',
-                  e,
-                );
-              }
-
-              // Fallback if AI fails
-              if (!escalationMessage) {
-                escalationMessage =
-                  "I'll connect you with a human agent to assist you further.";
-              }
-
-              console.log(
-                `[AutoReply] Sending escalation message: "${escalationMessage.substring(0, 30)}..."`,
-              );
-              await this.threadsService.createMessage(
-                thread._id.toString(),
-                {
-                  content: escalationMessage,
-                  messageType: MessageType.EXTERNAL,
-                  channel:
-                    channel === 'chat' || channel === 'widget'
-                      ? MessageChannel.WIDGET
-                      : channel === 'email'
-                        ? MessageChannel.EMAIL
-                        : channel === 'whatsapp'
-                          ? MessageChannel.WHATSAPP
-                          : (channel as any),
-                },
-                organizationId,
-                organizationId, // Use Organization ID as author (System)
-                UserRole.ADMIN, // Use Admin role to ensure permission
-                MessageAuthorType.AI,
-              );
-              console.log('[AutoReply] Escalation message sent.');
-
-              // Update flag so we don't send it again (even if they send more messages)
-              await this.ticketModel.updateOne(
-                { _id: ticketId },
-                { $set: { escalationNoticeSent: true } },
-              );
-            } catch (err) {
-              console.error(
-                `[AutoReply] Failed to process escalation for ticket ${ticketId}`,
-                err,
-              );
-              this.redisLockService
-                .releaseLock(lockKey)
-                .catch((e) => console.error(e));
-            }
-          } else if (response.action === 'REPLY' && response.content) {
-            const thread = await this.threadsService.getOrCreateThread(
-              ticketId,
-              customerId,
-              organizationId,
-            );
-
-            let finalContent = response.content;
-
-            // Debug logging
-
-            // Only append signature for EMAIL channel
-            if (
-              org.aiEmailSignature &&
-              channel &&
-              channel.toLowerCase() === 'email'
-            ) {
-              finalContent += `\n\n${org.aiEmailSignature}`;
-            } else {
-            }
-
-            await this.threadsService.createMessage(
-              thread._id.toString(),
-              {
-                content: finalContent,
-                messageType: MessageType.EXTERNAL,
-                channel:
-                  channel === 'chat' || channel === 'widget'
-                    ? MessageChannel.WIDGET
-                    : channel === 'email'
-                      ? MessageChannel.EMAIL
-                      : channel === 'whatsapp'
-                        ? MessageChannel.WHATSAPP
-                        : (channel as any),
-              },
-              organizationId,
-              organizationId, // Use Organization ID as author (System)
-              UserRole.ADMIN, // Use Admin role to ensure permission
-              MessageAuthorType.AI,
-            );
-
-            await this.ticketModel
-              .updateOne(
-                { _id: ticketId },
-                {
-                  $set: { aiConfidenceScore: confidence },
-                  // Clear escalation status if AI can now handle it
-                  $unset: { isAiEscalated: '', aiEscalationReason: '' },
-                },
-              )
-              .exec();
-
-            console.log(
-              `AI auto-reply sent for ticket ${ticketId} (confidence: ${confidence}%)`,
-            );
-          }
-        } catch (err) {
-          console.error('Failed to generate AI auto-reply:', err);
-        } finally {
-          // Clear processing flag
-          await this.ticketModel
-            .updateOne(
-              { _id: ticketId },
-              {
-                $set: {
-                  isAiProcessing: false,
-                  // If we were waiting for a new topic check, we've now processed it
-                  isWaitingForNewTopicCheck: false,
-                },
-              },
-            )
-            .catch((e) => {
-              console.error('Failed to clear isAiProcessing flag', e);
-              // Ensure lock is released even if update fails (though flag update failing is rare)
-              this.redisLockService
-                .releaseLock(lockKey)
-                .catch((err) => console.error('Failed to release lock', err));
-            });
-
-          // Release the lock when done processing
-          await this.redisLockService.releaseLock(lockKey);
-        }
-      }, 1000);
+      console.log(`[AutoReply] Queued job for ticket ${ticketId}`);
+      await this.redisLockService.releaseLock(lockKey);
     } catch (error) {
       console.error('Failed to check auto-reply settings:', error);
       await this.redisLockService.releaseLock(`autoreply:${ticketId}`);
@@ -1122,7 +860,7 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
   /**
    * Notify agents about an escalation
    */
-  private async notifyAgentsOfEscalation(
+  async notifyAgentsOfEscalation(
     ticket: TicketDocument,
     reason: string,
     organizationId: string,

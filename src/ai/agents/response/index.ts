@@ -93,7 +93,7 @@ export function buildSystemPrompt(
 
 export type AgentResponse = {
   content?: string;
-  action: 'REPLY' | 'ESCALATE';
+  action: 'REPLY' | 'ESCALATE' | 'IGNORE'; // Added IGNORE
   escalationReason?: string;
   escalationSummary?: string; // Added short summary for human agent
   confidence: number;
@@ -186,14 +186,19 @@ export const draftResponse = async (
           ),
       }),
       func: async ({ query }: { query: string }) => {
-        if (!knowledgeBaseService) return 'Knowledge Base not available.';
-        console.log(`[Tool] Searching KB: ${query}`);
-        const results = await knowledgeBaseService.retrieveRelevantContent(
-          query,
-          organizationId,
-          2,
-        );
-        return results || 'No relevant results found.';
+        try {
+          if (!knowledgeBaseService) return 'Knowledge Base not available.';
+          console.log(`[Tool] Searching KB: ${query}`);
+          const results = await knowledgeBaseService.retrieveRelevantContent(
+            query,
+            organizationId,
+            2,
+          );
+          return results || 'No relevant results found.';
+        } catch (error) {
+          console.error(`[Tool] Error searching KB:`, error);
+          return `Error searching Knowledge Base: ${error.message}. Please try again or escalate if needed.`;
+        }
       },
     },
     {
@@ -248,10 +253,16 @@ export const draftResponse = async (
           }
         }
 
-        // Tags logic would require knowing tag IDs if using strict rels, or using a "setTags" method.
-        // For safety in this MVP, we might skip tags modification if it requires IDs, or assume strings work if service handles it.
-        // Ticket entity uses ObjectIds for tags likely. We'll skip tags for now to avoid errors, or try to implement if safe.
-        // Let's stick to priority for now to be safe.
+        // Tags logic
+        if (tags && tags.length > 0) {
+          const tagIds = await ticketsService.resolveTags(tags, organizationId);
+          if (tagIds && tagIds.length > 0) {
+            updateData.tagIds = tagIds.map((id) => id.toString());
+          } else {
+            console.warn(`[Tool] No valid tags found for input: ${tags}`);
+          }
+        }
+
         if (Object.keys(updateData).length > 0) {
           await ticketsService.update(
             ticket_id,
@@ -336,16 +347,29 @@ export const draftResponse = async (
   ];
 
   // 3. Initialize Model and Messages
-  const model = AIModelFactory.create(configService);
-  const modelWithTools = (model as any).bindTools
-    ? (model as any).bindTools(
+  // 3. Initialize Models
+  // We separate "Fast" tasks (Intent) from "Reasoning" tasks (ReAct Loop)
+
+  // Fast Model: Use 'gemini-3-flash-preview' by default for speed/cost, unless overridden
+  const fastModel = AIModelFactory.create(configService, {
+    model:
+      configService.get<string>('ai.fastModel') || 'gemini-3-flash-preview',
+  });
+
+  // Main Model: Use the configured app default (likely Pro) or specific 'ai.reasoningModel'
+  const mainModel = AIModelFactory.create(configService, {
+    model: configService.get<string>('ai.reasoningModel'), // If undefined, factory uses default AI_MODEL/config
+  });
+
+  const modelWithTools = (mainModel as any).bindTools
+    ? (mainModel as any).bindTools(
         tools.map((t) => ({
           name: t.name,
           description: t.description,
           schema: t.schema,
         })),
       )
-    : model;
+    : mainModel;
 
   const systemPrompt = buildSystemPrompt(
     org,
@@ -374,12 +398,20 @@ Please decide on the next best action.
   // We use the same model but with a specific prompt.
   const lastUserMessage = recentMessages[recentMessages.length - 1];
   if (lastUserMessage && lastUserMessage.authorType === 'customer') {
+    // Context: Last 3 customer messages to catch compound thoughts (e.g. "Thanks" + "But I have an issue")
+    const recentCustomerText = recentMessages
+      .filter((m) => m.authorType === 'customer')
+      .slice(-3)
+      .map((m) => m.content)
+      .join('\n');
+
     const intentPrompt = `
-      Analyze the following customer message: "${lastUserMessage.content}"
+      Analyze the following recent customer messages:
+      "${recentCustomerText}"
       
-      Classify the intent into one of these categories:
-      - GRATITUDE: The user is saying thanks, you're welcome, or expressing appreciation (e.g. "Thanks!", "Great help").
-      - CLOSURE: The user is ending the conversation (e.g. "Bye", "Have a good day", "That's all").
+      Classify the OVERALL intent of the user into one of these categories:
+      - GRATITUDE: The user is ONLY saying thanks, you're welcome, or expressing appreciation (e.g. "Thanks!", "Great help").
+      - CLOSURE: The user is ONLY ending the conversation (e.g. "Bye", "Have a good day", "That's all").
       - AFFIRMATIVE: A simple yes/ok answer to a question (e.g. "Yes", "Okay", "Sure").
       - INQUIRY: The user is asking a question, reporting an issue, or continuing the conversation.
       - OTHER: Anything else.
@@ -387,7 +419,7 @@ Please decide on the next best action.
       Return ONLY the category name.
       `;
 
-    const intentResponse = await model.invoke(intentPrompt);
+    const intentResponse = await fastModel.invoke(intentPrompt);
     const intent =
       typeof intentResponse.content === 'string'
         ? intentResponse.content
@@ -402,9 +434,7 @@ Please decide on the next best action.
 
     if (['GRATITUDE', 'CLOSURE'].includes(intent)) {
       return {
-        action: 'REPLY', // Actually we want to "Do Nothing", but the interface expects a response.
-        // If we return empty content, the caller (TicketsService) should handle it by NOT sending a message.
-        // We'll return a special flag or just empty string.
+        action: 'IGNORE',
         content: '',
         confidence: 100,
         metadata: {
@@ -444,9 +474,40 @@ Please decide on the next best action.
       turn++;
       console.log(`[ReAct Loop] Turn ${turn}`);
 
+      // Force a reply if we're at the limit
+      if (turn === MAX_TURNS) {
+        console.log('[ReAct Loop] Max turns reached. Forcing final reply.');
+        messages.push(
+          new HumanMessage(
+            'NOTE: You have reached the maximum number of steps. Based on the information you have, please provide your final response to the user now. Do not call any more tools.',
+          ),
+        );
+      }
+
       // Invoke Model
       const aiResponse = await modelWithTools.invoke(messages);
       messages.push(aiResponse);
+
+      // FORCE REPLY ON MAX TURNS: If we are at the limit and have content, return it.
+      // This prevents the loop from exiting and falling through to escalation when a summary was generated.
+      if (
+        turn === MAX_TURNS &&
+        aiResponse.content &&
+        typeof aiResponse.content === 'string' &&
+        aiResponse.content.trim().length > 0
+      ) {
+        return {
+          action: 'REPLY',
+          content: aiResponse.content,
+          confidence: 100,
+          metadata: {
+            tokenUsage: aiResponse.usage_metadata,
+            knowledgeBaseUsed: kbUsed,
+            performanceMs: Date.now() - totalStart,
+            toolCalls: executedTools,
+          },
+        };
+      }
 
       // Check for Tool Calls
       if (aiResponse.tool_calls && aiResponse.tool_calls.length > 0) {
@@ -548,7 +609,7 @@ Please decide on the next best action.
           return {
             action: 'REPLY',
             content: content,
-            confidence: 80, // Lower confidence for direct replies without 'send_final_reply'
+            confidence: 90, // Passing confidence for direct replies (assumes the model knows what it's doing)
             metadata: {
               tokenUsage: aiResponse.usage_metadata,
               knowledgeBaseUsed: kbUsed,
@@ -563,7 +624,7 @@ Please decide on the next best action.
   } catch (err) {
     console.error(`[ReAct Loop] Error:`, err);
     return {
-      action: 'ESCALATE',
+      action: 'IGNORE', // Fail silently on internal error
       escalationReason: 'Agent Error: ' + err.message,
       confidence: 0,
       metadata: {
