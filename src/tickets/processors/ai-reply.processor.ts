@@ -178,6 +178,18 @@ export class AiReplyProcessor extends WorkerHost {
             .map((m) => `${m.authorType}: ${m.content}`)
             .join('\n');
 
+          const businessStatus =
+            this.organizationsService.isWithinBusinessHours(org);
+          let businessHoursPromptExtra = '';
+          if (!businessStatus.isWithin) {
+            const nextOpening = businessStatus.nextOpeningTime
+              ? businessStatus.nextOpeningTime.toFormat('DDDD @ t (ZZZZ)')
+              : 'our next business day';
+            businessHoursPromptExtra = `\n\nCRITICAL: We are currently OUTSIDE of business hours. 
+You MUST inform the customer that while you are escalating to a human, they are currently away and will respond on ${nextOpening}. 
+Make sure this is very clear so they don't expect an immediate reply.`;
+          }
+
           const prompt = `You are a helpful customer support AI.
 The current conversation needs to be escalated to a human agent.
 Reason: ${reason}
@@ -185,7 +197,7 @@ Reason: ${reason}
 Context:
 Ticket Subject: ${ticket.subject}
 Recent Messages:
-${contextMessages}
+${contextMessages}${businessHoursPromptExtra}
 
 Task: Write a polite, concise message to the customer explaining that you are passing the conversation to a human agent.
 Do not apologize unless necessary. Be professional and reassuring.
@@ -335,8 +347,20 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
       organizationId,
     );
 
-    const escalationNotice =
+    const org = await this.organizationsService.findOne(organizationId);
+    const businessStatus = org
+      ? this.organizationsService.isWithinBusinessHours(org)
+      : { isWithin: true };
+
+    let escalationNotice =
       'Your conversation has been escalated to a human agent. They will respond to you as soon as possible. Thank you for your patience!';
+
+    if (!businessStatus.isWithin) {
+      const nextOpening = businessStatus.nextOpeningTime
+        ? businessStatus.nextOpeningTime.toFormat('DDDD @ t (ZZZZ)')
+        : 'our next business day';
+      escalationNotice = `Your conversation has been escalated to a human agent. Please note that we are currently outside of business hours, so an agent will get back to you on ${nextOpening}. Thank you for your patience!`;
+    }
 
     await this.threadsService.createMessage(
       thread._id.toString(),

@@ -179,4 +179,24 @@ export class UpdateOrganizationDto {
     welcomeMessage?: string;
     headerText?: string;
   };
+
+  @ApiPropertyOptional({
+    description: 'Business hours for the organization',
+  })
+  @IsArray()
+  @IsOptional()
+  businessHours?: {
+    day: string;
+    open: string;
+    close: string;
+    closed: boolean;
+  }[];
+
+  @ApiPropertyOptional({
+    description: 'Organization timezone',
+    example: 'UTC',
+  })
+  @IsString()
+  @IsOptional()
+  timezone?: string;
 }

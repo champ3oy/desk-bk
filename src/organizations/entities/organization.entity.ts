@@ -250,6 +250,44 @@ export class Organization {
   @Prop({ required: false })
   elevenLabsAgentId?: string;
 
+  @ApiPropertyOptional({
+    description: 'Business hours for the organization',
+    example: [{ day: 'Monday', open: '09:00', close: '17:00', closed: false }],
+  })
+  @Prop({
+    type: [
+      {
+        day: String,
+        open: String,
+        close: String,
+        closed: Boolean,
+      },
+    ],
+    default: [
+      { day: 'Monday', open: '09:00', close: '17:00', closed: false },
+      { day: 'Tuesday', open: '09:00', close: '17:00', closed: false },
+      { day: 'Wednesday', open: '09:00', close: '17:00', closed: false },
+      { day: 'Thursday', open: '09:00', close: '17:00', closed: false },
+      { day: 'Friday', open: '09:00', close: '17:00', closed: false },
+      { day: 'Saturday', open: '09:00', close: '17:00', closed: true },
+      { day: 'Sunday', open: '09:00', close: '17:00', closed: true },
+    ],
+    _id: false,
+  })
+  businessHours?: {
+    day: string;
+    open: string;
+    close: string;
+    closed: boolean;
+  }[];
+
+  @ApiPropertyOptional({
+    description: 'Organization timezone',
+    example: 'UTC',
+  })
+  @Prop({ default: 'UTC' })
+  timezone?: string;
+
   @ApiPropertyOptional({ description: 'Payment method info' })
   @Prop({
     type: {

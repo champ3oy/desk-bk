@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
+import { DateTime } from 'luxon';
 import {
   Organization,
   OrganizationDocument,
@@ -195,5 +196,66 @@ export class OrganizationsService {
       `OrganizationsService.findByMemberEmail: found ${orgs.length} organizations`,
     );
     return orgs;
+  }
+
+  isWithinBusinessHours(organization: Organization): {
+    isWithin: boolean;
+    nextOpeningTime?: DateTime;
+  } {
+    const { businessHours, timezone = 'UTC' } = organization;
+    if (!businessHours || businessHours.length === 0) {
+      return { isWithin: true };
+    }
+
+    const now = DateTime.now().setZone(timezone);
+    const todayName = now.toFormat('EEEE');
+    const todaySchedule = businessHours.find((bh) => bh.day === todayName);
+
+    if (todaySchedule && !todaySchedule.closed) {
+      const [openHour, openMin] = todaySchedule.open.split(':').map(Number);
+      const [closeHour, closeMin] = todaySchedule.close.split(':').map(Number);
+
+      const openTime = now.set({
+        hour: openHour,
+        minute: openMin,
+        second: 0,
+        millisecond: 0,
+      });
+      const closeTime = now.set({
+        hour: closeHour,
+        minute: closeMin,
+        second: 0,
+        millisecond: 0,
+      });
+
+      if (now >= openTime && now <= closeTime) {
+        return { isWithin: true };
+      }
+    }
+
+    // Find next opening time
+    for (let i = 0; i < 8; i++) {
+      const nextDay = now.plus({ days: i });
+      const nextDayName = nextDay.toFormat('EEEE');
+      const nextDaySchedule = businessHours.find(
+        (bh) => bh.day === nextDayName,
+      );
+
+      if (nextDaySchedule && !nextDaySchedule.closed) {
+        const [openHour, openMin] = nextDaySchedule.open.split(':').map(Number);
+        const openTime = nextDay.set({
+          hour: openHour,
+          minute: openMin,
+          second: 0,
+          millisecond: 0,
+        });
+
+        if (openTime > now) {
+          return { isWithin: false, nextOpeningTime: openTime };
+        }
+      }
+    }
+
+    return { isWithin: false };
   }
 }
