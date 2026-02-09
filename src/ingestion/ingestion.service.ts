@@ -372,6 +372,8 @@ export class IngestionService {
       isRead: false,
       externalMessageId: externalId,
       attachments: message.attachments || [],
+      metadata: message.metadata || {},
+      sessionId: message.metadata?.sessionId || thread.metadata?.sessionId,
     });
 
     await createdMessage.save();
@@ -654,6 +656,8 @@ export class IngestionService {
         ? message.messageId.replace(/^<|>$/g, '').trim()
         : undefined,
       attachments: message.attachments || [],
+      metadata: message.metadata || {},
+      sessionId: message.metadata?.sessionId || thread.metadata?.sessionId,
     });
 
     await createdMessage.save();
@@ -746,6 +750,7 @@ export class IngestionService {
     threadId: string,
     organizationId: string,
     messageType?: MessageType,
+    sessionId?: string,
   ): Promise<MessageDocument[]> {
     const query: any = {
       threadId: new Types.ObjectId(threadId),
@@ -754,6 +759,13 @@ export class IngestionService {
 
     if (messageType) {
       query.messageType = messageType;
+    }
+
+    if (sessionId) {
+      query.$or = [
+        { sessionId: sessionId },
+        { authorType: { $ne: MessageAuthorType.CUSTOMER } }, // Include agent/AI replies so conversation flows
+      ];
     }
 
     const messages = await this.messageModel

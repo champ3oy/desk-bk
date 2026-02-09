@@ -111,8 +111,9 @@ export class TicketResolver {
       }
 
       // Strategy 5: Fallback - Check for any OPEN ticket for this customer
-      // This handles "continuous conversation" behavior for WhatsApp/SMS where users just send messages
-      if (customerId) {
+      // This handles "continuous conversation" behavior for WhatsApp/SMS where users just send messages.
+      // We SKIP this for Widget channel to ensure strict session isolation.
+      if (customerId && message.channel !== MessageChannel.WIDGET) {
         const ticketId = await this.findMostRecentOpenTicket(
           customerId,
           organizationId,

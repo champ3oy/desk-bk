@@ -145,6 +145,20 @@ export class Message {
   externalMessageId?: string;
 
   @ApiPropertyOptional({
+    description: 'Widget session ID for isolation',
+    example: 'session_123',
+  })
+  @Prop({ required: false, index: true })
+  sessionId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Additional metadata',
+    example: { sessionId: 'abc-123' },
+  })
+  @Prop({ type: Object, default: {} })
+  metadata?: Record<string, any>;
+
+  @ApiPropertyOptional({
     description: 'Creation timestamp',
     example: '2024-01-01T00:00:00.000Z',
   })
@@ -162,4 +176,5 @@ export const MessageSchema = SchemaFactory.createForClass(Message);
 // Index for faster lookups
 MessageSchema.index({ threadId: 1, createdAt: -1 });
 MessageSchema.index({ organizationId: 1, createdAt: -1 });
+MessageSchema.index({ sessionId: 1, organizationId: 1 });
 MessageSchema.index({ externalMessageId: 1, organizationId: 1 });

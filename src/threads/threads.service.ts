@@ -197,6 +197,8 @@ export class ThreadsService {
       attachments: createMessageDto.attachments || [],
       readBy: [],
       isRead: false,
+      sessionId: thread.metadata?.sessionId,
+      metadata: { sessionId: thread.metadata?.sessionId },
     });
 
     const savedMessage = await message.save();

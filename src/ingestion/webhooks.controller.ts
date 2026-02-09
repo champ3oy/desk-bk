@@ -449,6 +449,7 @@ export class WebhooksController implements OnModuleInit {
       thread._id.toString(),
       channelId,
       MessageType.EXTERNAL,
+      sessionId,
     );
 
     return {
