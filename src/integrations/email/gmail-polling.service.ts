@@ -251,58 +251,8 @@ export class GmailPollingService {
       }
     }
 
-    // Process inline images (swapping cid: for data: URIs)
-    if (rawBody && gmailMsg.payload.parts) {
-      const inlineAttachments: any[] = [];
-      const traverseForInline = (parts: any[]) => {
-        if (!parts) return;
-        for (const part of parts) {
-          if (part.body?.attachmentId && part.headers) {
-            const contentId = part.headers.find(
-              (h: any) => h.name.toLowerCase() === 'content-id',
-            );
-            if (contentId) {
-              inlineAttachments.push({
-                cid: contentId.value.replace(/^<|>$/g, ''),
-                attachmentId: part.body.attachmentId,
-                mimeType: part.mimeType,
-              });
-            }
-          }
-          if (part.parts) {
-            traverseForInline(part.parts);
-          }
-        }
-      };
-
-      traverseForInline(gmailMsg.payload.parts);
-
-      for (const att of inlineAttachments) {
-        // Only fetch if utilized in the HTML
-        if (rawBody.includes(`cid:${att.cid}`)) {
-          try {
-            const response = await gmail.users.messages.attachments.get({
-              userId: 'me',
-              messageId: gmailMsg.id,
-              id: att.attachmentId,
-            });
-
-            if (response.data.data) {
-              const base64 = response.data.data
-                .replace(/-/g, '+')
-                .replace(/_/g, '/');
-              const dataUri = `data:${att.mimeType};base64,${base64}`;
-              // Global replace
-              rawBody = rawBody.split(`cid:${att.cid}`).join(dataUri);
-            }
-          } catch (error) {
-            this.logger.warn(
-              `Failed to fetch inline attachment ${att.cid}: ${error.message}`,
-            );
-          }
-        }
-      }
-    }
+    // Inline images are now handled by EmailParser using the uploaded attachment URLs.
+    // This avoids bloating the database with large Data URIs.
 
     // Parse Sender
     // "Name <email>" or "email"
@@ -347,35 +297,22 @@ export class GmailPollingService {
           // Simplest check: has filename, body.attachmentId
           // Exclude if it was processed as inline (we can check inlineAttachments list if we scoped it out, but let's re-check headers)
 
-          if (part.filename && part.body?.attachmentId) {
-            const isInline = part.headers?.some(
-              (h: any) =>
-                h.name.toLowerCase() === 'content-disposition' &&
-                h.value.includes('inline'),
-            );
-            const hasCid = part.headers?.some(
+          if (part.filename && (part.body?.attachmentId || part.body?.data)) {
+            const contentId = part.headers?.find(
               (h: any) => h.name.toLowerCase() === 'content-id',
             );
 
-            // If it's inline AND has CID, it's likely an embedded image we handled.
-            // BUT if it's inline and NOT used in HTML (we can't easily know), we might want to attach it?
-            // For now, let's attach everything that is NOT (Inline AND Has CID).
-            // Or explicitly: Content-Disposition: attachment OR (Inline AND No CID)
-
-            const isAttachment = part.headers?.some(
-              (h: any) =>
-                h.name.toLowerCase() === 'content-disposition' &&
-                h.value.includes('attachment'),
-            );
-
-            if (isAttachment || (!isInline && !hasCid)) {
-              standardAttachments.push({
-                filename: part.filename,
-                mimeType: part.mimeType,
-                attachmentId: part.body.attachmentId,
-                size: part.body.size,
-              });
-            }
+            // Inclusive logic: If it has a filename, it's an attachment.
+            standardAttachments.push({
+              filename: part.filename,
+              mimeType: part.mimeType,
+              attachmentId: part.body.attachmentId,
+              data: part.body.data,
+              size: part.body.size,
+              contentId: contentId
+                ? contentId.value.replace(/^<|>$/g, '')
+                : undefined,
+            });
           }
 
           if (part.parts) {
@@ -388,28 +325,43 @@ export class GmailPollingService {
 
       for (const att of standardAttachments) {
         try {
-          const response = await gmail.users.messages.attachments.get({
-            userId: 'me',
-            messageId: gmailMsg.id,
-            id: att.attachmentId,
-          });
+          let buffer: Buffer;
 
-          if (response.data.data) {
-            const buffer = Buffer.from(response.data.data, 'base64');
-            const savedFile = await this.storageService.saveFile(
-              att.filename,
-              buffer,
-              att.mimeType,
-            );
-
-            attachments.push({
-              filename: savedFile.filename, // internal name
-              originalName: att.filename,
-              mimeType: att.mimeType,
-              size: savedFile.size,
-              path: savedFile.path, // URL path
+          if (att.data) {
+            // Some small attachments are embedded directly in the part body
+            buffer = Buffer.from(att.data, 'base64url' as any);
+          } else if (att.attachmentId) {
+            // Large attachments must be fetched via the API
+            const response = await gmail.users.messages.attachments.get({
+              userId: 'me',
+              messageId: gmailMsg.id,
+              id: att.attachmentId,
             });
+
+            if (response.data.data) {
+              // Gmail API uses base64url (RFC 4648 Section 5)
+              buffer = Buffer.from(response.data.data, 'base64url' as any);
+            } else {
+              continue;
+            }
+          } else {
+            continue;
           }
+
+          const savedFile = await this.storageService.saveFile(
+            att.filename,
+            buffer,
+            att.mimeType,
+          );
+
+          attachments.push({
+            filename: savedFile.filename, // internal name
+            originalName: att.filename,
+            mimeType: att.mimeType,
+            size: savedFile.size,
+            path: savedFile.path, // URL path
+            contentId: att.contentId,
+          });
         } catch (error) {
           this.logger.warn(
             `Failed to fetch standard attachment ${att.filename}: ${error.message}`,

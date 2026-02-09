@@ -46,12 +46,13 @@ export class EmailParser {
 
     attachments.forEach((att) => {
       if (att.contentId) {
-        // Replace cid:contentId with the attachment path (URL)
-        // Regex to match "cid:contentId" or 'cid:contentId'
-        const cidRegex = new RegExp(`cid:${att.contentId}`, 'g');
-        processedHtml = processedHtml.replace(cidRegex, att.path);
+        // Safe regex escape for contentId
+        const cid = att.contentId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-        // Also try to match without 'cid:' if sometimes referenced directly (rare)
+        // Match cid:ID, cid:<ID>, or even slightly malformed ones
+        // We handle case-insensitive 'cid:' since some clients might change it
+        const cidRegex = new RegExp(`cid:<?${cid}>?`, 'gi');
+        processedHtml = processedHtml.replace(cidRegex, att.path);
       }
     });
 

@@ -378,23 +378,27 @@ export class OutlookPollingService {
       const fetchedAttachments = attachmentsResponse.value;
       if (fetchedAttachments && fetchedAttachments.length > 0) {
         for (const att of fetchedAttachments) {
-          if (!att.isInline) {
-            if (att.contentBytes) {
-              const buffer = Buffer.from(att.contentBytes, 'base64');
-              const savedFile = await this.storageService.saveFile(
-                att.name || 'attachment',
-                buffer,
-                att.contentType || 'application/octet-stream',
-              );
+          // Inclusive logic: If it has a name and content, it's an attachment.
+          // Note: We still process inline images for CID replacement in rawBody,
+          // but we also include them here to ensure they're accessible as files.
+          if (att.name && att.contentBytes) {
+            const buffer = Buffer.from(att.contentBytes, 'base64');
+            const savedFile = await this.storageService.saveFile(
+              att.name || 'attachment',
+              buffer,
+              att.contentType || 'application/octet-stream',
+            );
 
-              attachments.push({
-                filename: savedFile.filename,
-                originalName: att.name || 'attachment',
-                mimeType: att.contentType || 'application/octet-stream',
-                size: savedFile.size,
-                path: savedFile.path,
-              });
-            }
+            attachments.push({
+              filename: savedFile.filename,
+              originalName: att.name || 'attachment',
+              mimeType: att.contentType || 'application/octet-stream',
+              size: savedFile.size,
+              path: savedFile.path,
+              contentId: att.contentId
+                ? att.contentId.replace(/^<|>$/g, '')
+                : undefined,
+            });
           }
         }
       }
