@@ -47,7 +47,9 @@ export class PendingReviewService {
   /**
    * Get all pending reviews
    */
-  async findAll(status?: PendingReviewStatus): Promise<PendingReviewDocument[]> {
+  async findAll(
+    status?: PendingReviewStatus,
+  ): Promise<PendingReviewDocument[]> {
     const query: any = {};
     if (status) {
       query.status = status;
@@ -101,4 +103,3 @@ export class PendingReviewService {
     return pendingReview.save();
   }
 }
-

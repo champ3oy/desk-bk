@@ -16,7 +16,7 @@ export default registerAs('database', () => {
   const database = process.env.DB_DATABASE || 'ticketing_db';
 
   let uri = `mongodb://${host}:${port}/${database}`;
-  
+
   if (username && password) {
     uri = `mongodb://${username}:${password}@${host}:${port}/${database}?authSource=admin`;
   }
@@ -25,4 +25,3 @@ export default registerAs('database', () => {
     uri,
   };
 });
-

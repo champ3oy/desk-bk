@@ -34,4 +34,3 @@ export class AcceptInvitationDto {
   @IsOptional()
   lastName?: string;
 }
-

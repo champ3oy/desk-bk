@@ -132,6 +132,16 @@ export class AIModelFactory {
           model: 'gemini-3-flash-preview',
           label: 'Gemini 3.0 Flash (Preview)',
         },
+        {
+          provider: 'google',
+          model: 'gemini-2.5-flash',
+          label: 'Gemini 2.5 Flash',
+        },
+        {
+          provider: 'google',
+          model: 'gemini-2.5-flash-lite',
+          label: 'Gemini 2.5 Flash Lite',
+        },
       );
     }
 
@@ -220,6 +230,58 @@ export class AIModelFactory {
     configService: ConfigService,
     modelName: string,
     apiKeyOverride?: string,
+  ): BaseChatModel {
+    const primary = this.createBaseGeminiClient(
+      configService,
+      modelName,
+      apiKeyOverride,
+    );
+
+    // Determine fallbacks
+    const fallbackModelNames: string[] = [];
+
+    // 1. Check for specific smart fallbacks
+    if (modelName === 'gemini-3-pro-preview') {
+      fallbackModelNames.push('gemini-2.5-flash', 'gemini-2.5-flash-lite');
+    } else if (modelName === 'gemini-3-flash-preview') {
+      fallbackModelNames.push('gemini-2.5-flash', 'gemini-2.5-flash-lite');
+    }
+
+    // 2. Add global fallbacks from env/config if present
+    const envFallbacks = (
+      configService.get<string>('ai.fallbackModels') ||
+      process.env.AI_FALLBACK_MODELS ||
+      ''
+    )
+      .split(',')
+      .map((m) => m.trim())
+      .filter((m) => m.length > 0);
+
+    fallbackModelNames.push(...envFallbacks);
+
+    // Remove duplicates and self
+    const uniqueFallbacks = [...new Set(fallbackModelNames)].filter(
+      (m) => m !== modelName,
+    );
+
+    if (uniqueFallbacks.length > 0) {
+      this.logger.log(
+        `[AI Factory] Adding fallbacks for ${modelName}: ${uniqueFallbacks.join(', ')}`,
+      );
+      return primary.withFallbacks({
+        fallbacks: uniqueFallbacks.map((m) =>
+          this.createBaseGeminiClient(configService, m, apiKeyOverride),
+        ),
+      }) as any;
+    }
+
+    return primary;
+  }
+
+  private static createBaseGeminiClient(
+    configService: ConfigService,
+    modelName: string,
+    apiKeyOverride?: string,
   ): ChatGoogleGenerativeAI {
     const apiKey =
       apiKeyOverride ||
@@ -239,7 +301,7 @@ export class AIModelFactory {
       model: modelName,
       apiKey,
       temperature: 0.3,
-      maxRetries: 0, // Fail fast on rate limits
+      maxRetries: 0, // Fail fast on rate limits to trigger fallbacks
       safetySettings: [
         {
           category: 'HARM_CATEGORY_HARASSMENT',
@@ -265,7 +327,7 @@ export class AIModelFactory {
     const originalInvoke = client.invoke.bind(client);
     client.invoke = ((...args: any[]) => {
       // Import here to avoid circular dependency or init order issues
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
+
       const { geminiSemaphore } = require('./concurrency-semaphore');
       return geminiSemaphore.run(() => originalInvoke(...args));
     }) as any;

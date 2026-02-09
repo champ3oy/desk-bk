@@ -282,7 +282,7 @@ ${messageContent}
 Sentiment:`;
 
         const response = await model.invoke(prompt);
-        let sentiment = (
+        const sentiment = (
           typeof response.content === 'string' ? response.content : 'neutral'
         )
           .trim()

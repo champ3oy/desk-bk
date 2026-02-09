@@ -17,4 +17,3 @@ import { Ticket, TicketSchema } from '../tickets/entities/ticket.entity';
   exports: [CommentsService],
 })
 export class CommentsModule {}
-

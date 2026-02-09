@@ -17,7 +17,10 @@ export class Tag {
   @Prop({ required: false })
   color?: string;
 
-  @ApiProperty({ description: 'Organization ID', example: '507f1f77bcf86cd799439011' })
+  @ApiProperty({
+    description: 'Organization ID',
+    example: '507f1f77bcf86cd799439011',
+  })
   @Prop({ type: Types.ObjectId, ref: 'Organization', required: true })
   organizationId: Types.ObjectId;
 

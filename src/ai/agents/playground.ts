@@ -154,7 +154,7 @@ export const playgroundChat = async (
 
   console.log(`[PERF] LLM invocation: ${Date.now() - llmStart}ms`);
 
-  let content = response.content;
+  const content = response.content;
   let detectedCustomer: any = null;
 
   // Handle potential complex content types (array of text/image)

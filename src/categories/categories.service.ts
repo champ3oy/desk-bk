@@ -43,7 +43,10 @@ export class CategoriesService {
     return category;
   }
 
-  async update(id: string, updateCategoryDto: UpdateCategoryDto): Promise<Category> {
+  async update(
+    id: string,
+    updateCategoryDto: UpdateCategoryDto,
+  ): Promise<Category> {
     const category = await this.categoryModel.findById(id).exec();
 
     if (!category) {
@@ -69,4 +72,3 @@ export class CategoriesService {
     await this.categoryModel.findByIdAndDelete(id).exec();
   }
 }
-

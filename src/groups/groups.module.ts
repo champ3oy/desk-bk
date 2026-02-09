@@ -15,4 +15,3 @@ import { UsersModule } from '../users/users.module';
   exports: [GroupsService],
 })
 export class GroupsModule {}
-

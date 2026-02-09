@@ -39,4 +39,3 @@ export class CreateCustomerDto {
   @IsOptional()
   company?: string;
 }
-

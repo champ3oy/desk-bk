@@ -39,13 +39,19 @@ export class SmsParser {
     // Generic parser for unknown SMS formats
     return {
       channel: MessageChannel.SMS,
-      senderPhone: payload.from || payload.sender || payload.phoneNumber || payload.phone,
+      senderPhone:
+        payload.from || payload.sender || payload.phoneNumber || payload.phone,
       recipientPhone: payload.to || payload.recipient || payload.destination,
-      content: payload.body || payload.text || payload.message || payload.content || '',
-      threadId: payload.threadId || payload.conversationId || payload.conversation_id,
+      content:
+        payload.body ||
+        payload.text ||
+        payload.message ||
+        payload.content ||
+        '',
+      threadId:
+        payload.threadId || payload.conversationId || payload.conversation_id,
       messageId: payload.messageId || payload.id || payload.sid,
       metadata: payload,
     };
   }
 }
-

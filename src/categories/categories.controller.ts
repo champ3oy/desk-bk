@@ -40,7 +40,10 @@ export class CategoriesController {
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Create a new category (Admin only)' })
   @ApiBody({ type: CreateCategoryDto })
-  @ApiCreatedResponse({ description: 'Category successfully created', type: Category })
+  @ApiCreatedResponse({
+    description: 'Category successfully created',
+    type: Category,
+  })
   @ApiResponse({ status: 400, description: 'Invalid input data' })
   @ApiForbiddenResponse({ description: 'Insufficient permissions' })
   create(@Body() createCategoryDto: CreateCategoryDto) {
@@ -49,7 +52,11 @@ export class CategoriesController {
 
   @Get()
   @ApiOperation({ summary: 'Get all categories' })
-  @ApiResponse({ status: 200, description: 'List of categories', type: [Category] })
+  @ApiResponse({
+    status: 200,
+    description: 'List of categories',
+    type: [Category],
+  })
   findAll() {
     return this.categoriesService.findAll();
   }
@@ -69,10 +76,17 @@ export class CategoriesController {
   @ApiOperation({ summary: 'Update a category (Admin only)' })
   @ApiParam({ name: 'id', description: 'Category ID' })
   @ApiBody({ type: UpdateCategoryDto })
-  @ApiResponse({ status: 200, description: 'Category successfully updated', type: Category })
+  @ApiResponse({
+    status: 200,
+    description: 'Category successfully updated',
+    type: Category,
+  })
   @ApiNotFoundResponse({ description: 'Category not found' })
   @ApiForbiddenResponse({ description: 'Insufficient permissions' })
-  update(@Param('id') id: string, @Body() updateCategoryDto: UpdateCategoryDto) {
+  update(
+    @Param('id') id: string,
+    @Body() updateCategoryDto: UpdateCategoryDto,
+  ) {
     return this.categoriesService.update(id, updateCategoryDto);
   }
 
@@ -88,4 +102,3 @@ export class CategoriesController {
     return this.categoriesService.remove(id);
   }
 }
-

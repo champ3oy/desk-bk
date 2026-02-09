@@ -420,8 +420,7 @@ Respond ONLY with a JSON object. Analyze the ticket and provide:
     error: null,
     metadata: {
       tokenUsage:
-        (response as any)?.usage_metadata ||
-        (response as any)?.response_metadata?.tokenUsage,
+        response?.usage_metadata || response?.response_metadata?.tokenUsage,
       performanceMs: Date.now() - totalStart,
     },
   };

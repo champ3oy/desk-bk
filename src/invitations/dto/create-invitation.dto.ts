@@ -32,4 +32,3 @@ export class CreateInvitationDto {
   @IsEnum(UserRole)
   role: UserRole;
 }
-

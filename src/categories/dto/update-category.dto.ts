@@ -18,4 +18,3 @@ export class UpdateCategoryDto {
   @IsOptional()
   description?: string;
 }
-

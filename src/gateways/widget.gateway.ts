@@ -233,8 +233,8 @@ export class WidgetGateway implements OnModuleInit {
         sender: message.authorType === 'customer' ? 'user' : 'agent',
         authorType: message.authorType,
         authorName:
-          message.authorId && (message.authorId as any).firstName
-            ? `${(message.authorId as any).firstName} ${(message.authorId as any).lastName || ''}`.trim()
+          message.authorId && message.authorId.firstName
+            ? `${message.authorId.firstName} ${message.authorId.lastName || ''}`.trim()
             : undefined,
         timestamp: message.createdAt
           ? new Date(message.createdAt).getTime()

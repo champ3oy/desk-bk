@@ -321,8 +321,8 @@ export class TrainingService {
       }
 
       await this.elevenLabsService.addToKnowledgeBase(
-        source.name || (source.content as string).substring(0, 50),
-        source.content as string,
+        source.name || source.content.substring(0, 50),
+        source.content,
         'text',
         agentId,
       );

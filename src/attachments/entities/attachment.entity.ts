@@ -22,11 +22,17 @@ export class Attachment {
   @Prop({ required: true })
   size: number;
 
-  @ApiProperty({ description: 'File storage path', example: '/uploads/abc123-def456.pdf' })
+  @ApiProperty({
+    description: 'File storage path',
+    example: '/uploads/abc123-def456.pdf',
+  })
   @Prop({ required: true })
   path: string;
 
-  @ApiProperty({ description: 'Organization ID', example: '507f1f77bcf86cd799439011' })
+  @ApiProperty({
+    description: 'Organization ID',
+    example: '507f1f77bcf86cd799439011',
+  })
   @Prop({ type: Types.ObjectId, ref: 'Organization', required: true })
   organizationId: Types.ObjectId;
 

@@ -17,7 +17,8 @@ export class CreateCommentDto {
   ticketId: string;
 
   @ApiPropertyOptional({
-    description: 'Whether this is an internal comment (only visible to agents/admins)',
+    description:
+      'Whether this is an internal comment (only visible to agents/admins)',
     example: false,
     default: false,
   })
@@ -25,4 +26,3 @@ export class CreateCommentDto {
   @IsOptional()
   isInternal?: boolean;
 }
-

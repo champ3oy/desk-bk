@@ -69,4 +69,3 @@ export class TagsService {
     await this.tagModel.findByIdAndDelete(id).exec();
   }
 }
-

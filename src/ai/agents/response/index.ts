@@ -49,7 +49,7 @@ export function buildSystemPrompt(
   channel?: string,
   customerName?: string,
 ): string {
-  let basePrompt = org.aiPersonalityPrompt || REACT_SYSTEM_PROMPT;
+  const basePrompt = org.aiPersonalityPrompt || REACT_SYSTEM_PROMPT;
 
   const instructions: string[] = [];
 
@@ -154,7 +154,7 @@ export const draftResponse = async (
   );
 
   // Flatten messages for context
-  let allMessages = threadsWithMessages
+  const allMessages = threadsWithMessages
     .flatMap((t) => t.messages)
     .sort(
       (a, b) =>
@@ -448,7 +448,7 @@ Please decide on the next best action.
   }
 
   // Message Buffer
-  let messages: BaseMessage[] = [
+  const messages: BaseMessage[] = [
     new SystemMessage(systemPrompt),
     new HumanMessage(initialUserMessage),
   ];
@@ -456,7 +456,7 @@ Please decide on the next best action.
   // 4. ReAct Loop
   const MAX_TURNS = 5;
   let turn = 0;
-  let finalResult: AgentResponse = {
+  const finalResult: AgentResponse = {
     action: 'ESCALATE',
     confidence: 0,
     metadata: {
@@ -528,7 +528,7 @@ Please decide on the next best action.
           if (toolCall.name === 'search_knowledge_base') kbUsed = true;
 
           try {
-            const result = await toolDef.func(toolCall.args as any);
+            const result = await toolDef.func(toolCall.args);
 
             // Check for Terminal Actions (Magic values returned by func)
             // Note: In parallel exec, if multiple return terminal actions, we pick the first one roughly?
@@ -560,7 +560,7 @@ Please decide on the next best action.
           }
 
           // Check for Magic Terminal Action
-          const raw = (res as any).rawResult;
+          const raw = res.rawResult;
           if (raw && typeof raw === 'object' && raw.__action) {
             if (raw.__action === 'ESCALATE') {
               return {
@@ -594,8 +594,8 @@ Please decide on the next best action.
           // Standard Tool Result
           messages.push(
             new ToolMessage({
-              tool_call_id: (res as any).tool_call_id,
-              content: (res as any).content,
+              tool_call_id: res.tool_call_id,
+              content: res.content,
             }),
           );
         }

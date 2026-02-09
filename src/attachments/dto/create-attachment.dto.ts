@@ -53,4 +53,3 @@ export class CreateAttachmentDto {
   @IsOptional()
   commentId?: string;
 }
-

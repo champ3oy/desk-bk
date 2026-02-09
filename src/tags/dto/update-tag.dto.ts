@@ -18,4 +18,3 @@ export class UpdateTagDto {
   @IsOptional()
   color?: string;
 }
-

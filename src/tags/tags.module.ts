@@ -11,4 +11,3 @@ import { Tag, TagSchema } from './entities/tag.entity';
   exports: [TagsService],
 })
 export class TagsModule {}
-

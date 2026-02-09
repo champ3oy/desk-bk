@@ -51,7 +51,7 @@ function buildDraftSystemPrompt(
   channel?: string,
   customerName?: string,
 ): string {
-  let prompt = DRAFT_SYSTEM_PROMPT;
+  const prompt = DRAFT_SYSTEM_PROMPT;
 
   const toneInstructions: string[] = [];
 
@@ -496,8 +496,7 @@ Remember: You are helping a human agent draft a response. Provide a clear, profe
     content: responseText.trim(),
     metadata: {
       tokenUsage:
-        (response as any)?.usage_metadata ||
-        (response as any)?.response_metadata?.tokenUsage,
+        response?.usage_metadata || response?.response_metadata?.tokenUsage,
       knowledgeBaseUsed: !!knowledgeContext,
       performanceMs: Date.now() - totalStart,
     },

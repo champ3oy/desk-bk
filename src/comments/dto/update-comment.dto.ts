@@ -11,11 +11,11 @@ export class UpdateCommentDto {
   content?: string;
 
   @ApiPropertyOptional({
-    description: 'Whether this is an internal comment (only visible to agents/admins)',
+    description:
+      'Whether this is an internal comment (only visible to agents/admins)',
     example: false,
   })
   @IsBoolean()
   @IsOptional()
   isInternal?: boolean;
 }
-

@@ -416,7 +416,7 @@ export class ThreadsService {
           await this.dispatcherService.dispatch(
             savedMessage,
             ticket,
-            (customer.email || customer.phone || '') as string,
+            customer.email || customer.phone || '',
             lastMessage?.externalMessageId,
             lastMessage?.externalMessageId, // Simple threading: use last ID as references too
           );

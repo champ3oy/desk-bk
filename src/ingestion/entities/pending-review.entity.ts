@@ -25,31 +25,52 @@ export class PendingReview {
   })
   channel: MessageChannel;
 
-  @ApiProperty({ description: 'Reason for manual review', example: 'Organization not found' })
+  @ApiProperty({
+    description: 'Reason for manual review',
+    example: 'Organization not found',
+  })
   @Prop({ required: true })
   reason: string;
 
-  @ApiProperty({ description: 'Raw incoming message data', additionalProperties: true })
+  @ApiProperty({
+    description: 'Raw incoming message data',
+    additionalProperties: true,
+  })
   @Prop({ type: Object, required: true })
   rawMessage: Record<string, any>;
 
-  @ApiPropertyOptional({ description: 'Sender email address', example: 'customer@example.com' })
+  @ApiPropertyOptional({
+    description: 'Sender email address',
+    example: 'customer@example.com',
+  })
   @Prop({ required: false })
   senderEmail?: string;
 
-  @ApiPropertyOptional({ description: 'Sender phone number', example: '+1234567890' })
+  @ApiPropertyOptional({
+    description: 'Sender phone number',
+    example: '+1234567890',
+  })
   @Prop({ required: false })
   senderPhone?: string;
 
-  @ApiPropertyOptional({ description: 'Recipient email address', example: 'support@acme.com' })
+  @ApiPropertyOptional({
+    description: 'Recipient email address',
+    example: 'support@acme.com',
+  })
   @Prop({ required: false })
   recipientEmail?: string;
 
-  @ApiPropertyOptional({ description: 'Recipient phone number', example: '+1987654321' })
+  @ApiPropertyOptional({
+    description: 'Recipient phone number',
+    example: '+1987654321',
+  })
   @Prop({ required: false })
   recipientPhone?: string;
 
-  @ApiPropertyOptional({ description: 'Message content', example: 'I need help' })
+  @ApiPropertyOptional({
+    description: 'Message content',
+    example: 'I need help',
+  })
   @Prop({ required: false })
   content?: string;
 
@@ -97,4 +118,3 @@ export const PendingReviewSchema = SchemaFactory.createForClass(PendingReview);
 // Index for faster lookups
 PendingReviewSchema.index({ status: 1, createdAt: -1 });
 PendingReviewSchema.index({ channel: 1, status: 1 });
-

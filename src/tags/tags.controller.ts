@@ -69,7 +69,11 @@ export class TagsController {
   @ApiOperation({ summary: 'Update a tag (Admin/Agent only)' })
   @ApiParam({ name: 'id', description: 'Tag ID' })
   @ApiBody({ type: UpdateTagDto })
-  @ApiResponse({ status: 200, description: 'Tag successfully updated', type: Tag })
+  @ApiResponse({
+    status: 200,
+    description: 'Tag successfully updated',
+    type: Tag,
+  })
   @ApiNotFoundResponse({ description: 'Tag not found' })
   @ApiForbiddenResponse({ description: 'Insufficient permissions' })
   update(@Param('id') id: string, @Body() updateTagDto: UpdateTagDto) {
@@ -88,4 +92,3 @@ export class TagsController {
     return this.tagsService.remove(id);
   }
 }
-

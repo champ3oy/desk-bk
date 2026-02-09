@@ -21,4 +21,7 @@ export default registerAs('ai', () => ({
   elevenLabsApiKey: process.env.ELEVENLABS_API_KEY,
   elevenLabsAgentId: process.env.ELEVENLABS_AGENT_ID,
   deepseekApiKey: process.env.DEEPSEEK_API_KEY,
+  fallbackModels: process.env.AI_FALLBACK_MODELS,
+  fastModel: process.env.AI_FAST_MODEL || 'gemini-3-flash-preview',
+  reasoningModel: process.env.AI_REASONING_MODEL || 'gemini-3-pro-preview',
 }));

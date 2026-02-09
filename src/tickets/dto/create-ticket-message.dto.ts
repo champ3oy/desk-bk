@@ -1,6 +1,9 @@
 import { IsString, IsEnum, IsOptional } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { MessageType, MessageChannel } from '../../threads/entities/message.entity';
+import {
+  MessageType,
+  MessageChannel,
+} from '../../threads/entities/message.entity';
 
 export class CreateTicketMessageDto {
   @ApiProperty({
@@ -11,7 +14,8 @@ export class CreateTicketMessageDto {
   content: string;
 
   @ApiProperty({
-    description: 'Message type - external (visible to customer) or internal (not visible to customer)',
+    description:
+      'Message type - external (visible to customer) or internal (not visible to customer)',
     enum: MessageType,
     example: MessageType.EXTERNAL,
   })
@@ -28,4 +32,3 @@ export class CreateTicketMessageDto {
   @IsOptional()
   channel?: MessageChannel;
 }
-

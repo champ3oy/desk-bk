@@ -278,7 +278,7 @@ export class TicketResolver {
         return false;
       }
 
-      return this.OPEN_STATUSES.includes(ticket.status as TicketStatus);
+      return this.OPEN_STATUSES.includes(ticket.status);
     } catch (error) {
       this.logger.warn(`Error checking ticket status: ${error.message}`);
       return false;

@@ -203,7 +203,7 @@ export class CustomersService {
       .select('_id')
       .exec();
 
-    return customers.map((c) => c._id as Types.ObjectId);
+    return customers.map((c) => c._id);
   }
 
   /**

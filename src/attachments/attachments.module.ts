@@ -19,4 +19,3 @@ import { Comment, CommentSchema } from '../comments/entities/comment.entity';
   exports: [AttachmentsService],
 })
 export class AttachmentsModule {}
-

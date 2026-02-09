@@ -20,15 +20,24 @@ export class Comment {
   @Prop({ default: false })
   isInternal: boolean;
 
-  @ApiProperty({ description: 'Organization ID', example: '507f1f77bcf86cd799439011' })
+  @ApiProperty({
+    description: 'Organization ID',
+    example: '507f1f77bcf86cd799439011',
+  })
   @Prop({ type: Types.ObjectId, ref: 'Organization', required: true })
   organizationId: Types.ObjectId;
 
-  @ApiProperty({ description: 'Author user ID', example: '507f1f77bcf86cd799439011' })
+  @ApiProperty({
+    description: 'Author user ID',
+    example: '507f1f77bcf86cd799439011',
+  })
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   authorId: Types.ObjectId;
 
-  @ApiProperty({ description: 'Ticket ID', example: '507f1f77bcf86cd799439011' })
+  @ApiProperty({
+    description: 'Ticket ID',
+    example: '507f1f77bcf86cd799439011',
+  })
   @Prop({ type: Types.ObjectId, ref: 'Ticket', required: true })
   ticketId: Types.ObjectId;
 

@@ -14,7 +14,10 @@ export type InvitationDocument = Invitation & Document;
 
 @Schema({ timestamps: true })
 export class Invitation {
-  @ApiProperty({ description: 'Invitation token', example: 'abc123-def456-ghi789' })
+  @ApiProperty({
+    description: 'Invitation token',
+    example: 'abc123-def456-ghi789',
+  })
   @Prop({ required: true, unique: true, index: true })
   token: string;
 
@@ -42,11 +45,17 @@ export class Invitation {
   })
   role: UserRole;
 
-  @ApiProperty({ description: 'Organization ID', example: '507f1f77bcf86cd799439011' })
+  @ApiProperty({
+    description: 'Organization ID',
+    example: '507f1f77bcf86cd799439011',
+  })
   @Prop({ type: Types.ObjectId, ref: 'Organization', required: true })
   organizationId: Types.ObjectId;
 
-  @ApiProperty({ description: 'User ID who sent the invitation', example: '507f1f77bcf86cd799439011' })
+  @ApiProperty({
+    description: 'User ID who sent the invitation',
+    example: '507f1f77bcf86cd799439011',
+  })
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   invitedBy: Types.ObjectId;
 
@@ -94,4 +103,3 @@ export const InvitationSchema = SchemaFactory.createForClass(Invitation);
 // Index for faster lookups
 InvitationSchema.index({ email: 1, organizationId: 1, status: 1 });
 InvitationSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
-

@@ -259,7 +259,7 @@ export class EmailParser {
     if (payload['attachment-count'] && payload['attachment-count'] > 0) {
       // Parse content-ids map if available (SendGrid)
       // Map is { "content-id": "filename" }
-      let filenameToCid: Record<string, string> = {};
+      const filenameToCid: Record<string, string> = {};
       try {
         if (payload['content-ids']) {
           const contentIdMap = JSON.parse(payload['content-ids']);
