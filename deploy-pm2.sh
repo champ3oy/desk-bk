@@ -17,9 +17,11 @@ mkdir -p logs
 echo "📦 Installing dependencies..."
 yarn install --frozen-lockfile
 
-# Build the application
+# Build the application with increased memory
 echo "🔨 Building application..."
+export NODE_OPTIONS="--max-old-space-size=2048"
 yarn build
+unset NODE_OPTIONS
 
 # Check if PM2 is installed globally
 if ! command -v pm2 &> /dev/null; then

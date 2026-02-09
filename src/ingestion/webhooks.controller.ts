@@ -21,6 +21,7 @@ import {
 } from '@nestjs/swagger';
 import { IngestionService } from './ingestion.service';
 import { WebhookPayloadDto } from './dto/webhook-payload.dto';
+import { GetWidgetHistoryDto } from './dto/get-widget-history.dto';
 import {
   MessageChannel,
   MessageType,
@@ -425,13 +426,8 @@ export class WebhooksController implements OnModuleInit {
     status: 200,
     description: 'Chat history retrieved successfully',
   })
-  async getWidgetHistory(
-    @Query('channelId') channelId: string,
-    @Query('sessionId') sessionId: string,
-  ) {
-    if (!channelId || !sessionId) {
-      throw new BadRequestException('channelId and sessionId are required');
-    }
+  async getWidgetHistory(@Query() query: GetWidgetHistoryDto) {
+    const { channelId, sessionId } = query;
 
     this.logger.debug(
       `Fetching widget history for session ${sessionId} in org ${channelId}`,

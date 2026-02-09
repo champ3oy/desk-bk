@@ -734,6 +734,7 @@ export class IngestionService {
         organizationId: new Types.ObjectId(organizationId),
         isActive: true,
       })
+      .sort({ updatedAt: -1 })
       .exec();
   }
 
