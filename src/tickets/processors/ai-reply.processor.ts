@@ -191,14 +191,18 @@ Task: Write a polite, concise message to the customer explaining that you are pa
 Do not apologize unless necessary. Be professional and reassuring.
 Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at the start or end.`;
 
-          const model = AIModelFactory.create(this.configService);
+          const model = AIModelFactory.create(this.configService, {
+            model:
+              this.configService.get<string>('ai.fastModel') ||
+              'gemini-3-flash-preview',
+          });
           const aiResult = await Promise.race([
             model.invoke(prompt),
             new Promise<any>((_, reject) =>
               setTimeout(
                 () =>
                   reject(new Error('Escalation message generation timed out')),
-                30000,
+                45000,
               ),
             ),
           ]);
