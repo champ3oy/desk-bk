@@ -31,6 +31,9 @@ export class AIModelFactory {
         modelName =
           configService.get<string>('ai.customModelName') ||
           process.env.AI_CUSTOM_MODEL_NAME;
+      } else if (defaultModel.toLowerCase().startsWith('gpt')) {
+        provider = 'openai';
+        modelName = defaultModel;
       } else if (defaultModel.toLowerCase().startsWith('deepseek')) {
         provider = 'deepseek';
         modelName = defaultModel;
@@ -92,6 +95,8 @@ export class AIModelFactory {
       model = this.createCustomClient(configService, modelName);
     } else if (provider?.toLowerCase() === 'deepseek') {
       model = this.createDeepseekClient(configService, modelName);
+    } else if (provider?.toLowerCase() === 'openai') {
+      model = this.createOpenAIClient(configService, modelName);
     } else {
       model = this.createGeminiClient(configService, modelName, selectedApiKey);
     }
@@ -161,6 +166,26 @@ export class AIModelFactory {
           provider: 'deepseek',
           model: 'deepseek-reasoner',
           label: 'Deepseek Reasoner (R1)',
+        },
+      );
+    }
+
+    // Check OpenAI
+    const openaiKey =
+      configService.get<string>('ai.openaiApiKey') ||
+      process.env.OPENAI_API_KEY;
+
+    if (openaiKey) {
+      models.push(
+        {
+          provider: 'openai',
+          model: 'gpt-4o',
+          label: 'GPT-4o',
+        },
+        {
+          provider: 'openai',
+          model: 'gpt-4o-mini',
+          label: 'GPT-4o Mini',
         },
       );
     }
@@ -357,6 +382,29 @@ export class AIModelFactory {
       configuration: {
         baseURL: 'https://api.deepseek.com',
       },
+      temperature: 0.3,
+    });
+  }
+
+  private static createOpenAIClient(
+    configService: ConfigService,
+    modelName: string,
+  ): ChatOpenAI {
+    const apiKey =
+      configService.get<string>('ai.openaiApiKey') ||
+      process.env.OPENAI_API_KEY;
+
+    if (!apiKey) {
+      throw new Error(
+        'OpenAI API key is not configured. Please set OPENAI_API_KEY.',
+      );
+    }
+
+    this.logger.log(`[AI Factory] Initializing OpenAI Client: ${modelName}`);
+
+    return new ChatOpenAI({
+      modelName: modelName,
+      apiKey: apiKey,
       temperature: 0.3,
     });
   }
