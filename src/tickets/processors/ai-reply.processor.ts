@@ -282,7 +282,7 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
           const model = AIModelFactory.create(this.configService, {
             model:
               this.configService.get<string>('ai.fastModel') ||
-              'gemini-3-flash-preview',
+              'gemini-2.5-flash',
           });
           const aiResult = await Promise.race([
             model.invoke(prompt),

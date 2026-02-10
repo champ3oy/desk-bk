@@ -22,7 +22,7 @@ export default registerAs('ai', () => ({
   elevenLabsAgentId: process.env.ELEVENLABS_AGENT_ID,
   deepseekApiKey: process.env.DEEPSEEK_API_KEY,
   fallbackModels: process.env.AI_FALLBACK_MODELS,
-  fastModel: process.env.AI_FAST_MODEL || 'gemini-3-flash-preview',
+  fastModel: process.env.AI_FAST_MODEL || 'gemini-2.5-flash',
   openaiApiKey: process.env.OPENAI_API_KEY,
-  reasoningModel: process.env.AI_REASONING_MODEL || 'gemini-3-pro-preview',
+  reasoningModel: process.env.AI_REASONING_MODEL || 'gemini-2.5-flash',
 }));

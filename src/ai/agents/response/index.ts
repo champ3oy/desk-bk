@@ -345,8 +345,7 @@ export const draftResponse = async (
 
   // Fast Model: Use 'gemini-3-flash-preview' by default for speed/cost, unless overridden
   const fastModel = AIModelFactory.create(configService, {
-    model:
-      configService.get<string>('ai.fastModel') || 'gemini-3-flash-preview',
+    model: configService.get<string>('ai.fastModel') || 'gemini-2.5-flash',
   });
 
   // Main Model: Use the configured app default (likely Pro) or specific 'ai.reasoningModel'
