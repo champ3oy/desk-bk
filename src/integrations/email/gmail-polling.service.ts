@@ -81,10 +81,21 @@ export class GmailPollingService {
       query = `after:${after} -from:${integration.email}`;
     }
 
-    await this.fetchMessagesAndQueue(integration, query);
+    // Capture the highest timestamp from the messages we find
+    const latestMessageTimestamp = await this.fetchMessagesAndQueue(
+      integration,
+      query,
+    );
 
     // Update lastSyncedAt
-    integration.lastSyncedAt = new Date();
+    // If we found messages, use the latest timestamp + 1 second to avoid overlap (or keep it same to be safe)
+    // If no messages, use NOW to advance the cursor
+    if (latestMessageTimestamp > 0) {
+      integration.lastSyncedAt = new Date(latestMessageTimestamp);
+    } else {
+      integration.lastSyncedAt = new Date();
+    }
+
     await integration.save();
   }
 
@@ -159,33 +170,62 @@ export class GmailPollingService {
     await this.fetchMessagesAndQueue(integration, query);
   }
 
-  private async fetchMessagesAndQueue(integration: any, query: string) {
+  private async fetchMessagesAndQueue(
+    integration: any,
+    query: string,
+  ): Promise<number> {
     const { gmail } = await this.emailIntegrationService.getGmailClient(
       integration.email,
     );
 
-    const res = await gmail.users.messages.list({
-      userId: 'me',
-      q: query,
-      maxResults: 50, // Batch size
-    });
+    let nextPageToken: string | undefined = undefined;
+    let maxTimestamp = 0;
 
-    const messages = res.data.messages;
-
-    if (!messages || messages.length === 0) {
-      return;
-    }
-
-    // Process oldest to newest
-    const messagesToProcess = messages.reverse();
-
-    for (const msgStub of messagesToProcess) {
-      await this.emailQueue.add('gmail-job', {
-        integrationId: integration._id,
-        messageId: msgStub.id,
-        provider: 'gmail',
+    do {
+      const res = await gmail.users.messages.list({
+        userId: 'me',
+        q: query,
+        maxResults: 50,
+        pageToken: nextPageToken,
       });
-    }
+
+      const messages = res.data.messages;
+      nextPageToken = res.data.nextPageToken;
+
+      if (!messages || messages.length === 0) {
+        continue;
+      }
+
+      // Process batches
+      for (const msgStub of messages) {
+        try {
+          const minimalMsg = await gmail.users.messages.get({
+            userId: 'me',
+            id: msgStub.id,
+            format: 'minimal',
+          });
+
+          if (minimalMsg.data.internalDate) {
+            const ts = parseInt(minimalMsg.data.internalDate, 10);
+            if (ts > maxTimestamp) {
+              maxTimestamp = ts;
+            }
+          }
+        } catch (e) {
+          this.logger.warn(
+            `Failed to fetch timestamp for message ${msgStub.id}: ${e.message}`,
+          );
+        }
+
+        await this.emailQueue.add('gmail-job', {
+          integrationId: integration._id,
+          messageId: msgStub.id,
+          provider: 'gmail',
+        });
+      }
+    } while (nextPageToken);
+
+    return maxTimestamp;
   }
 
   private async mapGmailMessageToDto(

@@ -28,58 +28,77 @@ export class OrganizationResolver {
 
       // Try to match by recipient email
       if (message.recipientEmail) {
-        const normalizedRecipient = message.recipientEmail.toLowerCase().trim();
+        // Extract all potential emails from the recipient string (handles commas and "Name <email>" format)
+        const recipientEmails = this.extractEmails(message.recipientEmail);
+
+        // Also check CC/To from headers if available in metadata, as the support email might be in CC
+        if (message.metadata) {
+          if (message.metadata.cc) {
+            const ccEmails = this.extractEmails(message.metadata.cc);
+            ccEmails.forEach((e) => recipientEmails.add(e));
+          }
+          // Some parsers might put full To header in metadata
+          if (
+            message.metadata.to &&
+            message.metadata.to !== message.recipientEmail
+          ) {
+            const toEmails = this.extractEmails(message.metadata.to);
+            toEmails.forEach((e) => recipientEmails.add(e));
+          }
+        }
 
         for (const org of organizations as OrganizationDocument[]) {
           if (!org.isActive) {
             continue;
           }
 
-          // Check primary support email
-          if (
-            org.supportEmail &&
-            org.supportEmail.toLowerCase().trim() === normalizedRecipient
-          ) {
-            this.logger.debug(
-              `Matched organization ${(org as any)._id} by support email`,
-            );
-            return (org as any)._id.toString();
-          }
-
-          // Check additional emails
-          if (org.additionalEmails && org.additionalEmails.length > 0) {
-            const match = org.additionalEmails.some(
-              (email) => email.toLowerCase().trim() === normalizedRecipient,
-            );
-            if (match) {
+          // Check against all extracted recipient emails
+          for (const recipient of recipientEmails) {
+            // Check primary support email
+            if (
+              org.supportEmail &&
+              org.supportEmail.toLowerCase().trim() === recipient
+            ) {
               this.logger.debug(
-                `Matched organization ${(org as any)._id} by additional email`,
+                `Matched organization ${(org as any)._id} by support email: ${recipient}`,
               );
               return (org as any)._id.toString();
             }
-          }
 
-          // Check Email Integrations (Fuzzy match fallback)
-          try {
-            const orgId = (org as any)._id.toString();
-            const emailIntegrations =
-              await this.emailIntegrationService.findByOrganization(orgId);
-
-            const match = emailIntegrations.find((ei) => {
-              return (
-                ei.isActive &&
-                ei.email.toLowerCase().trim() === normalizedRecipient
+            // Check additional emails
+            if (org.additionalEmails && org.additionalEmails.length > 0) {
+              const match = org.additionalEmails.some(
+                (email) => email.toLowerCase().trim() === recipient,
               );
-            });
-
-            if (match) {
-              this.logger.debug(
-                `Matched organization ${orgId} by Email Integration ${match.email}`,
-              );
-              message.integrationId = (match as any)._id.toString();
-              return orgId;
+              if (match) {
+                this.logger.debug(
+                  `Matched organization ${(org as any)._id} by additional email: ${recipient}`,
+                );
+                return (org as any)._id.toString();
+              }
             }
-          } catch (e) {}
+
+            // Check Email Integrations (Fuzzy match fallback)
+            try {
+              const orgId = (org as any)._id.toString();
+              const emailIntegrations =
+                await this.emailIntegrationService.findByOrganization(orgId);
+
+              const match = emailIntegrations.find((ei) => {
+                return (
+                  ei.isActive && ei.email.toLowerCase().trim() === recipient
+                );
+              });
+
+              if (match) {
+                this.logger.debug(
+                  `Matched organization ${orgId} by Email Integration ${match.email}`,
+                );
+                message.integrationId = (match as any)._id.toString();
+                return orgId;
+              }
+            } catch (e) {}
+          }
         }
       }
 
@@ -208,5 +227,36 @@ export class OrganizationResolver {
     }
     // Remove spaces, dashes, parentheses, and convert to lowercase
     return phone.replace(/\s|-|\(|\)/g, '').toLowerCase();
+  }
+
+  /**
+   * Extract all email addresses from a string
+   * Handles "Name <email>" and comma-separated lists
+   */
+  private extractEmails(input: string): Set<string> {
+    const emails = new Set<string>();
+    if (!input) return emails;
+
+    // Split by comma to handle multiple recipients
+    const parts = input.split(',');
+
+    for (const part of parts) {
+      const trimmed = part.trim();
+      if (!trimmed) continue;
+
+      // Try to match <email> format
+      const match = trimmed.match(/<([^>]+)>/);
+      if (match && match[1]) {
+        emails.add(match[1].toLowerCase().trim());
+      } else {
+        // Assume the whole thing is an email if no brackets
+        // Basic validation to ensure it looks like an email
+        if (trimmed.includes('@')) {
+          emails.add(trimmed.toLowerCase().trim());
+        }
+      }
+    }
+
+    return emails;
   }
 }

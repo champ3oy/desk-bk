@@ -90,30 +90,41 @@ export class OutlookPollingService {
       queryDate = date.toISOString();
     }
 
-    // Capture the time BEFORE functionality to update lastSyncedAt safely
-    const newSyncTime = new Date();
-
-    await this.fetchMessagesAndQueue(integration, queryDate);
+    const latestMessageDate = await this.fetchMessagesAndQueue(
+      integration,
+      queryDate,
+    );
 
     // Update lastSyncedAt
-    integration.lastSyncedAt = newSyncTime;
+    // Use the latest message date if found, otherwise use NOW to advance the cursor (if no messages found)
+    if (latestMessageDate) {
+      integration.lastSyncedAt = latestMessageDate;
+    } else {
+      integration.lastSyncedAt = new Date();
+    }
+
     await integration.save();
   }
 
-  private async fetchMessagesAndQueue(integration: any, dateIsoString: string) {
+  private async fetchMessagesAndQueue(
+    integration: any,
+    dateIsoString: string,
+  ): Promise<Date | null> {
     const { client } = await this.emailIntegrationService.getOutlookClient(
       integration.email,
     );
 
     // Fetch messages received AFTER the date
-    // Graph API: receivedDateTime ge 2023...
-    // Also order by receivedDateTime desc
+    // Graph API: receivedDateTime gt ...
+    // Order by receivedDateTime asc (Oldest first) so we process in order and don't skip "middle" messages if we page.
+    // NOTE: 'gt' avoids infinite loop on the same timestamp.
 
-    let url = `/me/messages?$filter=receivedDateTime ge ${dateIsoString} and from/emailAddress/address ne '${integration.email}'&$orderby=receivedDateTime desc&$top=50&$select=id,receivedDateTime,from,toRecipients,subject,body,internetMessageHeaders,conversationId,isRead`;
+    let url = `/me/messages?$filter=receivedDateTime gt ${dateIsoString} and from/emailAddress/address ne '${integration.email}'&$orderby=receivedDateTime asc&$top=50&$select=id,receivedDateTime,from,toRecipients,subject,body,internetMessageHeaders,conversationId,isRead`;
 
     let hasNext = true;
     let pageCount = 0;
     const maxPages = 5; // Safety limit
+    let maxDate: Date | null = null;
 
     while (hasNext && pageCount < maxPages) {
       const response = await client.api(url).get();
@@ -123,12 +134,13 @@ export class OutlookPollingService {
         break;
       }
 
-      // Process oldest to newest for consistent threading if we were strictly chronological,
-      // but we fetched DESC. So we process in reverse of the list (which is Newest->Oldest).
-      // So reversing checks out.
-      const messagesToProcess = [...messages].reverse();
+      // Since ordered ASC, the LAST message in the batch is the NEWEST.
+      if (messages.length > 0) {
+        const lastMsg = messages[messages.length - 1];
+        maxDate = new Date(lastMsg.receivedDateTime);
+      }
 
-      for (const msg of messagesToProcess) {
+      for (const msg of messages) {
         await this.emailQueue.add('outlook-job', {
           integrationId: integration._id,
           messageId: msg.id,
@@ -143,6 +155,8 @@ export class OutlookPollingService {
         hasNext = false;
       }
     }
+
+    return maxDate;
   }
 
   /**
