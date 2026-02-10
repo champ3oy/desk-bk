@@ -165,14 +165,6 @@ export const draftResponse = async (
   // Take last 15 messages for context window
   const recentMessages = allMessages.slice(-15);
 
-  // Format history for the AI
-  const historyText = recentMessages
-    .map(
-      (m) =>
-        `[${m.authorType === 'customer' ? 'User' : 'Agent'}]: ${m.content}`,
-    )
-    .join('\n');
-
   // 2. Define Tools
   const tools = [
     {
@@ -378,22 +370,6 @@ export const draftResponse = async (
     (ticket.customerId as any).firstName,
   );
 
-  const initialUserMessage = `
-Context:
-- Ticket ID: ${ticket.displayId || ticket._id}
-- Subject: ${ticket.subject}
-- Status: ${ticket.status}
-- Current Priority: ${ticket.priority}
-
-Conversation History:
-${historyText}
-
-${additionalContext ? `Additional Instruction: ${additionalContext}` : ''}
-${isWaitingForNewTopicCheck ? 'Note: User is in escalation buffer. Check if this is a new topic.' : ''}
-
-Please decide on the next best action.
-`;
-
   // 4. Intent Classification Check (Stop Infinite Loops)
   // We check the LAST user message to see if it's gratitude or closure.
   // We use the same model but with a specific prompt.
@@ -448,10 +424,91 @@ Please decide on the next best action.
     }
   }
 
+  // Build Multimodal History
+  const historyMessages: BaseMessage[] = [];
+
+  // Helper to fetch image as base64
+  const fetchImageAsBase64 = async (url: string): Promise<string | null> => {
+    try {
+      console.log(`[AI Agent] Fetching image for context: ${url}`);
+      const response = await fetch(url);
+      if (!response.ok) {
+        console.warn(
+          `[AI Agent] Failed to fetch image: ${response.statusText}`,
+        );
+        return null;
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      const contentType = response.headers.get('content-type') || 'image/jpeg';
+      return `data:${contentType};base64,${buffer.toString('base64')}`;
+    } catch (e) {
+      console.warn(`[AI Agent] Failed to download image context: ${url}`, e);
+      return null;
+    }
+  };
+
+  for (const msg of recentMessages) {
+    const role = msg.authorType === 'customer' ? 'user' : 'assistant';
+    const contentParts: any[] = [];
+
+    // Add text content (default to empty string if missing to avoid validation errors, though [Attachment] usually present)
+    const textContent = msg.content || '';
+    if (textContent) {
+      contentParts.push({ type: 'text', text: textContent });
+    }
+
+    // Add Image attachments
+    if (msg.attachments && msg.attachments.length > 0) {
+      for (const att of msg.attachments) {
+        // Only add images for now
+        if (att.mimeType && att.mimeType.startsWith('image/')) {
+          // Use the public Vercel Blob URL directly
+          if (att.path && att.path.startsWith('http')) {
+            const base64Data = await fetchImageAsBase64(att.path);
+            if (base64Data) {
+              contentParts.push({
+                type: 'image_url',
+                image_url: {
+                  url: base64Data,
+                },
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // fallback for empty content (rare)
+    if (contentParts.length === 0) {
+      contentParts.push({ type: 'text', text: '[Empty Message]' });
+    }
+
+    if (role === 'user') {
+      historyMessages.push(new HumanMessage({ content: contentParts }));
+    } else {
+      historyMessages.push(new AIMessage({ content: contentParts }));
+    }
+  }
+
+  const contextInstruction = `
+Context:
+- Ticket ID: ${ticket.displayId || ticket._id}
+- Subject: ${ticket.subject}
+- Status: ${ticket.status}
+- Current Priority: ${ticket.priority}
+
+${additionalContext ? `Additional Instruction: ${additionalContext}` : ''}
+${isWaitingForNewTopicCheck ? 'Note: User is in escalation buffer. Check if this is a new topic.' : ''}
+
+Please decide on the next best action.
+`;
+
   // Message Buffer
   const messages: BaseMessage[] = [
     new SystemMessage(systemPrompt),
-    new HumanMessage(initialUserMessage),
+    ...historyMessages,
+    new HumanMessage(contextInstruction),
   ];
 
   // 4. ReAct Loop
