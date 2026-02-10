@@ -103,7 +103,10 @@ export class CommentsService {
   ): Promise<Comment> {
     const comment = await this.findOne(id, userId, userRole);
 
-    if (comment.authorId.toString() !== userId && userRole !== UserRole.ADMIN) {
+    if (
+      (comment.authorId as any)._id?.toString() !== userId &&
+      userRole !== UserRole.ADMIN
+    ) {
       throw new ForbiddenException('You can only edit your own comments');
     }
 
@@ -114,7 +117,10 @@ export class CommentsService {
   async remove(id: string, userId: string, userRole: UserRole): Promise<void> {
     const comment = await this.findOne(id, userId, userRole);
 
-    if (comment.authorId.toString() !== userId && userRole !== UserRole.ADMIN) {
+    if (
+      (comment.authorId as any)._id?.toString() !== userId &&
+      userRole !== UserRole.ADMIN
+    ) {
       throw new ForbiddenException('You can only delete your own comments');
     }
 

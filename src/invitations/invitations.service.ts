@@ -192,7 +192,12 @@ export class InvitationsService {
     await invitation.save();
 
     // Resend email
-    await this.sendEmail(invitation, invitation.invitedBy.toString());
+    // Use the ID even if the field is populated
+    const inviterId = invitation.populated('invitedBy')
+      ? invitation.populated('invitedBy').toString()
+      : invitation.invitedBy.toString();
+
+    await this.sendEmail(invitation, inviterId);
 
     return invitation;
   }
@@ -220,7 +225,11 @@ export class InvitationsService {
         invitation.organizationId.toString(),
       );
 
-      const inviter = await this.usersService.findOne(inviterId);
+      // If invitedBy is already populated with enough info, use it directly
+      let inviter = invitation.invitedBy as any;
+      if (!inviter || !inviter.firstName) {
+        inviter = await this.usersService.findOne(inviterId);
+      }
 
       const frontendUrl =
         this.configService.get<string>('FRONTEND_URL') ||

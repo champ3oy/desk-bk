@@ -1095,7 +1095,8 @@ Sentiment:`;
       (!existingTicket.assignedToId ||
         (existingTicket.assignedToId &&
           updatedTicket.assignedToId._id.toString() !==
-            existingTicket.assignedToId.toString()))
+            ((existingTicket.assignedToId as any)._id?.toString() ||
+              existingTicket.assignedToId.toString())))
     ) {
       await this.notificationsService.create({
         userId: updatedTicket.assignedToId._id.toString(),
@@ -1152,7 +1153,10 @@ Sentiment:`;
     );
 
     if (
-      sourceTicket.customerId.toString() !== targetTicket.customerId.toString()
+      ((sourceTicket.customerId as any)._id?.toString() ||
+        sourceTicket.customerId.toString()) !==
+      ((targetTicket.customerId as any)._id?.toString() ||
+        targetTicket.customerId.toString())
     ) {
       // Optional: Enforce same customer? The prompt implies merging tickets, usually for same customer.
       // But sometimes you merge duplicates from different profiles (which are then merged).

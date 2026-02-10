@@ -629,7 +629,7 @@ export class ThreadsService {
       } else {
         // Check if user is a participant (can see internal messages)
         const isParticipant = thread.participantUserIds.some(
-          (id) => id.toString() === userId,
+          (user: any) => (user._id?.toString() || user.toString()) === userId,
         );
 
         if (!isParticipant) {
@@ -660,9 +660,11 @@ export class ThreadsService {
               userGroups.some((g) => g._id.toString() === assignedToGroupId);
 
             const isInParticipantGroup = thread.participantGroupIds.some(
-              (groupId) =>
+              (group: any) =>
                 userGroups.some(
-                  (group) => group._id.toString() === groupId.toString(),
+                  (userGroup) =>
+                    userGroup._id.toString() ===
+                    (group._id?.toString() || group.toString()),
                 ),
             );
 
