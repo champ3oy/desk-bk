@@ -32,7 +32,8 @@ const REACT_SYSTEM_PROMPT = `You are an expert customer support agent for our co
 -   **Always** check 'get_customer_context' if you need to know who the user is (e.g. VIP status, recent orders).
 -   If the user is angry or the issue is complex, use 'escalate_ticket'.
 -   If the user asks about a specific topic (e.g., "Billing"), use 'update_ticket_attributes' to tag it.
--   **Final Step**: You must ALWAYS call 'send_final_reply' to send your message to the user, OR 'escalate_ticket' to hand off. Do not just stop.
+-   **Final Step**: You must ALWAYS call 'send_final_reply' to send your message to the user, OR 'escalate_ticket' to hand off.
+-   **IMPORTANT**: Do NOT write the function call (e.g. "send_final_reply(...)") in the message text. You must use the tool/function calling feature.
 -   **Conversation Closure**: If the user says "Thanks" or indicates the issue is resolved, do NOT reply "You're welcome". Just stop (return empty text, no tool calls).
 
 # TONE & STYLE
@@ -605,6 +606,31 @@ Please decide on the next best action.
         // We'll treat plain text as a REPLY.
         const content =
           typeof aiResponse.content === 'string' ? aiResponse.content : '';
+
+        // FIX: Detect hallucinated tool calls (text that looks like code)
+        // Matches: send_final_reply(message="...") or send_final_reply(message='...')
+        // This handles cases where smaller models write the code instead of calling the tool.
+        const hallucinatedCall = content.match(
+          /send_final_reply\s*\(\s*message\s*=\s*(["'])([\s\S]*?)\1\s*\)/,
+        );
+
+        if (hallucinatedCall) {
+          console.log(
+            '[ReAct Loop] Detected hallucinated tool call in text. Fixing...',
+          );
+          return {
+            action: 'REPLY',
+            content: hallucinatedCall[2], // The captured message inside quotes
+            confidence: 85,
+            metadata: {
+              tokenUsage: aiResponse.usage_metadata,
+              knowledgeBaseUsed: kbUsed,
+              performanceMs: Date.now() - totalStart,
+              toolCalls: executedTools.concat(['send_final_reply_fixed']),
+            },
+          };
+        }
+
         if (content) {
           return {
             action: 'REPLY',
