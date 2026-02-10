@@ -33,13 +33,18 @@ export class WhatsAppParser {
     ) {
       // This is the normalized format from webhooks.controller.ts
       const attachments: any[] = [];
-      if (payload.mediaUrl && payload.mediaType) {
+      if (
+        payload.mediaType &&
+        (payload.mediaUrl || payload.originalPayload?.[payload.mediaType]?.id)
+      ) {
+        const mediaId = payload.originalPayload?.[payload.mediaType]?.id;
         attachments.push({
           filename: `whatsapp_${payload.mediaType}_${payload.id || Date.now()}.${this.getExtension(payload.mediaType)}`,
           originalName: `whatsapp_${payload.mediaType}_${payload.id || Date.now()}.${this.getExtension(payload.mediaType)}`,
           mimeType: this.getMimeType(payload.mediaType),
           size: 0,
-          path: payload.mediaUrl,
+          path: payload.mediaUrl || '',
+          mediaId: mediaId,
         });
       }
 

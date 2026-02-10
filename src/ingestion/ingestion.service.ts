@@ -872,6 +872,44 @@ export class IngestionService {
 
         // Process each attachment
         for (const attachment of message.attachments) {
+          // 0. Fetch explicit URL if missing but we have mediaId
+          if (
+            (!attachment.path || !attachment.path.startsWith('http')) &&
+            attachment.mediaId
+          ) {
+            try {
+              this.logger.debug(
+                `Fetching media URL for ID ${attachment.mediaId}...`,
+              );
+              const mediaRes = await fetch(
+                `https://graph.facebook.com/v18.0/${attachment.mediaId}`,
+                {
+                  headers: {
+                    Authorization: `Bearer ${integration.accessToken}`,
+                  },
+                },
+              );
+
+              if (mediaRes.ok) {
+                const mediaData = (await mediaRes.json()) as any;
+                if (mediaData.url) {
+                  attachment.path = mediaData.url;
+                  this.logger.debug(
+                    `Resolved media URL: ${attachment.path.substring(0, 50)}...`,
+                  );
+                }
+              } else {
+                this.logger.warn(
+                  `Failed to resolve media URL: ${mediaRes.status} ${mediaRes.statusText}`,
+                );
+              }
+            } catch (e) {
+              this.logger.error(
+                `Error fetching media URL for ${attachment.mediaId}: ${e.message}`,
+              );
+            }
+          }
+
           // Check if it's a Meta URL (starts with https://)
           // Actually, if we are here, we assume the parser gave us a URL we need to download
           if (!attachment.path || !attachment.path.startsWith('http')) continue;

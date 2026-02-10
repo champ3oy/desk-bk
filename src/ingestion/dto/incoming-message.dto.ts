@@ -123,5 +123,6 @@ export class IncomingMessageDto {
     size: number;
     path: string;
     contentId?: string;
+    mediaId?: string;
   }>;
 }
