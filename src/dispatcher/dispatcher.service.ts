@@ -232,6 +232,9 @@ export class DispatcherService {
   /**
    * Dispatch a message via WhatsApp
    */
+  /**
+   * Dispatch a message via WhatsApp
+   */
   private async dispatchWhatsApp(
     message: MessageDocument,
     ticket: TicketDocument,
@@ -271,6 +274,7 @@ export class DispatcherService {
       if (!to) {
         this.logger.warn(
           `Cannot send WhatsApp: Customer ${customer._id} has no phone number`,
+          JSON.stringify(customer),
         );
         return false;
       }
@@ -280,12 +284,38 @@ export class DispatcherService {
         wordwrap: false,
       });
 
+      // Check for attachments
+      let attachment:
+        | {
+            url: string;
+            type: 'image' | 'video' | 'document' | 'audio';
+            filename?: string;
+          }
+        | undefined;
+
+      if (message.attachments && message.attachments.length > 0) {
+        const att = message.attachments[0]; // WhatsApp only supports 1 media per message usually
+        if (att.path && att.path !== 'undefined') {
+          let type: 'image' | 'video' | 'document' | 'audio' = 'document';
+          if (att.mimeType?.startsWith('image/')) type = 'image';
+          else if (att.mimeType?.startsWith('video/')) type = 'video';
+          else if (att.mimeType?.startsWith('audio/')) type = 'audio';
+
+          attachment = {
+            url: att.path,
+            type,
+            filename: att.originalName,
+          };
+        }
+      }
+
       // Send via WhatsApp service
       const externalMessageId =
         await this.socialIntegrationService.sendWhatsAppMessage(
           integration,
           to,
           plainContent,
+          attachment,
         );
 
       if (externalMessageId) {

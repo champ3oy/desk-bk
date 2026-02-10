@@ -32,18 +32,15 @@ export class GmailPollingService {
   @Cron(CronExpression.EVERY_MINUTE)
   async pollEmails() {
     if (this.configService.get<boolean>('ai.disablePolling')) {
-      this.logger.debug('Email polling is disabled by configuration');
       return;
     }
 
     if (this.isPolling) {
-      this.logger.debug('Polling already in progress, skipping...');
       return;
     }
 
     this.isPolling = true;
     try {
-      this.logger.log('Starting email polling (Queue Mode)...');
       const integrations =
         await this.emailIntegrationService.findAllActiveSystem();
 
@@ -51,15 +48,8 @@ export class GmailPollingService {
         (i) => i.provider === 'gmail',
       );
 
-      this.logger.debug(
-        `Found ${gmailIntegrations.length} active integrations to poll`,
-      );
-
       for (const integration of gmailIntegrations) {
         try {
-          this.logger.debug(
-            `Polling integration for email: ${integration.email}`,
-          );
           await this.listAndQueueMessages(integration);
         } catch (error) {
           this.logger.error(
@@ -129,10 +119,6 @@ export class GmailPollingService {
         integration,
       );
 
-      this.logger.debug(
-        `Mapped message before ingestion: senderEmail=${mappedMessage.senderEmail}, senderName=${mappedMessage.senderName}`,
-      );
-
       // Ingest with organizationId from the integration
       const result = await this.ingestionService.ingestWithOrganization(
         mappedMessage,
@@ -142,7 +128,6 @@ export class GmailPollingService {
       );
 
       if (result.success) {
-        this.logger.debug(`Ingested message ${mappedMessage.messageId}`);
       } else {
         this.logger.warn(
           `Failed to ingest message ${mappedMessage.messageId}: ${result.error}`,
@@ -171,11 +156,7 @@ export class GmailPollingService {
     const seconds = days * 24 * 60 * 60;
     const after = Math.floor(Date.now() / 1000 - seconds);
     const query = `after:${after} -from:${integration.email}`;
-    this.logger.log(
-      `Starting manual sync for ${integration.email} looking back ${days} days...`,
-    );
     await this.fetchMessagesAndQueue(integration, query);
-    this.logger.log(`Manual sync request queued for ${integration.email}`);
   }
 
   private async fetchMessagesAndQueue(integration: any, query: string) {
@@ -194,10 +175,6 @@ export class GmailPollingService {
     if (!messages || messages.length === 0) {
       return;
     }
-
-    this.logger.debug(
-      `Found ${messages.length} messages for ${integration.email} with query: ${query}`,
-    );
 
     // Process oldest to newest
     const messagesToProcess = messages.reverse();
@@ -301,10 +278,6 @@ export class GmailPollingService {
         senderEmail = simpleMatch[0];
       }
     }
-
-    this.logger.debug(
-      `Parsed Sender: From="${from}" -> Name="${senderName}", Email="${senderEmail}"`,
-    );
 
     // Process standard attachments (files)
     const attachments: any[] = [];

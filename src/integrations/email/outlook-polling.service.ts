@@ -36,18 +36,15 @@ export class OutlookPollingService {
   @Cron(CronExpression.EVERY_MINUTE)
   async pollEmails() {
     if (this.configService.get<boolean>('ai.disablePolling')) {
-      this.logger.debug('Email polling is disabled by configuration');
       return;
     }
 
     if (this.isPolling) {
-      this.logger.debug('Outlook Polling already in progress, skipping...');
       return;
     }
 
     this.isPolling = true;
     try {
-      this.logger.log('Starting Outlook email polling...');
       // Get all active integrations
       const integrations =
         await this.emailIntegrationService.findAllActiveSystem();
@@ -56,15 +53,8 @@ export class OutlookPollingService {
         (i) => i.provider === EmailProvider.OUTLOOK,
       );
 
-      this.logger.debug(
-        `Found ${outlookIntegrations.length} active Outlook integrations to poll`,
-      );
-
       for (const integration of outlookIntegrations) {
         try {
-          this.logger.debug(
-            `Polling Outlook integration for email: ${integration.email}`,
-          );
           await this.pollIntegration(integration);
         } catch (error) {
           this.logger.error(
@@ -83,14 +73,7 @@ export class OutlookPollingService {
     const date = new Date();
     date.setDate(date.getDate() - days);
     const queryDate = date.toISOString();
-
-    this.logger.log(
-      `Starting manual sync for ${integration.email} looking back ${days} days (>= ${queryDate})...`,
-    );
-
     await this.fetchMessagesAndQueue(integration, queryDate);
-
-    this.logger.log(`Manual sync completed for ${integration.email}`);
   }
 
   private async pollIntegration(integration: any) {
@@ -139,10 +122,6 @@ export class OutlookPollingService {
       if (!messages || messages.length === 0) {
         break;
       }
-
-      this.logger.debug(
-        `Found ${messages.length} messages for ${integration.email} in page ${pageCount + 1}`,
-      );
 
       // Process oldest to newest for consistent threading if we were strictly chronological,
       // but we fetched DESC. So we process in reverse of the list (which is Newest->Oldest).
@@ -269,28 +248,17 @@ export class OutlookPollingService {
 
     // Log if we still don't have an email (this shouldn't happen but helps debugging)
     if (!fromEmail) {
-      this.logger.error(
-        `Message ${msg.id} has no sender email. Subject: ${msg.subject}`,
-      );
-      this.logger.error(`Message from field: ${JSON.stringify(msg.from)}`);
-      this.logger.error(`Message sender field: ${JSON.stringify(msg.sender)}`);
-      this.logger.error(`Has headers: ${!!msg.internetMessageHeaders}`);
       if (msg.internetMessageHeaders) {
         const findHeader = (name: string) =>
           msg.internetMessageHeaders.find(
             (h: any) => h.name.toLowerCase() === name.toLowerCase(),
           )?.value;
-        this.logger.error(`From header: ${findHeader('from')}`);
       }
       // Skip this message - we can't process it without a sender
       throw new Error(
         `Cannot process message ${msg.id}: no sender email found`,
       );
     }
-
-    this.logger.debug(
-      `Extracted sender: ${fromEmail} (${fromName}) for message ${msg.id}`,
-    );
 
     // Get Message ID and References from headers if possible for threading
     let messageId = msg.id; // Graph ID as fallback
@@ -464,11 +432,6 @@ export class OutlookPollingService {
         ? integration['_id'].toString()
         : undefined,
     };
-
-    this.logger.debug(
-      `Returning DTO: senderEmail=${dto.senderEmail}, recipientEmail=${dto.recipientEmail}, subject=${dto.subject}`,
-    );
-
     return dto;
   }
 }

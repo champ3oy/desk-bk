@@ -37,10 +37,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
           ? payload.organizationId
           : undefined;
 
-      this.logger.log(
-        `Validating JWT for email=${payload.email} targetOrg=${targetOrgId || 'none'}`,
-      );
-
       let user = await this.usersService.findByEmail(
         payload.email,
         targetOrgId,
@@ -96,10 +92,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
           }
         }
       }
-
-      this.logger.debug(
-        `User ${userId} effective org: ${effectiveOrgId} role: ${effectiveRole}`,
-      );
 
       return {
         userId,

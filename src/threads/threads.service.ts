@@ -186,6 +186,47 @@ export class ThreadsService {
       thread = await this.findOne(threadId, organizationId, userId, userRole);
     }
 
+    // Determine message channel
+    let messageChannel = createMessageDto.channel || MessageChannel.PLATFORM;
+
+    // If channel is default (PLATFORM/WIDGET), try to use the Ticket's channel
+    // ensuring we reply via the same channel the customer used (e.g. WHATSAPP)
+    if (
+      messageChannel === MessageChannel.PLATFORM ||
+      messageChannel === MessageChannel.WIDGET
+    ) {
+      try {
+        const ticket = await this.ticketsService.findOne(
+          thread.ticketId.toString(),
+          organizationId, // use orgId for system/admin access
+          UserRole.ADMIN,
+          organizationId,
+        );
+
+        if (ticket && ticket.channel) {
+          // Map TicketChannel to MessageChannel if needed
+          // Assuming the enums align for major channels (email, whatsapp, sms)
+          // TicketChannel: email, whatsapp, sms, widget, voice, api
+          // MessageChannel: email, sms, whatsapp, widget, webhook, platform
+
+          const ticketChannelStr = ticket.channel.toString().toLowerCase();
+
+          if (
+            Object.values(MessageChannel).includes(
+              ticketChannelStr as MessageChannel,
+            )
+          ) {
+            messageChannel = ticketChannelStr as MessageChannel;
+          }
+        }
+      } catch (err) {
+        console.warn(
+          `Failed to fetch ticket ${thread.ticketId} for channel inference`,
+          err,
+        );
+      }
+    }
+
     const message = new this.messageModel({
       threadId: new Types.ObjectId(threadId),
       organizationId: new Types.ObjectId(organizationId),
@@ -193,7 +234,7 @@ export class ThreadsService {
       authorType,
       authorId: new Types.ObjectId(userId),
       content: createMessageDto.content,
-      channel: createMessageDto.channel || MessageChannel.PLATFORM,
+      channel: messageChannel,
       attachments: createMessageDto.attachments || [],
       readBy: [],
       isRead: false,

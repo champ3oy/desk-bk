@@ -760,9 +760,6 @@ Sentiment:`;
     data: Ticket[];
     meta: { total: number; page: number; limit: number; totalPages: number };
   }> {
-    console.log(
-      `FindAll Tickets: User=${userId}, Role=${userRole}, Org=${organizationId}`,
-    );
     const {
       page = 1,
       limit = 10,

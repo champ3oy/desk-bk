@@ -12,6 +12,9 @@ import { TicketResolver } from './resolvers/ticket.resolver';
 import { PendingReviewService } from './services/pending-review.service';
 import { ThreadsService } from '../threads/threads.service';
 import { TicketsService } from '../tickets/tickets.service';
+import { SocialIntegrationService } from '../integrations/social/social-integration.service';
+import { SocialProvider } from '../integrations/social/entities/social-integration.entity';
+import { StorageService } from '../storage/storage.service';
 import { WidgetGateway } from '../gateways/widget.gateway';
 import { UsersService } from '../users/users.service'; // Added UsersService
 import { UserRole, UserDocument } from '../users/entities/user.entity';
@@ -57,6 +60,8 @@ export class IngestionService {
     @Inject(forwardRef(() => WidgetGateway))
     private widgetGateway: WidgetGateway,
     private notificationsService: NotificationsService,
+    private socialIntegrationService: SocialIntegrationService,
+    private storageService: StorageService,
   ) {}
 
   /**
@@ -93,6 +98,9 @@ export class IngestionService {
           error: 'Organization not found - queued for manual review',
         };
       }
+
+      // Step 3: Hydrate attachments (download from provider if needed)
+      await this.hydrateAttachments(message, organizationId);
 
       return await this.processMessage(message, organizationId, payload);
     } catch (error) {
@@ -139,6 +147,11 @@ export class IngestionService {
         `Parsed message: channel=${message.channel}, sender=${message.senderEmail || message.senderPhone}`,
       );
       this.logger.debug(`Full parsed message: ${JSON.stringify(message)}`);
+
+      this.logger.debug(`Full parsed message: ${JSON.stringify(message)}`);
+
+      // Step 2: Hydrate attachments (download from provider if needed)
+      await this.hydrateAttachments(message, organizationId);
 
       return await this.processMessage(message, organizationId, payload);
     } catch (error) {
@@ -819,6 +832,92 @@ export class IngestionService {
     );
 
     return populatedMessages as any;
+  }
+
+  /**
+   * Hydrate attachments by downloading them from the provider (e.g. Meta) and uploading to our storage.
+   * Modifies the message object in place.
+   */
+  private async hydrateAttachments(
+    message: IncomingMessageDto,
+    organizationId: string,
+  ): Promise<void> {
+    if (!message.attachments || message.attachments.length === 0) return;
+
+    // Currently only WhatsApp requires hydration (Meta URLs are temporary)
+    if (message.channel === MessageChannel.WHATSAPP) {
+      try {
+        const integrations = await this.socialIntegrationService.findByProvider(
+          organizationId,
+          SocialProvider.WHATSAPP,
+        );
+
+        // Find the specific integration used for this message
+        // WhatsAppParser puts phoneNumberId in metadata
+        const phoneNumberId = message.metadata?.phoneNumberId;
+        const integration = integrations.find(
+          (i) => i.phoneNumberId === phoneNumberId || i.isActive,
+        );
+
+        if (!integration || !integration.accessToken) {
+          this.logger.warn(
+            `Cannot hydrate WhatsApp attachments: No active integration found for org ${organizationId}`,
+          );
+          return;
+        }
+
+        this.logger.debug(
+          `Hydrating ${message.attachments.length} WhatsApp attachments...`,
+        );
+
+        // Process each attachment
+        for (const attachment of message.attachments) {
+          // Check if it's a Meta URL (starts with https://)
+          // Actually, if we are here, we assume the parser gave us a URL we need to download
+          if (!attachment.path || !attachment.path.startsWith('http')) continue;
+
+          try {
+            this.logger.debug(`Downloading media from: ${attachment.path}`);
+
+            // 1. Download from Meta
+            const response = await fetch(attachment.path, {
+              headers: {
+                Authorization: `Bearer ${integration.accessToken}`,
+              },
+            });
+
+            if (!response.ok) {
+              this.logger.warn(
+                `Failed to download media from Meta: ${response.statusText}`,
+              );
+              continue;
+            }
+
+            const arrayBuffer = await response.arrayBuffer();
+            const buffer = Buffer.from(arrayBuffer);
+
+            // 2. Upload to Storage
+            const uploadResult = await this.storageService.saveFile(
+              attachment.filename,
+              buffer,
+              attachment.mimeType,
+            );
+
+            // 3. Update attachment path
+            this.logger.log(
+              `Hydrated attachment: ${attachment.path} -> ${uploadResult.path}`,
+            );
+            attachment.path = uploadResult.path;
+          } catch (err) {
+            this.logger.error(
+              `Failed to hydrate attachment ${attachment.filename}: ${err.message}`,
+            );
+          }
+        }
+      } catch (error) {
+        this.logger.error(`Error in hydrateAttachments: ${error.message}`);
+      }
+    }
   }
 
   /**

@@ -294,10 +294,19 @@ export class SocialIntegrationService {
   /**
    * Send a WhatsApp message via Meta Graph API
    */
+  /**
+   * Send a WhatsApp message via Meta Graph API
+   * Supports text and media (image, video, document, audio)
+   */
   async sendWhatsAppMessage(
     integration: SocialIntegration,
     to: string,
     text: string,
+    attachment?: {
+      url: string;
+      type: 'image' | 'video' | 'document' | 'audio';
+      filename?: string;
+    },
   ): Promise<string | null> {
     if (!integration.phoneNumberId || !integration.accessToken) {
       throw new BadRequestException(
@@ -314,6 +323,34 @@ export class SocialIntegrationService {
         `Sending WhatsApp message to ${cleanTo} via ${integration.phoneNumberId}`,
       );
 
+      let body: any = {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: cleanTo,
+      };
+
+      if (attachment) {
+        // Send as media message
+        body.type = attachment.type;
+        body[attachment.type] = {
+          link: attachment.url,
+        };
+
+        // Add caption if text is provided (only for image, video, document)
+        if (text && attachment.type !== 'audio') {
+          body[attachment.type].caption = text;
+        }
+
+        // Add filename for documents
+        if (attachment.type === 'document' && attachment.filename) {
+          body[attachment.type].filename = attachment.filename;
+        }
+      } else {
+        // Send as text message
+        body.type = 'text';
+        body.text = { body: text };
+      }
+
       const response = await fetch(
         `https://graph.facebook.com/v23.0/${integration.phoneNumberId}/messages`,
         {
@@ -322,13 +359,7 @@ export class SocialIntegrationService {
             Authorization: `Bearer ${integration.accessToken}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            messaging_product: 'whatsapp',
-            recipient_type: 'individual',
-            to: cleanTo,
-            type: 'text',
-            text: { body: text },
-          }),
+          body: JSON.stringify(body),
         },
       );
 

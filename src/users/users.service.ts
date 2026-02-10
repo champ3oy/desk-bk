@@ -181,23 +181,7 @@ export class UsersService {
         { 'organizations.organizationId': orgIdObj },
       ];
     }
-    this.logger.debug(`findByEmail query: ${JSON.stringify(query)}`);
     const user = await this.userModel.findOne(query).exec();
-    if (!user) {
-      // Try to find user without org filter to see if they exist
-      const userWithoutOrg = await this.userModel.findOne({ email }).exec();
-      if (userWithoutOrg) {
-        this.logger.warn(
-          `User found with email=${email} but orgId=${userWithoutOrg.organizationId?.toString()} doesn't match requested orgId=${organizationId}`,
-        );
-      } else {
-        this.logger.warn(`No user found with email=${email}`);
-      }
-    } else {
-      this.logger.debug(
-        `User found: email=${user.email}, orgId=${user.organizationId?.toString()}`,
-      );
-    }
     return user;
   }
 
