@@ -267,9 +267,19 @@ export class AIModelFactory {
 
     // 1. Check for specific smart fallbacks
     if (modelName === 'gemini-3-pro-preview') {
-      fallbackModelNames.push('gemini-2.5-flash', 'gemini-2.5-flash-lite');
+      fallbackModelNames.push(
+        'gpt-4.1-2025-04-14',
+        'gpt-5.2-2025-12-1',
+        'gemini-2.5-flash',
+        'gemini-2.5-flash-lite',
+      );
     } else if (modelName === 'gemini-3-flash-preview') {
-      fallbackModelNames.push('gemini-2.5-flash', 'gemini-2.5-flash-lite');
+      fallbackModelNames.push(
+        'gpt-4.1-2025-04-14',
+        'gpt-5.2-2025-12-1',
+        'gemini-2.5-flash',
+        'gemini-2.5-flash-lite',
+      );
     }
 
     // 2. Add global fallbacks from env/config if present
