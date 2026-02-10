@@ -13,6 +13,7 @@ import { CustomerResolver } from './resolvers/customer.resolver';
 import { TicketResolver } from './resolvers/ticket.resolver';
 import { PendingReviewService } from './services/pending-review.service';
 import { MessageQueueService } from './services/message-queue.service';
+import { WidgetGateway } from '../gateways/widget.gateway';
 import {
   PendingReview,
   PendingReviewSchema,
@@ -70,6 +71,7 @@ import { EmailIngestionProcessor } from './email-ingestion.processor';
     MessageQueueService,
     KnowledgeBaseService,
     EmailIngestionProcessor,
+    WidgetGateway,
   ],
   exports: [IngestionService, PendingReviewService, MessageQueueService],
 })

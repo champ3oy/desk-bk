@@ -39,6 +39,7 @@ import {
   MessageQueueService,
   QueuedMessage,
 } from './services/message-queue.service';
+import { WidgetGateway } from '../gateways/widget.gateway';
 
 @ApiTags('Webhooks')
 @Controller('webhooks')
@@ -53,6 +54,7 @@ export class WebhooksController implements OnModuleInit {
     private knowledgeBaseService: KnowledgeBaseService,
     private attachmentsService: AttachmentsService,
     private messageQueueService: MessageQueueService,
+    private widgetGateway: WidgetGateway,
   ) {}
 
   /**
@@ -358,6 +360,29 @@ export class WebhooksController implements OnModuleInit {
 
     // AI response is handled by auto-reply logic in threads service
     return result;
+  }
+
+  @Post('widget/typing')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Widget typing indicator',
+    description: 'Broadcasts typing status to the widget client',
+  })
+  async handleWidgetTyping(
+    @Body()
+    payload: {
+      channelId: string;
+      sessionId: string;
+      isTyping: boolean;
+    },
+  ) {
+    const { channelId, sessionId, isTyping } = payload;
+    if (!channelId || !sessionId) {
+      throw new BadRequestException('channelId and sessionId are required');
+    }
+
+    this.widgetGateway.sendTypingIndicator(channelId, sessionId, isTyping);
+    return { success: true };
   }
 
   @Post('widget/upload')

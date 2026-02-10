@@ -8,6 +8,9 @@ import { OrganizationsService } from '../../organizations/organizations.service'
 import { KnowledgeBaseService } from '../../ai/knowledge-base.service';
 import { CustomersService } from '../../customers/customers.service';
 import { RedisLockService } from '../../common/services/redis-lock.service';
+import { SocialIntegrationService } from '../../integrations/social/social-integration.service';
+import { WidgetGateway } from '../../gateways/widget.gateway';
+
 import { draftResponse } from '../../ai/agents/response';
 import { TicketStatus } from '../entities/ticket.entity';
 import { UserRole } from '../../users/entities/user.entity';
@@ -32,7 +35,11 @@ export class AiReplyProcessor extends WorkerHost {
     private knowledgeBaseService: KnowledgeBaseService,
     @Inject(forwardRef(() => CustomersService))
     private customersService: CustomersService,
+    @Inject(forwardRef(() => SocialIntegrationService))
+    private socialIntegrationService: SocialIntegrationService,
     private redisLockService: RedisLockService,
+    @Inject(forwardRef(() => WidgetGateway))
+    private widgetGateway: WidgetGateway,
   ) {
     super();
   }
@@ -106,6 +113,58 @@ export class AiReplyProcessor extends WorkerHost {
       organizationId,
     );
 
+    // Trigger Typing Indicator logic
+    if (channel?.toLowerCase() === 'whatsapp') {
+      try {
+        const customer = await this.customersService.findOne(
+          customerId,
+          organizationId,
+        );
+        if (customer && customer.phone) {
+          console.log(
+            `[AiReplyProcessor] Sending typing indicator to ${customer.phone}`,
+          );
+          this.socialIntegrationService
+            .sendWhatsAppTypingStatus(
+              organizationId,
+              customer.phone,
+              'typing_on',
+            )
+            .catch((e) =>
+              console.warn(`Failed to send typing status: ${e.message}`),
+            );
+        }
+      } catch (e) {
+        console.warn(
+          `[AiReplyProcessor] Failed to process typing indicator: ${e.message}`,
+        );
+      }
+    } else if (
+      channel?.toLowerCase() === 'widget' ||
+      channel?.toLowerCase() === 'chat'
+    ) {
+      // Trigger Typing Indicator logic (Widget)
+      try {
+        const customer = await this.customersService.findOne(
+          customerId,
+          organizationId,
+        );
+        // For widget, we need the sessionId (stored as externalId in this context usually)
+        // Or we can rely on the ticket metadata if we stored the sessionId there
+        if (customer && customer.externalId) {
+          this.widgetGateway.sendTypingIndicator(
+            organizationId,
+            customer.externalId,
+            true,
+          );
+        }
+      } catch (e) {
+        console.warn(
+          `[AiReplyProcessor] Failed to process widget typing indicator: ${e.message}`,
+        );
+      }
+    }
+
     try {
       console.log(`[AutoReply] Drafting response for ${ticketId}...`);
       const response = await draftResponse(
@@ -128,6 +187,23 @@ export class AiReplyProcessor extends WorkerHost {
       const threshold = org.aiConfidenceThreshold || 85;
 
       if (response.action === 'IGNORE') {
+        // Stop typing
+        if (
+          channel?.toLowerCase() === 'widget' ||
+          channel?.toLowerCase() === 'chat'
+        ) {
+          const customer = await this.customersService.findOne(
+            customerId,
+            organizationId,
+          );
+          if (customer?.externalId) {
+            this.widgetGateway.sendTypingIndicator(
+              organizationId,
+              customer.externalId,
+              false,
+            );
+          }
+        }
         return;
       }
 
@@ -294,6 +370,24 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
           UserRole.ADMIN,
           organizationId,
         );
+
+        // Stop typing immediately after reply (though new message usually clears it implicitly in UI)
+        if (
+          channel?.toLowerCase() === 'widget' ||
+          channel?.toLowerCase() === 'chat'
+        ) {
+          const customer = await this.customersService.findOne(
+            customerId,
+            organizationId,
+          );
+          if (customer?.externalId) {
+            this.widgetGateway.sendTypingIndicator(
+              organizationId,
+              customer.externalId,
+              false,
+            );
+          }
+        }
       }
     } finally {
       await this.ticketsService.update(

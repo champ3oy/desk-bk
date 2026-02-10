@@ -352,6 +352,65 @@ export class SocialIntegrationService {
   }
 
   // ============================================
+  // Utility Methods
+  // ============================================
+
+  /**
+   * Send a typing indicator via WhatsApp
+   * Valid actions: 'typing_on', 'typing_off'
+   */
+  async sendWhatsAppTypingStatus(
+    organizationId: string,
+    to: string,
+    action: 'typing_on' | 'typing_off' = 'typing_on',
+  ): Promise<void> {
+    try {
+      // Find active WhatsApp integration
+      const integrations = await this.findByProvider(
+        organizationId,
+        SocialProvider.WHATSAPP,
+      );
+      const integration = integrations.find((i) => i.isActive);
+
+      if (
+        !integration ||
+        !integration.phoneNumberId ||
+        !integration.accessToken
+      ) {
+        // Silently fail if not configured, as this is a progressive enhancement
+        return;
+      }
+
+      const cleanTo = to.replace(/\D/g, '');
+
+      // Fire and forget - don't await the result to avoid blocking main logic
+      fetch(
+        `https://graph.facebook.com/v23.0/${integration.phoneNumberId}/messages`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${integration.accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            messaging_product: 'whatsapp',
+            recipient_type: 'individual',
+            to: cleanTo,
+            type: 'sender_action', // Use sender_action type
+            sender_action: action,
+          }),
+        },
+      ).catch((err) => {
+        this.logger.warn(
+          `Failed to send WhatsApp typing status: ${err.message}`,
+        );
+      });
+    } catch (error) {
+      this.logger.warn(`Error in sendWhatsAppTypingStatus: ${error.message}`);
+    }
+  }
+
+  // ============================================
   // Instagram Integration Methods
   // ============================================
 

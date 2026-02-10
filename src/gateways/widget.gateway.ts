@@ -259,4 +259,31 @@ export class WidgetGateway implements OnModuleInit {
       );
     }
   }
+
+  /**
+   * Send a typing indicator to the connected widget client
+   */
+  sendTypingIndicator(channelId: string, sessionId: string, isTyping: boolean) {
+    const roomName = `${channelId}:${sessionId}`;
+    const room = this.rooms.get(roomName);
+
+    if (room && room.size > 0) {
+      const payload = JSON.stringify({
+        event: 'typing',
+        data: {
+          isTyping,
+          timestamp: Date.now(),
+        },
+      });
+
+      room.forEach((client) => {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(payload);
+        }
+      });
+      this.logger.debug(
+        `Emitted typing indicator (${isTyping}) to ${roomName}`,
+      );
+    }
+  }
 }
