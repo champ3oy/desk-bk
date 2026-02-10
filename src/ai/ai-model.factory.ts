@@ -91,14 +91,15 @@ export class AIModelFactory {
     );
 
     let model: BaseChatModel;
-    if (isCustom) {
-      model = this.createCustomClient(configService, modelName);
-    } else if (provider?.toLowerCase() === 'deepseek') {
-      model = this.createDeepseekClient(configService, modelName);
-    } else if (provider?.toLowerCase() === 'openai') {
-      model = this.createOpenAIClient(configService, modelName);
-    } else {
+    if (provider?.toLowerCase() === 'google') {
       model = this.createGeminiClient(configService, modelName, selectedApiKey);
+    } else {
+      model = this.createModelInstance(
+        configService,
+        provider,
+        modelName,
+        selectedApiKey,
+      );
     }
 
     // Cache the model instance
@@ -212,6 +213,41 @@ export class AIModelFactory {
     return models;
   }
 
+  private static createModelInstance(
+    configService: ConfigService,
+    provider: string | undefined,
+    modelName: string,
+    apiKeyOverride?: string,
+  ): BaseChatModel {
+    const p = provider?.toLowerCase();
+    if (p === 'custom') {
+      return this.createCustomClient(configService, modelName);
+    } else if (p === 'deepseek') {
+      return this.createDeepseekClient(configService, modelName);
+    } else if (p === 'openai') {
+      return this.createOpenAIClient(configService, modelName);
+    } else if (p === 'google') {
+      return this.createBaseGeminiClient(
+        configService,
+        modelName,
+        apiKeyOverride,
+      );
+    }
+
+    // Default inference if provider is not explicitly set or recognized
+    if (modelName.toLowerCase().startsWith('gpt')) {
+      return this.createOpenAIClient(configService, modelName);
+    } else if (modelName.toLowerCase().startsWith('deepseek')) {
+      return this.createDeepseekClient(configService, modelName);
+    }
+
+    return this.createBaseGeminiClient(
+      configService,
+      modelName,
+      apiKeyOverride,
+    );
+  }
+
   private static createCustomClient(
     configService: ConfigService,
     modelNameOverride?: string,
@@ -305,7 +341,7 @@ export class AIModelFactory {
       );
       return primary.withFallbacks({
         fallbacks: uniqueFallbacks.map((m) =>
-          this.createBaseGeminiClient(configService, m, apiKeyOverride),
+          this.createModelInstance(configService, undefined, m, apiKeyOverride),
         ),
       }) as any;
     }
