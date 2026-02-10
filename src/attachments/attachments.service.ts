@@ -58,6 +58,22 @@ export class AttachmentsService {
     return attachment.save();
   }
 
+  async uploadFiles(
+    files: Array<Express.Multer.File>,
+    organizationId: string,
+    ticketId?: string,
+  ): Promise<Attachment[]> {
+    if (!files || files.length === 0) {
+      return [];
+    }
+
+    const uploadPromises = files.map((file) =>
+      this.uploadFile(file, organizationId, ticketId),
+    );
+
+    return Promise.all(uploadPromises);
+  }
+
   async create(
     createAttachmentDto: CreateAttachmentDto,
     organizationId: string,

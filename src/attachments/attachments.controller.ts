@@ -9,9 +9,10 @@ import {
   Query,
   UseInterceptors,
   UploadedFile,
+  UploadedFiles,
   Request,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import {
   ApiTags,
   ApiOperation,
@@ -67,6 +68,27 @@ export class AttachmentsController {
     console.log('[AttachmentsController] upload req.user:', req.user);
     return this.attachmentsService.uploadFile(
       file,
+      req.user.organizationId,
+      ticketId,
+    );
+  }
+
+  @Post('upload-multiple')
+  @UseInterceptors(FilesInterceptor('files'))
+  @ApiOperation({ summary: 'Upload multiple files' })
+  @ApiResponse({
+    status: 201,
+    description: 'Files successfully uploaded',
+    type: [Attachment],
+  })
+  uploadMultiple(
+    @UploadedFiles() files: Array<Express.Multer.File>,
+    @Request() req,
+    @Body('ticketId') ticketId?: string,
+  ) {
+    console.log('[AttachmentsController] uploadMultiple req.user:', req.user);
+    return this.attachmentsService.uploadFiles(
+      files,
       req.user.organizationId,
       ticketId,
     );
