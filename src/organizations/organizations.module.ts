@@ -10,6 +10,7 @@ import {
 } from './entities/organization.entity';
 import { UsersModule } from '../users/users.module';
 import { InvoicesModule } from '../invoices/invoices.module';
+import { GroupsModule } from '../groups/groups.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { InvoicesModule } from '../invoices/invoices.module';
     ]),
     UsersModule,
     InvoicesModule,
+    GroupsModule,
     forwardRef(() => ElevenLabsModule),
   ],
   controllers: [OrganizationsController],

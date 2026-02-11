@@ -40,6 +40,14 @@ export class UpdateOrganizationDto {
   defaultAgentId?: string;
 
   @ApiPropertyOptional({
+    description: 'Default group/team ID for auto-assignment of new tickets',
+    example: '69428c5a0f12a7ddc46b49b5',
+  })
+  @IsString()
+  @IsOptional()
+  defaultGroupId?: string;
+
+  @ApiPropertyOptional({
     description: 'Whether the organization is active',
     example: true,
   })

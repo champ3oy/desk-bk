@@ -659,6 +659,18 @@ Sentiment:`;
       ticketData.assignedToGroupId = new Types.ObjectId(
         createTicketDto.assignedToGroupId,
       );
+    } else {
+      // Auto-assign to the org's default group if none specified
+      const orgForGroup =
+        await this.organizationsService.findOne(organizationId);
+      if (orgForGroup?.defaultGroupId) {
+        ticketData.assignedToGroupId = new Types.ObjectId(
+          orgForGroup.defaultGroupId,
+        );
+        console.log(
+          `[TicketsService] Auto-assigned ticket to default group: ${orgForGroup.defaultGroupId}`,
+        );
+      }
     }
 
     if (createTicketDto.categoryId) {
@@ -780,8 +792,8 @@ Sentiment:`;
 
     // Scope tickets based on user role
     // Admins see all tickets in the org
-    // Agents see: assigned to them, their groups, or unassigned
-    // Light Agents see: only assigned to them or their groups (no unassigned)
+    // Agents see: assigned to them, their groups, unassigned, or following
+    // Light Agents see: assigned to them, their groups, or following (no unassigned)
     if (userRole === UserRole.AGENT || userRole === UserRole.LIGHT_AGENT) {
       const userGroups = await this.groupsService.findByMember(
         userId,
@@ -796,6 +808,8 @@ Sentiment:`;
         ...(userGroupIds.length > 0
           ? [{ assignedToGroupId: { $in: userGroupIds } }]
           : []),
+        // Following this ticket
+        { followers: new Types.ObjectId(userId) },
       ];
 
       // Only regular agents can see unassigned tickets

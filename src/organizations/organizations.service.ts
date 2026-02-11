@@ -17,6 +17,7 @@ import { UsersService } from '../users/users.service';
 import { UserRole } from '../users/entities/user.entity';
 import { InvoicesService } from '../invoices/invoices.service';
 import { ElevenLabsService } from '../integrations/elevenlabs/elevenlabs.service';
+import { GroupsService } from '../groups/groups.service';
 
 @Injectable()
 export class OrganizationsService {
@@ -26,6 +27,7 @@ export class OrganizationsService {
     private usersService: UsersService,
     private invoicesService: InvoicesService,
     private elevenLabsService: ElevenLabsService,
+    private groupsService: GroupsService,
   ) {}
 
   async create(
@@ -71,6 +73,30 @@ export class OrganizationsService {
       savedOrganization._id.toString(),
     );
     console.log(`OrganizationsService.create: user updated successfully`);
+
+    // 3. Auto-create a default "Support" group and set it as the org's default
+    try {
+      const defaultGroup = await this.groupsService.create(
+        {
+          name: 'Support',
+          description: 'Default support team',
+          memberIds: [userId],
+        },
+        savedOrganization._id.toString(),
+      );
+      savedOrganization.defaultGroupId = defaultGroup._id.toString();
+      await this.organizationModel.updateOne(
+        { _id: savedOrganization._id },
+        { $set: { defaultGroupId: defaultGroup._id.toString() } },
+      );
+      console.log(
+        `[OrganizationsService] Created default "Support" group: ${defaultGroup._id}`,
+      );
+    } catch (e) {
+      console.error(
+        `[OrganizationsService] Failed to create default group: ${e.message}`,
+      );
+    }
 
     return savedOrganization;
   }
