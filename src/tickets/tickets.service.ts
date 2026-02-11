@@ -685,6 +685,8 @@ Sentiment:`;
       ...ticketData,
       ticketNumber,
       displayId,
+      latestMessageContent: createTicketDto.description,
+      latestMessageAuthorType: 'customer',
     });
     const savedTicket = await ticket.save();
 
@@ -776,6 +778,53 @@ Sentiment:`;
       organizationId: new Types.ObjectId(organizationId),
     };
 
+    // Scope tickets based on user role
+    // Admins see all tickets in the org
+    // Agents see: assigned to them, their groups, or unassigned
+    // Light Agents see: only assigned to them or their groups (no unassigned)
+    if (userRole === UserRole.AGENT || userRole === UserRole.LIGHT_AGENT) {
+      const userGroups = await this.groupsService.findByMember(
+        userId,
+        organizationId,
+      );
+      const userGroupIds = userGroups.map((g) => g._id as Types.ObjectId);
+
+      const accessConditions: any[] = [
+        // Directly assigned to this user
+        { assignedToId: new Types.ObjectId(userId) },
+        // Assigned to a group the user belongs to
+        ...(userGroupIds.length > 0
+          ? [{ assignedToGroupId: { $in: userGroupIds } }]
+          : []),
+      ];
+
+      // Only regular agents can see unassigned tickets
+      if (userRole === UserRole.AGENT) {
+        accessConditions.push({
+          $and: [
+            {
+              $or: [
+                { assignedToId: null },
+                { assignedToId: { $exists: false } },
+              ],
+            },
+            {
+              $or: [
+                { assignedToGroupId: null },
+                { assignedToGroupId: { $exists: false } },
+              ],
+            },
+          ],
+        });
+      }
+
+      query.$and = query.$and || [];
+      query.$and.push({ $or: accessConditions });
+    } else if (userRole === UserRole.CUSTOMER) {
+      query.customerId = new Types.ObjectId(userId);
+    }
+    // Admins: no additional scoping, they see all org tickets
+
     // Apply filters - support multiple values (comma-separated)
     if (status) {
       const statusList = status.split(',');
@@ -841,17 +890,10 @@ Sentiment:`;
       query.$and.push({ $or: searchConditions });
     }
 
-    // Agents see tickets assigned to them, their groups, or unassigned tickets
-    // Admins see all tickets in org
-    // Agents see tickets assigned to them, their groups, or unassigned tickets
-    // Admins see all tickets in org
-
-    // Admins see all tickets (no additional filter)
-
     const [data, total] = await Promise.all([
       this.ticketModel
         .find(query)
-        .sort({ createdAt: -1 })
+        .sort({ updatedAt: -1 })
         .skip(skip)
         .limit(limit)
         .populate(

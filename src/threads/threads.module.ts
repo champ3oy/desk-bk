@@ -10,6 +10,7 @@ import {
   Customer,
   CustomerSchema,
 } from '../customers/entities/customer.entity';
+import { Ticket, TicketSchema } from '../tickets/entities/ticket.entity';
 import { TicketsModule } from '../tickets/tickets.module';
 import { CustomersModule } from '../customers/customers.module';
 import { GroupsModule } from '../groups/groups.module';
@@ -25,6 +26,7 @@ import { UsersModule } from '../users/users.module';
       { name: Message.name, schema: MessageSchema },
       { name: User.name, schema: UserSchema },
       { name: Customer.name, schema: CustomerSchema },
+      { name: Ticket.name, schema: TicketSchema },
     ]),
     forwardRef(() => TicketsModule),
     forwardRef(() => CustomersModule),

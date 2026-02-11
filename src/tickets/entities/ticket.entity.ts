@@ -230,6 +230,20 @@ export class Ticket {
   displayId?: string;
 
   @ApiPropertyOptional({
+    description: 'Latest message content for preview',
+    example: 'Hello, I need help.',
+  })
+  @Prop({ required: false })
+  latestMessageContent?: string;
+
+  @ApiPropertyOptional({
+    description: 'Latest message author type for preview',
+    example: 'customer',
+  })
+  @Prop({ required: false })
+  latestMessageAuthorType?: string;
+
+  @ApiPropertyOptional({
     description: 'Creation timestamp',
     example: '2024-01-01T00:00:00.000Z',
   })

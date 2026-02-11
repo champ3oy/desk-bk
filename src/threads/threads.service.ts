@@ -21,6 +21,7 @@ import {
   Customer,
   CustomerDocument,
 } from '../customers/entities/customer.entity';
+import { Ticket, TicketDocument } from '../tickets/entities/ticket.entity';
 import { CreateThreadDto } from './dto/create-thread.dto';
 import { CreateMessageDto } from './dto/create-message.dto';
 import { TicketsService } from '../tickets/tickets.service';
@@ -44,6 +45,8 @@ export class ThreadsService {
     private userModel: Model<UserDocument>,
     @InjectModel(Customer.name)
     private customerModel: Model<CustomerDocument>,
+    @InjectModel(Ticket.name)
+    private ticketModel: Model<TicketDocument>,
     @Inject(forwardRef(() => TicketsService))
     private ticketsService: TicketsService,
     @Inject(forwardRef(() => CustomersService))
@@ -243,6 +246,24 @@ export class ThreadsService {
     });
 
     const savedMessage = await message.save();
+
+    // Update ticket with latest message info for preview
+    try {
+      await this.ticketModel.updateOne(
+        { _id: thread.ticketId },
+        {
+          $set: {
+            latestMessageContent: savedMessage.content,
+            latestMessageAuthorType: savedMessage.authorType,
+          },
+        },
+      );
+    } catch (err) {
+      console.error(
+        `Failed to update latest message for ticket ${thread.ticketId}`,
+        err,
+      );
+    }
 
     // Update ticket's firstResponseAt if this is the first external response from agent/AI
     if (

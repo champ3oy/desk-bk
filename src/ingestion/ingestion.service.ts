@@ -391,6 +391,25 @@ export class IngestionService {
 
     await createdMessage.save();
 
+    // Update ticket with latest message info for preview
+    try {
+      await this.ticketsService.update(
+        ticketId,
+        {
+          latestMessageContent: createdMessage.content,
+          latestMessageAuthorType: createdMessage.authorType,
+        } as any,
+        organizationId,
+        UserRole.ADMIN,
+        organizationId,
+      );
+    } catch (err) {
+      this.logger.error(
+        `Failed to update latest message for ticket ${ticketId}`,
+        err,
+      );
+    }
+
     // Update ticket status if it was closed/resolved
     // (This would require access to TicketsService - we'll handle this separately if needed)
 
@@ -674,6 +693,25 @@ export class IngestionService {
     });
 
     await createdMessage.save();
+
+    // Update ticket with latest message info for preview
+    try {
+      await this.ticketsService.update(
+        (ticket as any)._id.toString(),
+        {
+          latestMessageContent: createdMessage.content,
+          latestMessageAuthorType: createdMessage.authorType,
+        } as any,
+        organizationId,
+        UserRole.ADMIN,
+        organizationId,
+      );
+    } catch (err) {
+      this.logger.error(
+        `Failed to update latest message for ticket ${(ticket as any)._id}`,
+        err,
+      );
+    }
 
     this.logger.log(
       `New ticket created: ticket=${(ticket as any)._id}, message=${createdMessage._id}`,

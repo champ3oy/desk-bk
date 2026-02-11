@@ -93,4 +93,18 @@ export class CreateTicketDto {
   @IsMongoId({ each: true })
   @IsOptional()
   tagIds?: string[];
+
+  @ApiPropertyOptional({
+    description: 'Latest message content for preview',
+  })
+  @IsString()
+  @IsOptional()
+  latestMessageContent?: string;
+
+  @ApiPropertyOptional({
+    description: 'Latest message author type for preview',
+  })
+  @IsString()
+  @IsOptional()
+  latestMessageAuthorType?: string;
 }

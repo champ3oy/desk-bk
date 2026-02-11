@@ -110,4 +110,18 @@ export class UpdateTicketDto {
   @IsBoolean()
   @IsOptional()
   aiAutoReplyDisabled?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Latest message content for preview',
+  })
+  @IsString()
+  @IsOptional()
+  latestMessageContent?: string;
+
+  @ApiPropertyOptional({
+    description: 'Latest message author type for preview',
+  })
+  @IsString()
+  @IsOptional()
+  latestMessageAuthorType?: string;
 }
