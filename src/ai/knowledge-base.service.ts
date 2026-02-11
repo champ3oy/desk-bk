@@ -21,7 +21,15 @@ export class KnowledgeBaseService {
       return this.embeddingsInstance;
     }
 
-    const apiKey = this.configService.get<string>('ai.geminiApiKey');
+    const allKeys = (
+      this.configService.get<string>('ai.geminiApiKey') || ''
+    ).split(',');
+
+    // Pick a key (if multiple, pick first for now for the singleton, or support rotation)
+    // Actually, embeddingsInstance is a singleton, so we pick one and stick with it
+    // or we could recreate it on failure, but for now let's just pick one.
+    const apiKey = allKeys[0]?.trim();
+
     if (!apiKey) {
       this.logger.warn('Gemini API key not configured');
       return null;

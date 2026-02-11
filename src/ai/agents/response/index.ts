@@ -340,17 +340,17 @@ export const draftResponse = async (
   ];
 
   // 3. Initialize Model and Messages
-  // 3. Initialize Models
-  // We separate "Fast" tasks (Intent) from "Reasoning" tasks (ReAct Loop)
+  // ReAct Agent now uses gemini-3-pro-preview for both Intent Check and Reasoning Loop
+  const agentModel = 'gemini-3-pro-preview';
 
-  // Fast Model: Use 'gemini-3-flash-preview' by default for speed/cost, unless overridden
   const fastModel = AIModelFactory.create(configService, {
-    model: configService.get<string>('ai.fastModel') || 'gemini-2.5-flash',
+    provider: 'vertex',
+    model: agentModel,
   });
 
-  // Main Model: Use the configured app default (likely Pro) or specific 'ai.reasoningModel'
   const mainModel = AIModelFactory.create(configService, {
-    model: configService.get<string>('ai.reasoningModel'), // If undefined, factory uses default AI_MODEL/config
+    provider: 'vertex',
+    model: agentModel,
   });
 
   const modelWithTools = (mainModel as any).bindTools
@@ -395,7 +395,9 @@ export const draftResponse = async (
       Return ONLY the category name.
       `;
 
-    const intentResponse = await fastModel.invoke(intentPrompt);
+    const intentResponse = await fastModel.invoke([
+      new HumanMessage(intentPrompt),
+    ]);
     const intent =
       typeof intentResponse.content === 'string'
         ? intentResponse.content

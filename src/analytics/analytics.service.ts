@@ -13,6 +13,7 @@ import {
 } from '../customers/entities/customer.entity';
 import { User, UserDocument } from '../users/entities/user.entity';
 import { AIModelFactory } from '../ai/ai-model.factory';
+import { HumanMessage } from '@langchain/core/messages';
 
 @Injectable()
 export class AnalyticsService {
@@ -160,7 +161,7 @@ Return ONLY a JSON array of objects with keys: "name", "volume", "trendDirection
 Subjects:
 ${subjects}`;
 
-      const response = await model.invoke(prompt);
+      const response = await model.invoke([new HumanMessage(prompt)]);
       const content =
         typeof response.content === 'string' ? response.content : '';
 
@@ -247,7 +248,7 @@ ${subjects}
 
 Return ONLY the phrase.`;
 
-        const response = await model.invoke(prompt);
+        const response = await model.invoke([new HumanMessage(prompt)]);
         primaryPainPoint =
           typeof response.content === 'string'
             ? response.content.trim().replace(/^"|"$/g, '')
@@ -351,7 +352,7 @@ Stats:
 
 Return ONLY a JSON object: {"trend": "IMPROVING" | "DECLINING" | "STABLE", "percentage": number}`;
 
-      const response = await model.invoke(prompt);
+      const response = await model.invoke([new HumanMessage(prompt)]);
       const jsonStr = (
         typeof response.content === 'string' ? response.content : ''
       ).match(/\{[\s\S]*\}/)?.[0];

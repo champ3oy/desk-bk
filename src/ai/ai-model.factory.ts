@@ -1,3 +1,4 @@
+import { ChatVertexAI } from '@langchain/google-vertexai';
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 import { ChatOpenAI } from '@langchain/openai';
 import { ConfigService } from '@nestjs/config';
@@ -37,6 +38,12 @@ export class AIModelFactory {
       } else if (defaultModel.toLowerCase().startsWith('deepseek')) {
         provider = 'deepseek';
         modelName = defaultModel;
+      } else if (
+        process.env.AI_PROVIDER === 'vertex' ||
+        defaultModel.toLowerCase().startsWith('vertex/')
+      ) {
+        provider = 'vertex';
+        modelName = defaultModel.replace(/^vertex\//i, '');
       } else {
         provider = 'google';
         modelName = defaultModel;
@@ -57,14 +64,13 @@ export class AIModelFactory {
     let selectedApiKey: string | undefined;
     let apiKeyHash = '';
 
-    // Pre-resolve API Key for Google to support rotation
-    if (!provider || provider.toLowerCase() === 'google') {
-      const allKeys = (
-        configService.get<string>('ai.geminiApiKey') ||
-        process.env.GEMINI_API_KEY ||
-        process.env.GOOGLE_API_KEY ||
-        ''
-      ).split(',');
+    // Pre-resolve API Key for rotation
+    const isGoogle = !provider || provider.toLowerCase() === 'google';
+    const isVertex = provider?.toLowerCase() === 'vertex';
+
+    if (isGoogle || isVertex) {
+      const configKey = isGoogle ? 'ai.geminiApiKey' : 'ai.vertexApiKey';
+      const allKeys = (configService.get<string>(configKey) || '').split(',');
 
       if (allKeys.length > 1) {
         // Pick a random key from the list
@@ -120,10 +126,7 @@ export class AIModelFactory {
     }> = [];
 
     // Check Google/Gemini
-    const googleKey =
-      configService.get<string>('ai.geminiApiKey') ||
-      process.env.APPLE_API_KEY ||
-      process.env.GOOGLE_API_KEY;
+    const googleKey = configService.get<string>('ai.geminiApiKey');
 
     if (googleKey) {
       // If comma separated, just check if at least one exists
@@ -147,6 +150,24 @@ export class AIModelFactory {
           provider: 'google',
           model: 'gemini-2.5-flash-lite',
           label: 'Gemini 2.5 Flash Lite',
+        },
+      );
+    }
+
+    // Check Vertex AI
+    const vertexKey = configService.get<string>('ai.vertexApiKey');
+
+    if (vertexKey) {
+      models.push(
+        {
+          provider: 'vertex',
+          model: 'gemini-1.5-pro',
+          label: 'Vertex Gemini 1.5 Pro',
+        },
+        {
+          provider: 'vertex',
+          model: 'gemini-1.5-flash',
+          label: 'Vertex Gemini 1.5 Flash',
         },
       );
     }
@@ -228,6 +249,12 @@ export class AIModelFactory {
       return this.createOpenAIClient(configService, modelName);
     } else if (p === 'google') {
       return this.createBaseGeminiClient(
+        configService,
+        modelName,
+        apiKeyOverride,
+      );
+    } else if (p === 'vertex') {
+      return this.createVertexAIClient(
         configService,
         modelName,
         apiKeyOverride,
@@ -333,10 +360,7 @@ export class AIModelFactory {
     apiKeyOverride?: string,
   ): ChatGoogleGenerativeAI {
     const apiKey =
-      apiKeyOverride ||
-      configService.get<string>('ai.geminiApiKey') ||
-      process.env.GEMINI_API_KEY ||
-      process.env.GOOGLE_API_KEY; // Fallback
+      apiKeyOverride || configService.get<string>('ai.geminiApiKey');
 
     if (!apiKey) {
       throw new Error(
@@ -382,6 +406,29 @@ export class AIModelFactory {
     }) as any;
 
     return client;
+  }
+
+  private static createVertexAIClient(
+    configService: ConfigService,
+    modelName: string,
+    apiKeyOverride?: string,
+  ): ChatVertexAI {
+    const apiKey =
+      apiKeyOverride || configService.get<string>('ai.vertexApiKey');
+
+    if (!apiKey) {
+      throw new Error(
+        'Vertex AI API key is not configured. Please set VERTEX_API_KEY (or VERTEX_AI_KEY).',
+      );
+    }
+
+    this.logger.log(`[AI Factory] Initializing Vertex AI Client: ${modelName}`);
+
+    return new ChatVertexAI({
+      model: modelName,
+      apiKey: apiKey,
+      temperature: 0.3,
+    });
   }
 
   private static createDeepseekClient(

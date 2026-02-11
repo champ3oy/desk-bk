@@ -280,9 +280,7 @@ Do not apologize unless necessary. Be professional and reassuring.
 Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at the start or end.`;
 
           const model = AIModelFactory.create(this.configService, {
-            model:
-              this.configService.get<string>('ai.fastModel') ||
-              'gemini-2.5-flash',
+            model: 'gemini-3-pro-preview',
           });
           const aiResult = await Promise.race([
             model.invoke(prompt),

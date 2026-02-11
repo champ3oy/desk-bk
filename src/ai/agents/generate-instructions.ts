@@ -1,5 +1,6 @@
 import { AIModelFactory } from '../ai-model.factory';
 import { ConfigService } from '@nestjs/config';
+import { HumanMessage } from '@langchain/core/messages';
 
 export const generateInstructions = async (
   description: string,
@@ -26,7 +27,7 @@ The instructions should strictly reflect the provided parameters.
 `;
 
   const model = AIModelFactory.create(configService);
-  const response = await model.invoke(prompt);
+  const response = await model.invoke([new HumanMessage(prompt)]);
 
   const content =
     typeof response.content === 'string'

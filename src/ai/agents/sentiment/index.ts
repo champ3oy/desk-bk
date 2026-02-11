@@ -4,6 +4,7 @@ import { TicketsService } from '../../../tickets/tickets.service';
 import { ThreadsService } from '../../../threads/threads.service';
 import { CommentsService } from '../../../comments/comments.service';
 import { UserRole } from '../../../users/entities/user.entity';
+import { SystemMessage, HumanMessage } from '@langchain/core/messages';
 
 const systemPrompt = `You are an expert sentiment analyzer for customer support tickets. Your role is to analyze the emotional tone and sentiment of customer communications.
 
@@ -127,8 +128,8 @@ Analyze the sentiment of the customer communications in this ticket. Consider al
   // ========== LLM INVOCATION ==========
   const llmStart = Date.now();
   const response = await model.invoke([
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: contextPrompt },
+    new SystemMessage(systemPrompt),
+    new HumanMessage(contextPrompt),
   ]);
   console.log(`[PERF] LLM invocation: ${Date.now() - llmStart}ms`);
 

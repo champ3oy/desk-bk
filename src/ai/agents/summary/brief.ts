@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { TicketsService } from '../../../tickets/tickets.service';
 import { ThreadsService } from '../../../threads/threads.service';
 import { UserRole } from '../../../users/entities/user.entity';
+import { SystemMessage, HumanMessage } from '@langchain/core/messages';
 
 export const briefSummary = async (
   ticket_id: string,
@@ -46,8 +47,8 @@ export const briefSummary = async (
   const context = `Subject: ${ticket.subject}\nDescription: ${ticket.description}\nRecent History:\n${recentMessages.join('\n')}`;
 
   const response = await model.invoke([
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: context },
+    new SystemMessage(systemPrompt),
+    new HumanMessage(context),
   ]);
 
   const rawContent =

@@ -4,6 +4,12 @@ import { OrganizationsService } from '../../organizations/organizations.service'
 import { buildSystemPrompt } from './response';
 import { KnowledgeBaseService } from '../knowledge-base.service';
 import { CustomersService } from '../../customers/customers.service';
+import {
+  SystemMessage,
+  HumanMessage,
+  AIMessage,
+  BaseMessage,
+} from '@langchain/core/messages';
 
 export const playgroundChat = async (
   message: string,
@@ -85,21 +91,25 @@ export const playgroundChat = async (
   console.log(`[PERF] Model initialization: ${Date.now() - modelStart}ms`);
 
   // Build messages array with history
-  const messages: Array<{ role: string; content: string }> = [
-    { role: 'system', content: systemPrompt },
-  ];
+  const messages: BaseMessage[] = [new SystemMessage(systemPrompt)];
 
   // Add conversation history if provided
   if (history && history.length > 0) {
     // Filter out messages with empty content to satisfy Gemini requirements
-    const validHistory = history.filter(
-      (msg) => msg.content && msg.content.trim() !== '',
-    );
+    const validHistory = history
+      .filter((msg) => msg.content && msg.content.trim() !== '')
+      .map((msg) => {
+        if (msg.role === 'user') {
+          return new HumanMessage(msg.content);
+        } else {
+          return new AIMessage(msg.content);
+        }
+      });
     messages.push(...validHistory);
   }
 
   // Add current user message
-  messages.push({ role: 'user', content: fullPrompt });
+  messages.push(new HumanMessage(fullPrompt));
 
   // ========== LLM INVOCATION ==========
   const llmStart = Date.now();
