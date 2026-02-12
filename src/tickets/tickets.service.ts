@@ -783,59 +783,117 @@ Sentiment:`;
       assignedToGroupId,
       customerId,
       sentiment,
+      folder,
     } = paginationDto;
     const skip = (page - 1) * limit;
 
-    const query: any = {
+    let query: any = {
       organizationId: new Types.ObjectId(organizationId),
     };
 
-    // Scope tickets based on user role
-    // Admins see all tickets in the org
-    // Agents see: assigned to them, their groups, unassigned, or following
-    // Light Agents see: assigned to them, their groups, or following (no unassigned)
-    if (userRole === UserRole.AGENT || userRole === UserRole.LIGHT_AGENT) {
+    const unsolvedStatuses = [
+      TicketStatus.OPEN,
+      TicketStatus.PENDING,
+      TicketStatus.IN_PROGRESS,
+      TicketStatus.ESCALATED,
+    ];
+    const solvedStatuses = [TicketStatus.RESOLVED, TicketStatus.CLOSED];
+
+    // Handle Folder (View) Logic
+    if (folder) {
       const userGroups = await this.groupsService.findByMember(
         userId,
         organizationId,
       );
       const userGroupIds = userGroups.map((g) => g._id as Types.ObjectId);
 
-      const accessConditions: any[] = [
-        // Directly assigned to this user
-        { assignedToId: new Types.ObjectId(userId) },
-        // Assigned to a group the user belongs to
-        ...(userGroupIds.length > 0
-          ? [{ assignedToGroupId: { $in: userGroupIds } }]
-          : []),
-        // Following this ticket
-        { followers: new Types.ObjectId(userId) },
-      ];
-
-      // Only regular agents can see unassigned tickets
-      if (userRole === UserRole.AGENT) {
-        accessConditions.push({
-          $and: [
-            {
-              $or: [
-                { assignedToId: null },
-                { assignedToId: { $exists: false } },
-              ],
-            },
-            {
-              $or: [
-                { assignedToGroupId: null },
-                { assignedToGroupId: { $exists: false } },
-              ],
-            },
-          ],
-        });
+      switch (folder.toLowerCase()) {
+        case 'your_unsolved':
+          query.assignedToId = new Types.ObjectId(userId);
+          query.status = { $in: unsolvedStatuses };
+          break;
+        case 'unassigned':
+          query.$and = query.$and || [];
+          query.$and.push({
+            $or: [{ assignedToId: null }, { assignedToId: { $exists: false } }],
+          });
+          query.$and.push({
+            $or: [
+              { assignedToGroupId: null },
+              { assignedToGroupId: { $exists: false } },
+            ],
+          });
+          break;
+        case 'all_unsolved':
+          query.status = { $in: unsolvedStatuses };
+          break;
+        case 'new_in_your_groups':
+          query.assignedToGroupId = { $in: userGroupIds };
+          query.status = TicketStatus.OPEN;
+          break;
+        case 'pending':
+          query.status = TicketStatus.PENDING;
+          break;
+        case 'recently_solved':
+          query.status = { $in: solvedStatuses };
+          break;
+        case 'unsolved_in_your_groups':
+          query.assignedToGroupId = { $in: userGroupIds };
+          query.status = { $in: unsolvedStatuses };
+          break;
+        case 'recently_updated':
+          // All tickets, let sorting handle "recent"
+          break;
       }
+    } else {
+      // PROCEED WITH ORIGINAL ROLE-BASED SCOPING IF NO FOLDER SPECIFIED
+      // Scope tickets based on user role
+      // Admins see all tickets in the org
+      // Agents see: assigned to them, their groups, unassigned, or following
+      // Light Agents see: assigned to them, their groups, or following (no unassigned)
+      if (userRole === UserRole.AGENT || userRole === UserRole.LIGHT_AGENT) {
+        const userGroups = await this.groupsService.findByMember(
+          userId,
+          organizationId,
+        );
+        const userGroupIds = userGroups.map((g) => g._id as Types.ObjectId);
 
-      query.$and = query.$and || [];
-      query.$and.push({ $or: accessConditions });
-    } else if (userRole === UserRole.CUSTOMER) {
-      query.customerId = new Types.ObjectId(userId);
+        const accessConditions: any[] = [
+          // Directly assigned to this user
+          { assignedToId: new Types.ObjectId(userId) },
+          // Assigned to a group the user belongs to
+          ...(userGroupIds.length > 0
+            ? [{ assignedToGroupId: { $in: userGroupIds } }]
+            : []),
+          // Following this ticket
+          { followers: new Types.ObjectId(userId) },
+        ];
+
+        // Only regular agents can see unassigned tickets
+        if (userRole === UserRole.AGENT) {
+          accessConditions.push({
+            $and: [
+              {
+                $or: [
+                  { assignedToId: null },
+                  { assignedToId: { $exists: false } },
+                ],
+              },
+              {
+                $or: [
+                  { assignedToGroupId: null },
+                  { assignedToGroupId: { $exists: false } },
+                ],
+              },
+            ],
+          });
+        }
+
+        query.$and = query.$and || [];
+        query.$and.push({ $or: accessConditions });
+      } else if (userRole === UserRole.CUSTOMER) {
+        query.customerId = new Types.ObjectId(userId);
+      }
     }
     // Admins: no additional scoping, they see all org tickets
 
@@ -934,6 +992,86 @@ Sentiment:`;
         totalPages: Math.ceil(total / limit),
       },
     };
+  }
+
+  async getCounts(
+    userId: string,
+    userRole: UserRole,
+    organizationId: string,
+  ): Promise<Record<string, number>> {
+    const userGroups = await this.groupsService.findByMember(
+      userId,
+      organizationId,
+    );
+    const userGroupIds = userGroups.map((g) => g._id as Types.ObjectId);
+
+    const unsolvedStatuses = [
+      TicketStatus.OPEN,
+      TicketStatus.PENDING,
+      TicketStatus.IN_PROGRESS,
+      TicketStatus.ESCALATED,
+    ];
+    const solvedStatuses = [TicketStatus.RESOLVED, TicketStatus.CLOSED];
+
+    const baseQuery = { organizationId: new Types.ObjectId(organizationId) };
+
+    const queries: Record<string, any> = {
+      your_unsolved: {
+        ...baseQuery,
+        assignedToId: new Types.ObjectId(userId),
+        status: { $in: unsolvedStatuses },
+      },
+      unassigned: {
+        ...baseQuery,
+        $and: [
+          {
+            $or: [{ assignedToId: null }, { assignedToId: { $exists: false } }],
+          },
+          {
+            $or: [
+              { assignedToGroupId: null },
+              { assignedToGroupId: { $exists: false } },
+            ],
+          },
+        ],
+      },
+      all_unsolved: {
+        ...baseQuery,
+        status: { $in: unsolvedStatuses },
+      },
+      recently_updated: {
+        ...baseQuery,
+        updatedAt: {
+          $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), // Last 7 days
+        },
+      },
+      new_in_your_groups: {
+        ...baseQuery,
+        assignedToGroupId: { $in: userGroupIds },
+        status: TicketStatus.OPEN,
+      },
+      pending: {
+        ...baseQuery,
+        status: TicketStatus.PENDING,
+      },
+      recently_solved: {
+        ...baseQuery,
+        status: { $in: solvedStatuses },
+      },
+      unsolved_in_your_groups: {
+        ...baseQuery,
+        assignedToGroupId: { $in: userGroupIds },
+        status: { $in: unsolvedStatuses },
+      },
+    };
+
+    const countTasks = Object.entries(queries).map(async ([key, query]) => {
+      const count = await this.ticketModel.countDocuments(query).exec();
+      return [key, count];
+    });
+
+    const results = await Promise.all(countTasks);
+    return Object.fromEntries(results) as Record<string, number>;
   }
 
   async findOne(

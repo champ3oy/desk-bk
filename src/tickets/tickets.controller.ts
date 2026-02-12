@@ -76,6 +76,22 @@ export class TicketsController {
     );
   }
 
+  @Get('counts')
+  @ApiOperation({
+    summary: 'Get ticket counts for each predefined folder view',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Object containing counts for each view',
+  })
+  getCounts(@Request() req) {
+    return this.ticketsService.getCounts(
+      req.user.userId,
+      req.user.role,
+      req.user.organizationId,
+    );
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get a ticket by ID' })
   @ApiParam({ name: 'id', description: 'Ticket ID' })
