@@ -394,6 +394,7 @@ export class SocialIntegrationService {
     organizationId: string,
     to: string,
     action: 'typing_on' | 'typing_off' = 'typing_on',
+    messageId?: string,
   ): Promise<void> {
     try {
       // Find active WhatsApp integration
@@ -414,6 +415,25 @@ export class SocialIntegrationService {
 
       const cleanTo = to.replace(/\D/g, '');
 
+      // Build payload based on doc reference
+      // If messageId is provided, use the new typing indicator format which also marks as read
+      const body: any = {
+        messaging_product: 'whatsapp',
+      };
+
+      if (messageId) {
+        body.status = 'read';
+        body.message_id = messageId;
+        body.typing_indicator = {
+          type: 'text',
+        };
+      } else {
+        body.recipient_type = 'individual';
+        body.to = cleanTo;
+        body.type = 'sender_action';
+        body.sender_action = action;
+      }
+
       // Fire and forget - don't await the result to avoid blocking main logic
       fetch(
         `https://graph.facebook.com/v23.0/${integration.phoneNumberId}/messages`,
@@ -423,13 +443,7 @@ export class SocialIntegrationService {
             Authorization: `Bearer ${integration.accessToken}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            messaging_product: 'whatsapp',
-            recipient_type: 'individual',
-            to: cleanTo,
-            type: 'sender_action', // Use sender_action type
-            sender_action: action,
-          }),
+          body: JSON.stringify(body),
         },
       ).catch((err) => {
         this.logger.warn(

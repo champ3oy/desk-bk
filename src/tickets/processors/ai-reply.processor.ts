@@ -121,14 +121,38 @@ export class AiReplyProcessor extends WorkerHost {
           organizationId,
         );
         if (customer && customer.phone) {
+          // Fetch last message to get externalMessageId for typing indicator (new API requirement)
+          let lastExternalMessageId: string | undefined;
+          try {
+            const thread = await this.threadsService.findByTicket(
+              ticketId,
+              organizationId,
+              organizationId,
+              UserRole.ADMIN,
+            );
+            if (thread) {
+              const lastMsg =
+                await this.threadsService.findLatestExternalMessage(
+                  thread._id.toString(),
+                  organizationId,
+                );
+              lastExternalMessageId = lastMsg?.externalMessageId;
+            }
+          } catch (e) {
+            console.warn(
+              `[AiReplyProcessor] Failed to fetch last message for typing indicator: ${e.message}`,
+            );
+          }
+
           console.log(
-            `[AiReplyProcessor] Sending typing indicator to ${customer.phone}`,
+            `[AiReplyProcessor] Sending typing indicator to ${customer.phone}, MessageID: ${lastExternalMessageId}`,
           );
           this.socialIntegrationService
             .sendWhatsAppTypingStatus(
               organizationId,
               customer.phone,
               'typing_on',
+              lastExternalMessageId,
             )
             .catch((e) =>
               console.warn(`Failed to send typing status: ${e.message}`),

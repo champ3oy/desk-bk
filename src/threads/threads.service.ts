@@ -135,6 +135,20 @@ export class ThreadsService {
     return thread;
   }
 
+  async findLatestExternalMessage(
+    threadId: string,
+    organizationId: string,
+  ): Promise<MessageDocument | null> {
+    return this.messageModel
+      .findOne({
+        threadId: new Types.ObjectId(threadId),
+        organizationId: new Types.ObjectId(organizationId),
+        externalMessageId: { $exists: true, $ne: null },
+      })
+      .sort({ createdAt: -1 })
+      .exec();
+  }
+
   async findOne(
     id: string,
     organizationId: string,
