@@ -43,6 +43,7 @@ import { UsersService } from '../users/users.service';
 import { RedisLockService } from '../common/services/redis-lock.service';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import { AgentGateway } from '../gateways/agent.gateway';
 
 @Injectable()
 export class TicketsService {
@@ -70,6 +71,7 @@ export class TicketsService {
     private emailIntegrationService: EmailIntegrationService,
     @Inject(forwardRef(() => SocialIntegrationService))
     private socialIntegrationService: SocialIntegrationService,
+    private agentGateway: AgentGateway,
   ) {}
 
   /**
@@ -762,6 +764,11 @@ Sentiment:`;
       }
     }
 
+    // Notify agents via WebSocket
+    this.agentGateway.emitToOrg(organizationId, 'ticket_updated', {
+      ticketId: savedTicket._id,
+    });
+
     return savedTicket;
   }
 
@@ -1308,6 +1315,11 @@ Sentiment:`;
       throw new NotFoundException(`Ticket with ID ${id} not found`);
     }
 
+    // Notify agents via WebSocket
+    this.agentGateway.emitToOrg(organizationId, 'ticket_updated', {
+      ticketId: updatedTicket._id,
+    });
+
     return updatedTicket;
   }
 
@@ -1323,6 +1335,12 @@ Sentiment:`;
 
     await this.findOne(id, userId, userRole, organizationId);
     await this.ticketModel.findByIdAndDelete(id).exec();
+
+    // Notify agents via WebSocket that a ticket was removed
+    this.agentGateway.emitToOrg(organizationId, 'ticket_updated', {
+      ticketId: id,
+      deleted: true,
+    });
   }
 
   async merge(
@@ -1406,6 +1424,12 @@ Sentiment:`;
     // Checking `tickets.service.ts` imports: `MessageAuthorType` is imported. It has `AI`.
     // Let's assume it has `SYSTEM` or I will add it or use `AI`.
     // Actually, I'll check `MessageAuthorType` first.
+
+    // Notify agents via WebSocket that tickets were merged
+    this.agentGateway.emitToOrg(organizationId, 'ticket_updated', {
+      ticketId: targetTicketId,
+      mergedFrom: sourceTicketId,
+    });
 
     return targetTicket;
   }

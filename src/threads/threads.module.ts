@@ -19,6 +19,9 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { IngestionModule } from '../ingestion/ingestion.module';
 import { UsersModule } from '../users/users.module';
 
+import { AgentGateway } from '../gateways/agent.gateway';
+import { AuthModule } from '../auth/auth.module';
+
 @Module({
   imports: [
     MongooseModule.forFeature([
@@ -32,13 +35,13 @@ import { UsersModule } from '../users/users.module';
     forwardRef(() => CustomersModule),
     GroupsModule,
     DispatcherModule,
-
+    AuthModule,
     NotificationsModule,
     UsersModule,
     forwardRef(() => IngestionModule),
   ],
   controllers: [ThreadsController],
-  providers: [ThreadsService, WidgetGateway],
-  exports: [ThreadsService, WidgetGateway],
+  providers: [ThreadsService, WidgetGateway, AgentGateway],
+  exports: [ThreadsService, WidgetGateway, AgentGateway],
 })
 export class ThreadsModule {}

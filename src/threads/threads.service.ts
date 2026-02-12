@@ -32,6 +32,7 @@ import { DispatcherService } from '../dispatcher/dispatcher.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/entities/notification.entity';
 import { WidgetGateway } from '../gateways/widget.gateway';
+import { AgentGateway } from '../gateways/agent.gateway';
 import { UsersService } from '../users/users.service';
 
 @Injectable()
@@ -56,6 +57,7 @@ export class ThreadsService {
 
     private notificationsService: NotificationsService,
     private widgetGateway: WidgetGateway,
+    private agentGateway: AgentGateway,
     private usersService: UsersService,
   ) {}
 
@@ -246,6 +248,16 @@ export class ThreadsService {
     });
 
     const savedMessage = await message.save();
+
+    // Notify agents via WebSocket
+    this.agentGateway.emitToTicket(
+      thread.ticketId.toString(),
+      'new_message',
+      savedMessage,
+    );
+    this.agentGateway.emitToOrg(organizationId, 'ticket_updated', {
+      ticketId: thread.ticketId,
+    });
 
     // Update ticket with latest message info for preview
     try {
