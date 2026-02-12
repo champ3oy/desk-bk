@@ -40,6 +40,13 @@ const DRAFT_SYSTEM_PROMPT = `You are an AI assistant helping a human customer su
 You must output ONLY a plain text response. Do not use JSON or any special formatting.
 Just write the message that should be sent to the customer.
 
+# INTERNAL PROGRESS & TEAM COORDINATION
+- You will see internal notes and comments between teams (e.g., Engineering, Finance, Ops).
+- Treat these as the "behind-the-scenes" progress of the ticket.
+- Use these notes to provide the customer with accurate, professional updates on the status of their request.
+- Translate technical or departmental updates into clear, reassurance-focused status reports for the customer.
+- If an internal note indicates a specific resolution or hurdle, acknowledge that "our team" is working on it or has completed that step.
+
 # IMAGES
 If images (screenshots) are provided in the context, you MUST use the information from them (error messages, codes, visual details) to provide a more accurate and helpful response.`;
 
@@ -224,7 +231,7 @@ export const draftHumanResponse = async (
       knowledgeContext = await knowledgeBaseService.retrieveRelevantContent(
         query,
         organizationId,
-        3, // Max 3 relevant documents
+        5, // Max 5 relevant documents
       );
       console.log(`[PERF] Knowledge base retrieval: ${Date.now() - kbStart}ms`);
     } catch (error) {
@@ -279,16 +286,16 @@ ${msg.content}`,
   )
   .join('\n')}
 
-## Internal Comments
+## Team Coordination & Progress (Internal Notes)
 ${
   comments && comments.length > 0
     ? comments
         .map(
           (comment: any) =>
-            `[${comment.isInternal ? 'Internal' : 'Public'}] ${comment.content}`,
+            `[${comment.isInternal ? 'Internal Progress' : 'Public Update'}] ${comment.content}`,
         )
         .join('\n')
-    : 'No comments'
+    : 'No internal coordination notes yet.'
 }
 
 # TASK
