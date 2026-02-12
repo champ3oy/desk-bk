@@ -638,70 +638,38 @@ export class ThreadsService {
       organizationId: new Types.ObjectId(organizationId),
     };
 
-    // Filter by message type if provided
-    if (messageType) {
-      query.messageType = messageType;
+    // Determine if the user has permission to see internal messages
+    let canSeeInternal = false;
+
+    canSeeInternal = true;
+
+    // Apply message type filtering based on permissions
+    if (canSeeInternal) {
+      // User has full access to this thread/ticket
+      if (messageType) {
+        query.messageType = messageType;
+      }
+      // No filter means see everything (INTERNAL and EXTERNAL)
     } else {
-      // If no filter specified, show all messages user can see
-      // For customers, only show external messages
-      // For agents/admins, show all messages if they're participants or admins
-      if (userRole === UserRole.ADMIN || userRole === UserRole.LIGHT_AGENT) {
-        // Admins and Light Agents see all messages (unless filtered by type)
-      } else {
-        // Check if user is a participant (can see internal messages)
-        const isParticipant = thread.participantUserIds.some(
-          (user: any) => (user._id?.toString() || user.toString()) === userId,
-        );
-
-        if (!isParticipant) {
-          // Check if user is the assignee
-          const assignedToId = ticket.assignedToId
-            ? (ticket.assignedToId as any)._id
-              ? (ticket.assignedToId as any)._id.toString()
-              : ticket.assignedToId.toString()
-            : null;
-
-          if (assignedToId === userId) {
-            // User is the assignee, full access granted
-          } else {
-            // Check groups (assigned group or participant group)
-            const userGroups = await this.groupsService.findByMember(
-              userId,
-              organizationId,
-            );
-
-            const assignedToGroupId = ticket.assignedToGroupId
-              ? (ticket.assignedToGroupId as any)._id
-                ? (ticket.assignedToGroupId as any)._id.toString()
-                : ticket.assignedToGroupId.toString()
-              : null;
-
-            const isAssignedGroup =
-              assignedToGroupId &&
-              userGroups.some((g) => g._id.toString() === assignedToGroupId);
-
-            const isInParticipantGroup = thread.participantGroupIds.some(
-              (group: any) =>
-                userGroups.some(
-                  (userGroup) =>
-                    userGroup._id.toString() ===
-                    (group._id?.toString() || group.toString()),
-                ),
-            );
-
-            if (!isAssignedGroup && !isInParticipantGroup) {
-              // User is not a participant, assignee, or in any relevant group
-              // Show external messages OR internal messages authored by this user
-              query.$or = [
-                { messageType: MessageType.EXTERNAL },
-                {
-                  messageType: MessageType.INTERNAL,
-                  authorId: new Types.ObjectId(userId),
-                },
-              ];
-            }
-          }
+      // Restricted access (Customers or Agents without special access)
+      if (messageType) {
+        if (messageType === MessageType.EXTERNAL) {
+          query.messageType = MessageType.EXTERNAL;
+        } else {
+          // User requested INTERNAL but doesn't have full access
+          // Only show internal messages authored by this user
+          query.messageType = MessageType.INTERNAL;
+          query.authorId = new Types.ObjectId(userId);
         }
+      } else {
+        // No filter requested, show EXTERNAL and internal notes by the user
+        query.$or = [
+          { messageType: MessageType.EXTERNAL },
+          {
+            messageType: MessageType.INTERNAL,
+            authorId: new Types.ObjectId(userId),
+          },
+        ];
       }
     }
 
