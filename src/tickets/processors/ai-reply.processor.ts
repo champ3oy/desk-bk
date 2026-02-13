@@ -20,6 +20,7 @@ import {
   MessageChannel,
   MessageAuthorType,
 } from '../../threads/entities/message.entity';
+import { runWithTelemetryContext } from '../../ai/telemetry/telemetry.context';
 
 @Processor('ai-reply')
 export class AiReplyProcessor extends WorkerHost {
@@ -64,19 +65,28 @@ export class AiReplyProcessor extends WorkerHost {
       }
 
       try {
-        switch (job.name) {
-          case 'generate-reply':
-            await this.handleGenerateReply(job.data);
-            break;
-          case 'send-intervention':
-            await this.handleSendIntervention(job.data);
-            break;
-          case 'send-escalation-notice':
-            await this.handleSendEscalationNotice(job.data);
-            break;
-          default:
-            this.logger.warn(`Unknown job name: ${job.name}`);
-        }
+        await runWithTelemetryContext(
+          {
+            organizationId: organizationId,
+            ticketId: ticketId,
+            feature: `auto-reply:${job.name}`,
+          },
+          async () => {
+            switch (job.name) {
+              case 'generate-reply':
+                await this.handleGenerateReply(job.data);
+                break;
+              case 'send-intervention':
+                await this.handleSendIntervention(job.data);
+                break;
+              case 'send-escalation-notice':
+                await this.handleSendEscalationNotice(job.data);
+                break;
+              default:
+                this.logger.warn(`Unknown job name: ${job.name}`);
+            }
+          },
+        );
       } finally {
         await this.redisLockService.releaseLock(lockKey);
       }

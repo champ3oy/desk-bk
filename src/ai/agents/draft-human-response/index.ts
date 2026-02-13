@@ -249,7 +249,7 @@ export const draftHumanResponse = async (
       knowledgeContext = await knowledgeBaseService.retrieveRelevantContent(
         query,
         organizationId,
-        8, // Max 8 relevant documents for Pro model reasoning
+        4, // Max 4 relevant documents for Pro model reasoning
       );
     } catch (error) {
       console.error('Failed to retrieve knowledge base content:', error);

@@ -9,6 +9,7 @@ import { TrainingModule } from '../training/training.module';
 import { KnowledgeBaseService } from './knowledge-base.service';
 import { CustomersModule } from '../customers/customers.module';
 import { AiVoiceGateway } from '../gateways/ai-voice.gateway';
+import { AiTelemetryModule } from './telemetry/ai-telemetry.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { AiVoiceGateway } from '../gateways/ai-voice.gateway';
     TrainingModule,
     ConfigModule,
     forwardRef(() => CustomersModule),
+    AiTelemetryModule,
   ],
   controllers: [AiController],
   providers: [KnowledgeBaseService, AiVoiceGateway],

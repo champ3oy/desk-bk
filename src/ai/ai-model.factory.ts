@@ -108,8 +108,72 @@ export class AIModelFactory {
       );
     }
 
-    // Cache the model instance
-    this.modelCache.set(cacheKey, model);
+    // Wrap the model with telemetry and concurrency controls
+    const wrappedModel = this.wrapModel(
+      model,
+      provider || 'unknown',
+      modelName,
+    );
+
+    // Cache the wrapped model instance
+    this.modelCache.set(cacheKey, wrappedModel);
+
+    return wrappedModel;
+  }
+
+  private static wrapModel(
+    model: BaseChatModel,
+    provider: string,
+    modelName: string,
+  ): BaseChatModel {
+    const originalInvoke = model.invoke.bind(model);
+
+    model.invoke = (async (...args: any[]) => {
+      const startTime = Date.now();
+      let response: any;
+      let error: any;
+
+      try {
+        // 1. Handle Concurrency Semaphore (Gemini only for now)
+        if (
+          provider.toLowerCase() === 'google' ||
+          provider.toLowerCase() === 'vertex'
+        ) {
+          const { geminiSemaphore } = require('./concurrency-semaphore');
+          response = await geminiSemaphore.run(() => originalInvoke(...args));
+        } else {
+          response = await originalInvoke(...args);
+        }
+
+        return response;
+      } catch (e) {
+        error = e;
+        throw e;
+      } finally {
+        const performanceMs = Date.now() - startTime;
+
+        // 2. Handle Telemetry (Async log)
+        try {
+          // Dynamic import to avoid circular dependencies
+          const { AiUsageService } = require('./telemetry/ai-usage.service');
+
+          const usage =
+            response?.usage_metadata || response?.response_metadata?.tokenUsage;
+
+          AiUsageService.logUsage({
+            provider,
+            modelName,
+            inputTokens: usage?.input_tokens || usage?.promptTokens || 0,
+            outputTokens: usage?.output_tokens || usage?.completionTokens || 0,
+            performanceMs,
+            metadata: error ? { error: error.message } : undefined,
+          });
+        } catch (telemetryError) {
+          // Never let telemetry failure break the main application
+          console.error('[Telemetry] Failed to log usage:', telemetryError);
+        }
+      }
+    }) as any;
 
     return model;
   }
@@ -395,16 +459,7 @@ export class AIModelFactory {
       ] as any,
     });
 
-    // We override invoke to wrap it in our semaphore for the whole application
-    // This prevents background jobs from hitting concurrency limits
-    const originalInvoke = client.invoke.bind(client);
-    client.invoke = ((...args: any[]) => {
-      // Import here to avoid circular dependency or init order issues
-
-      const { geminiSemaphore } = require('./concurrency-semaphore');
-      return geminiSemaphore.run(() => originalInvoke(...args));
-    }) as any;
-
+    // Telemetry and semaphore are now handled by wrapModel in the create() method
     return client;
   }
 
