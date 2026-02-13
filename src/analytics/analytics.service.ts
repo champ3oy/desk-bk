@@ -14,6 +14,10 @@ import {
 import { User, UserDocument } from '../users/entities/user.entity';
 import { AIModelFactory } from '../ai/ai-model.factory';
 import { HumanMessage } from '@langchain/core/messages';
+import {
+  OrgAnalytics,
+  OrgAnalyticsDocument,
+} from './entities/org-analytics.entity';
 
 @Injectable()
 export class AnalyticsService {
@@ -21,6 +25,8 @@ export class AnalyticsService {
     @InjectModel(Ticket.name) private ticketModel: Model<TicketDocument>,
     @InjectModel(Customer.name) private customerModel: Model<CustomerDocument>,
     @InjectModel(User.name) private userModel: Model<UserDocument>,
+    @InjectModel(OrgAnalytics.name)
+    private analyticsModel: Model<OrgAnalyticsDocument>,
     private configService: ConfigService,
   ) {}
 
@@ -336,21 +342,30 @@ Return ONLY the phrase.`;
 
     const speedFactor = humanAvgSeconds / aiAvgSeconds;
 
-    // Use AI to determine trend and percentage based on volume
+    // Use AI to determine trend, percentage and a performance verdict based on volume
     let trend: 'IMPROVING' | 'DECLINING' | 'STABLE' = 'STABLE';
     let trendPercentage = 0;
+    let performanceVerdict = 'AI is currently assisting with support baseline.';
 
     try {
       const model = AIModelFactory.create(this.configService);
-      const prompt = `Based on these Autopilot performance stats, determine the trend direction (IMPROVING, DECLINING, or STABLE) and a realistic trend percentage.
+      const prompt = `Based on these Autopilot performance stats, determine the trend direction (IMPROVING, DECLINING, or STABLE), a realistic trend percentage, and a short 1-sentence "performance verdict" explaining if AI is doing better than humans and why.
+
 Stats:
 - AI Resolutions: ${aiResolved}
 - Human Resolutions: ${humanResolved}
 - AI Avg Speed: ${aiAvgSeconds.toFixed(2)}s
 - Human Avg Speed: ${humanAvgSeconds.toFixed(2)}s
-- Touchless Rate: ${totalResolved > 0 ? (aiResolved / totalResolved) * 100 : 0}%
+- Touchless Rate: ${totalResolved > 0 ? Math.round((aiResolved / totalResolved) * 100) : 0}%
 
-Return ONLY a JSON object: {"trend": "IMPROVING" | "DECLINING" | "STABLE", "percentage": number}`;
+Compare AI speed vs human speed and AI volume vs human volume. 
+If AI resolves more or is > 5x faster, it's generally "doing better" in efficiency.
+
+Return ONLY a JSON object: {
+  "trend": "IMPROVING" | "DECLINING" | "STABLE", 
+  "percentage": number,
+  "verdict": string
+}`;
 
       const response = await model.invoke([new HumanMessage(prompt)]);
       const jsonStr = (
@@ -360,6 +375,7 @@ Return ONLY a JSON object: {"trend": "IMPROVING" | "DECLINING" | "STABLE", "perc
         const parsed = JSON.parse(jsonStr);
         trend = parsed.trend;
         trendPercentage = parsed.percentage;
+        performanceVerdict = parsed.verdict;
       }
     } catch (e) {
       console.error('Failed to get AI trend for ROI:', e);
@@ -369,6 +385,12 @@ Return ONLY a JSON object: {"trend": "IMPROVING" | "DECLINING" | "STABLE", "perc
       speedImprovementFactor: Number(speedFactor.toFixed(1)),
       autoResolutionCount: aiResolved,
       humanResolutionCount: humanResolved,
+      resolutionRatio:
+        humanResolved > 0
+          ? Number((aiResolved / humanResolved).toFixed(2))
+          : aiResolved > 0
+            ? aiResolved
+            : 0,
       aiAvgResponseTime: aiAvgSeconds,
       humanAvgResponseTime: humanAvgSeconds,
       touchlessResolutionRate:
@@ -378,6 +400,7 @@ Return ONLY a JSON object: {"trend": "IMPROVING" | "DECLINING" | "STABLE", "perc
       ),
       trend,
       trendPercentage,
+      performanceVerdict,
     };
   }
 
@@ -411,5 +434,36 @@ Return ONLY a JSON object: {"trend": "IMPROVING" | "DECLINING" | "STABLE", "perc
         time: t.createdAt,
       };
     });
+  }
+
+  async refreshAllStats(organizationId: string) {
+    const orgId = new Types.ObjectId(organizationId);
+
+    const [summary, trendingTopics, sentimentHealth, autopilotROI] =
+      await Promise.all([
+        this.getSummaryStats(organizationId),
+        this.getTrendingTopics(organizationId),
+        this.getSentimentHealth(organizationId),
+        this.getAutopilotROI(organizationId),
+      ]);
+
+    await this.analyticsModel.findOneAndUpdate(
+      { organizationId: orgId },
+      {
+        summary,
+        trendingTopics,
+        sentimentHealth,
+        autopilotROI,
+        lastUpdatedAt: new Date(),
+      },
+      { upsert: true, new: true },
+    );
+
+    return { success: true };
+  }
+
+  async getStoredAnalytics(organizationId: string) {
+    const orgId = new Types.ObjectId(organizationId);
+    return this.analyticsModel.findOne({ organizationId: orgId });
   }
 }

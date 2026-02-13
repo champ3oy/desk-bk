@@ -43,6 +43,7 @@ export class NotificationsService {
     return this.notificationModel
       .find({
         $or: [{ userId: oid }, { userId: userId }],
+        read: false,
       })
       .sort({ createdAt: -1 })
       .limit(50) // Limit to last 50 notifications
