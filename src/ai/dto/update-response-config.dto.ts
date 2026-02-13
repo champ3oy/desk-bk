@@ -88,4 +88,13 @@ export class UpdateResponseConfigDto {
   @IsNumber()
   @Min(1)
   autoCloseDelayHours?: number;
+
+  @ApiPropertyOptional({
+    description: 'Number of days for the ticket reopening grace period',
+    example: 7,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  autoReopenGracePeriodDays?: number;
 }

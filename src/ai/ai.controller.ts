@@ -301,6 +301,7 @@ export class AiController {
       aiEmailSignature: org.aiEmailSignature,
       autoCloseEnabled: org.autoCloseEnabled,
       autoCloseDelayHours: org.autoCloseDelayHours,
+      autoReopenGracePeriodDays: org.autoReopenGracePeriodDays,
     };
   }
 
@@ -335,6 +336,7 @@ export class AiController {
       aiEmailSignature: updatedOrg.aiEmailSignature,
       autoCloseEnabled: updatedOrg.autoCloseEnabled,
       autoCloseDelayHours: updatedOrg.autoCloseDelayHours,
+      autoReopenGracePeriodDays: updatedOrg.autoReopenGracePeriodDays,
     };
   }
   @Get('models')

@@ -86,6 +86,14 @@ export class Organization {
   autoCloseDelayHours: number;
 
   @ApiPropertyOptional({
+    description:
+      'Number of days after closing a ticket during which it can be automatically reopened by a customer reply',
+    example: 7,
+  })
+  @Prop({ default: 7 })
+  autoReopenGracePeriodDays: number;
+
+  @ApiPropertyOptional({
     description: 'Confidence threshold for auto-replies (0-100)',
     example: 85,
   })

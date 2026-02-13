@@ -8,6 +8,10 @@ import { TicketsController } from './tickets.controller';
 import { CustomerTicketsController } from '../api/mobile/customer-tickets.controller';
 import { Ticket, TicketSchema } from './entities/ticket.entity';
 import { Counter, CounterSchema } from './entities/counter.entity';
+import {
+  Organization,
+  OrganizationSchema,
+} from '../organizations/entities/organization.entity';
 import { AiModule } from '../ai/ai.module'; // Import AiModule for forwardRef check
 import { Tag, TagSchema } from '../tags/entities/tag.entity';
 import { CustomersModule } from '../customers/customers.module';
@@ -27,6 +31,7 @@ import { TicketCronService } from './ticket-cron.service';
       { name: Ticket.name, schema: TicketSchema },
       { name: Tag.name, schema: TagSchema },
       { name: Counter.name, schema: CounterSchema },
+      { name: Organization.name, schema: OrganizationSchema },
     ]),
     forwardRef(() => CustomersModule),
     GroupsModule,

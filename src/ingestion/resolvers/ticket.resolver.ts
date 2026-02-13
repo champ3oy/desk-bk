@@ -11,6 +11,7 @@ import {
 } from '../../threads/entities/message.entity';
 import { Thread, ThreadDocument } from '../../threads/entities/thread.entity';
 import { TicketsService } from '../../tickets/tickets.service';
+import { OrganizationsService } from '../../organizations/organizations.service';
 import {
   Ticket,
   TicketDocument,
@@ -38,6 +39,7 @@ export class TicketResolver {
     private ticketModel: Model<TicketDocument>,
     @Inject(forwardRef(() => TicketsService))
     private ticketsService: TicketsService,
+    private organizationsService: OrganizationsService,
     private configService: ConfigService,
   ) {}
 
@@ -132,10 +134,14 @@ export class TicketResolver {
       // Strategy 6: Context-Aware Reopening
       // If Strategy 1-5 failed, check for recently CLOSED tickets and use AI to see if it's a follow-up
       if (customerId && message.channel !== MessageChannel.WIDGET) {
+        const org = await this.organizationsService.findOne(organizationId);
+        const gracePeriodDays = org.autoReopenGracePeriodDays || 7;
+
         const ticketId = await this.findRecentClosedTicketWithAiMatch(
           customerId,
           organizationId,
           message.content,
+          gracePeriodDays,
         );
         if (ticketId) {
           this.logger.log(
@@ -364,11 +370,12 @@ export class TicketResolver {
     customerId: string,
     organizationId: string,
     content: string,
+    gracePeriodDays: number,
   ): Promise<string | null> {
     try {
-      // Find tickets closed in the last 7 days
+      // Find tickets closed in the last N days
       const gracePeriod = new Date();
-      gracePeriod.setDate(gracePeriod.getDate() - 7);
+      gracePeriod.setDate(gracePeriod.getDate() - gracePeriodDays);
 
       const recentClosedTickets = await this.ticketModel
         .find({
