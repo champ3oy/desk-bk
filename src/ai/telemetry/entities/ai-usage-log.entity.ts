@@ -39,6 +39,12 @@ export class AIUsageLog {
   @Prop({ required: true })
   performanceMs: number;
 
+  @Prop({ required: true, default: 0 })
+  creditsUsed: number;
+
+  @Prop({ required: true, default: 0 })
+  wholesaleCost: number; // The actual cost in USD from the provider
+
   @Prop({ type: Object, required: false })
   metadata?: Record<string, any>;
 }

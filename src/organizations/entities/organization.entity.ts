@@ -337,6 +337,13 @@ export class Organization {
     last4: string;
     expiry: string;
   };
+
+  @ApiPropertyOptional({
+    description: 'Current AI credits balance (1000 credits = $1)',
+    example: 5000,
+  })
+  @Prop({ default: 0 })
+  aiCredits: number;
 }
 
 export const OrganizationSchema = SchemaFactory.createForClass(Organization);

@@ -17,6 +17,7 @@ import {
   TicketDocument,
   TicketStatus,
 } from '../../tickets/entities/ticket.entity';
+import { runWithTelemetryContext } from '../../ai/telemetry/telemetry.context';
 
 @Injectable()
 export class TicketResolver {
@@ -393,11 +394,15 @@ export class TicketResolver {
       const lastTicket = recentClosedTickets[0];
 
       // Use AI Agent to decide
-      const isFollowUp = await analyzeIfFollowUp(
-        content,
-        lastTicket.subject,
-        lastTicket.description || '',
-        this.configService,
+      const isFollowUp = await runWithTelemetryContext(
+        { organizationId, feature: 'ingestion:follow-up' },
+        () =>
+          analyzeIfFollowUp(
+            content,
+            lastTicket.subject,
+            lastTicket.description || '',
+            this.configService,
+          ),
       );
 
       return isFollowUp ? lastTicket._id.toString() : null;

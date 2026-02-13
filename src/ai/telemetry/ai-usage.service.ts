@@ -8,12 +8,31 @@ import { getTelemetryContext } from './telemetry.context';
 export class AiUsageService implements OnModuleInit {
   private readonly logger = new Logger(AiUsageService.name);
 
+  // Profit margin (e.g., 0.30 = 30%)
+  private static readonly PROFIT_MARGIN = 0.3;
+
+  // Wholesale pricing per 1 million tokens (USD)
+  private static readonly WHOLESALE_PRICING: Record<
+    string,
+    { input: number; output: number }
+  > = {
+    'gemini-3-pro-preview': { input: 1.25, output: 3.75 },
+    'gemini-3-flash-preview': { input: 0.1, output: 0.3 },
+    'gpt-4o': { input: 2.5, output: 10.0 },
+    'gpt-4o-mini': { input: 0.15, output: 0.6 },
+    'gemini-embedding-001': { input: 0.15, output: 0 },
+    // Fallback for unknown models
+    default: { input: 0.5, output: 1.5 },
+  };
+
   // Static reference for AIModelFactory to use
   private static instance: AiUsageService | null = null;
 
   constructor(
     @InjectModel(AIUsageLog.name)
     private readonly usageLogModel: Model<AIUsageLogDocument>,
+    @InjectModel('Organization')
+    private readonly orgModel: Model<any>,
   ) {}
 
   onModuleInit() {
@@ -23,9 +42,46 @@ export class AiUsageService implements OnModuleInit {
   }
 
   /**
-   * Static helper for the AIModelFactory to log usage
+   * Calculate wholesale cost and retail credits for a request
    */
-  static async logUsage(data: {
+  static calculateCharge(
+    model: string,
+    input: number,
+    output: number,
+  ): { wholesaleCost: number; retailCredits: number } {
+    const m = model.toLowerCase();
+    const pricing =
+      this.WHOLESALE_PRICING[m] || this.WHOLESALE_PRICING['default'];
+
+    const wholesaleInput = (input / 1_000_000) * pricing.input;
+    const wholesaleOutput = (output / 1_000_000) * pricing.output;
+    const wholesaleTotal = wholesaleInput + wholesaleOutput;
+
+    // Retail USD = Wholesale + Margin
+    const retailTotalUsd = wholesaleTotal * (1 + this.PROFIT_MARGIN);
+
+    // AI Credits = Retail USD * 1000 ($1 = 1000 credits)
+    const retailCredits = retailTotalUsd * 1000;
+
+    return {
+      wholesaleCost: wholesaleTotal,
+      retailCredits: Math.max(0.001, retailCredits), // Minimum 0.001 credits
+    };
+  }
+
+  /**
+   * Estimate tokens from text (fallback when metadata is missing)
+   * 4 characters per token is a safe average for English.
+   */
+  static estimateTokens(text: string): number {
+    if (!text) return 0;
+    return Math.ceil(text.length / 4);
+  }
+
+  /**
+   * Static helper for the AIModelFactory to log usage and deduct credits
+   */
+  static async logUsageAndDeduct(data: {
     feature?: string;
     provider: string;
     modelName: string;
@@ -37,8 +93,14 @@ export class AiUsageService implements OnModuleInit {
     if (!this.instance) return;
 
     const context = getTelemetryContext();
+    const { wholesaleCost, retailCredits } = this.calculateCharge(
+      data.modelName,
+      data.inputTokens,
+      data.outputTokens,
+    );
 
     try {
+      // 1. Log the usage
       await this.instance.usageLogModel.create({
         organizationId: context.organizationId,
         userId: context.userId,
@@ -50,11 +112,36 @@ export class AiUsageService implements OnModuleInit {
         outputTokens: data.outputTokens || 0,
         totalTokens: (data.inputTokens || 0) + (data.outputTokens || 0),
         performanceMs: data.performanceMs,
+        creditsUsed: retailCredits,
+        wholesaleCost: wholesaleCost,
         metadata: data.metadata,
       });
+
+      // 2. Deduct credits from organization balance
+      if (context.organizationId) {
+        await this.instance.orgModel.updateOne(
+          { _id: context.organizationId },
+          { $inc: { aiCredits: -retailCredits } },
+        );
+      }
     } catch (error) {
-      // Fail silently for telemetry - don't break the main AI feature
-      console.error('[Telemetry] Failed to log AI usage:', error);
+      console.error('[Telemetry] Failed to log/deduct AI usage:', error);
+    }
+  }
+
+  /**
+   * Static helper to check if an organization has enough credits
+   */
+  static async hasEnoughCredits(organizationId: string): Promise<boolean> {
+    if (!this.instance) return true; // Safety fallback
+    try {
+      const org = await this.instance.orgModel
+        .findById(organizationId)
+        .select('aiCredits')
+        .lean();
+      return (org?.aiCredits || 0) > 0;
+    } catch (e) {
+      return true;
     }
   }
 
@@ -96,6 +183,8 @@ export class AiUsageService implements OnModuleInit {
             totalOutputTokens: { $sum: '$outputTokens' },
             totalTokens: { $sum: '$totalTokens' },
             avgPerformanceMs: { $avg: '$performanceMs' },
+            totalCreditsUsed: { $sum: '$creditsUsed' },
+            totalWholesaleCost: { $sum: '$wholesaleCost' },
           },
         },
       ]),
@@ -110,6 +199,8 @@ export class AiUsageService implements OnModuleInit {
             totalOutputTokens: { $sum: '$outputTokens' },
             tokens: { $sum: '$totalTokens' },
             avgPerformance: { $avg: '$performanceMs' },
+            creditsUsed: { $sum: '$creditsUsed' },
+            wholesaleCost: { $sum: '$wholesaleCost' },
           },
         },
         { $sort: { tokens: -1 } },
@@ -125,6 +216,7 @@ export class AiUsageService implements OnModuleInit {
             totalOutputTokens: { $sum: '$outputTokens' },
             tokens: { $sum: '$totalTokens' },
             avgPerformance: { $avg: '$performanceMs' },
+            creditsUsed: { $sum: '$creditsUsed' },
           },
         },
         { $sort: { tokens: -1 } },
@@ -137,23 +229,12 @@ export class AiUsageService implements OnModuleInit {
       totalOutputTokens: 0,
       totalTokens: 0,
       avgPerformanceMs: 0,
+      totalCreditsUsed: 0,
+      totalWholesaleCost: 0,
     };
 
-    // Enrich with costs
-    const enrichedByModel = breakdownByModel.map((item) => ({
-      ...item,
-      estimatedCost: AiUsageService.calculateEstimatedCost(
-        item._id,
-        item.totalInputTokens,
-        item.totalOutputTokens,
-      ),
-    }));
-
-    // In the summary, we sum the estimated cost of all models
-    const totalEstimatedCost = enrichedByModel.reduce(
-      (sum, item) => sum + item.estimatedCost,
-      0,
-    );
+    const totalRevenueUsd = formattedSummary.totalCreditsUsed / 1000;
+    const netProfitUsd = totalRevenueUsd - formattedSummary.totalWholesaleCost;
 
     return {
       filters: {
@@ -162,14 +243,19 @@ export class AiUsageService implements OnModuleInit {
       },
       summary: {
         ...formattedSummary,
-        totalEstimatedCost,
+        totalRevenueUsd,
+        netProfitUsd,
+        profitMarginRate:
+          totalRevenueUsd > 0 ? (netProfitUsd / totalRevenueUsd) * 100 : 0,
       },
       breakdown: {
-        byModel: enrichedByModel,
+        byModel: breakdownByModel.map((m) => ({
+          ...m,
+          profit: m.creditsUsed / 1000 - m.wholesaleCost,
+        })),
         byFeature: breakdownByFeature.map((f) => ({
           ...f,
-          // Feature cost is tricky because one feature uses many models,
-          // but for now, we'll provide the raw tokens.
+          revenueUsd: f.creditsUsed / 1000,
         })),
       },
       timestamp: new Date().toISOString(),

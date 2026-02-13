@@ -13,7 +13,9 @@ import { ElevenLabsService } from '../integrations/elevenlabs/elevenlabs.service
 import { GoogleGenerativeAIEmbeddings } from '@langchain/google-genai';
 import { ConfigService } from '@nestjs/config';
 import { HumanMessage } from '@langchain/core/messages';
+import { runWithTelemetryContext } from '../ai/telemetry/telemetry.context';
 import { AIModelFactory } from '../ai/ai-model.factory';
+import { AiUsageService } from '../ai/telemetry/ai-usage.service';
 import * as mammoth from 'mammoth';
 import { PDFParse } from 'pdf-parse';
 
@@ -351,25 +353,31 @@ export class TrainingService {
       if (!url) throw new Error('No URL to scrape');
 
       this.logger.log(`Background Scraping URL: ${url}`);
-      const scrapedPage = await this.scraperService.scrapeUrl(url);
 
-      source.metadata = {
-        ...(source.metadata || {}),
-        originalUrl: url,
-        scrapedAt: scrapedPage.metadata.scrapedAt,
-        loadTimeMs: scrapedPage.metadata.loadTimeMs,
-        title: scrapedPage.title,
-      };
-      source.content = scrapedPage.content;
-      const kbSize = (scrapedPage.content.length / 1024).toFixed(1);
-      source.size = `${kbSize} KB`;
-      source.embedding = await this.generateEmbedding(source.content);
-      source.status = 'learned';
+      await runWithTelemetryContext(
+        { organizationId, feature: 'training:url' },
+        async () => {
+          const scrapedPage = await this.scraperService.scrapeUrl(url);
 
-      await source.save();
-      this.logger.log(`Background scraping completed for ${source._id}`);
+          source.metadata = {
+            ...(source.metadata || {}),
+            originalUrl: url,
+            scrapedAt: scrapedPage.metadata.scrapedAt,
+            loadTimeMs: scrapedPage.metadata.loadTimeMs,
+            title: scrapedPage.title,
+          };
+          source.content = scrapedPage.content;
+          const kbSize = (scrapedPage.content.length / 1024).toFixed(1);
+          source.size = `${kbSize} KB`;
+          source.embedding = await this.generateEmbedding(source.content);
+          source.status = 'learned';
 
-      await this.syncToElevenLabs(source, organizationId);
+          await source.save();
+          this.logger.log(`Background scraping completed for ${source._id}`);
+
+          await this.syncToElevenLabs(source, organizationId);
+        },
+      );
     } catch (error) {
       this.logger.error(`Background scraping failed: ${error.message}`);
       source.status = 'failed';
@@ -384,15 +392,22 @@ export class TrainingService {
     organizationId: string,
   ) {
     try {
-      const content = await this.parseFileContent(file);
-      source.content = content;
-      source.embedding = await this.generateEmbedding(content);
-      source.status = 'learned';
+      await runWithTelemetryContext(
+        { organizationId, feature: 'training:file' },
+        async () => {
+          const content = await this.parseFileContent(file);
+          source.content = content;
+          source.embedding = await this.generateEmbedding(content);
+          source.status = 'learned';
 
-      await source.save();
+          await source.save();
 
-      await this.syncToElevenLabs(source, organizationId);
-      this.logger.log(`Background file processing completed for ${source._id}`);
+          await this.syncToElevenLabs(source, organizationId);
+          this.logger.log(
+            `Background file processing completed for ${source._id}`,
+          );
+        },
+      );
     } catch (error) {
       this.logger.error(`Background file processing failed: ${error.message}`);
       source.status = 'failed';
@@ -572,7 +587,20 @@ export class TrainingService {
         return [];
       }
 
-      return await embeddings.embedQuery(text);
+      const start = Date.now();
+      const result = await embeddings.embedQuery(text);
+
+      // Log embedding usage
+      AiUsageService.logUsageAndDeduct({
+        provider: 'google',
+        modelName: 'gemini-embedding-001',
+        inputTokens: AiUsageService.estimateTokens(text),
+        outputTokens: 0,
+        performanceMs: Date.now() - start,
+        metadata: { type: 'training-embedding' },
+      });
+
+      return result;
     } catch (error) {
       console.error('Failed to generate embedding:', error);
       return []; // Return empty array on failure to avoid blocking creation

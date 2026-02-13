@@ -5,6 +5,7 @@ import { ThreadsService } from '../../../threads/threads.service';
 import { CommentsService } from '../../../comments/comments.service';
 import { UserRole } from '../../../users/entities/user.entity';
 import { SystemMessage, HumanMessage } from '@langchain/core/messages';
+import { runWithTelemetryContext } from '../../telemetry/telemetry.context';
 
 const systemPrompt = `You are an expert sentiment analyzer for customer support tickets. Your role is to analyze the emotional tone and sentiment of customer communications.
 
@@ -127,10 +128,14 @@ Analyze the sentiment of the customer communications in this ticket. Consider al
 
   // ========== LLM INVOCATION ==========
   const llmStart = Date.now();
-  const response = await model.invoke([
-    new SystemMessage(systemPrompt),
-    new HumanMessage(contextPrompt),
-  ]);
+  const response = await runWithTelemetryContext(
+    { organizationId, feature: 'sentiment' },
+    () =>
+      model.invoke([
+        new SystemMessage(systemPrompt),
+        new HumanMessage(contextPrompt),
+      ]),
+  );
   console.log(`[PERF] LLM invocation: ${Date.now() - llmStart}ms`);
 
   // Extract content

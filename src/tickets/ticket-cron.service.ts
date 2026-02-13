@@ -100,7 +100,7 @@ export class TicketCronService {
             await this.threadsService.createMessage(
               thread._id.toString(),
               {
-                content: `Ticket automatically closed by system due to ${delayHours} hours of inactivity.`,
+                content: `Ticket automatically closed by Morpheus due to ${delayHours} hours of inactivity.`,
                 messageType: MessageType.INTERNAL,
               },
               org._id.toString(),

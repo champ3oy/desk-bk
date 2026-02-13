@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { TrainingService } from '../training/training.service';
 import { GoogleGenerativeAIEmbeddings } from '@langchain/google-genai';
 import { ConfigService } from '@nestjs/config';
+import { AiUsageService } from './telemetry/ai-usage.service';
 
 @Injectable()
 export class KnowledgeBaseService {
@@ -80,6 +81,16 @@ export class KnowledgeBaseService {
       this.logger.debug(
         `[PERF] Embedding generation: ${Date.now() - embeddingStart}ms`,
       );
+
+      // Log usage for embedding
+      AiUsageService.logUsageAndDeduct({
+        provider: 'google',
+        modelName: 'gemini-embedding-001',
+        inputTokens: AiUsageService.estimateTokens(query),
+        outputTokens: 0,
+        performanceMs: Date.now() - embeddingStart,
+        metadata: { type: 'query-embedding' },
+      });
 
       // Perform vector search
       const vectorSearchStart = Date.now();

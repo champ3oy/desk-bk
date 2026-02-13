@@ -6,6 +6,7 @@ import {
   Inject,
   forwardRef,
 } from '@nestjs/common';
+import { runWithTelemetryContext } from '../ai/telemetry/telemetry.context';
 import { InjectModel } from '@nestjs/mongoose';
 import { ConfigService } from '@nestjs/config';
 import { Model, Types } from 'mongoose';
@@ -181,7 +182,10 @@ Return ONLY a JSON object with keys: "title", "sentiment", "priority".
 
 Message: "${content.substring(0, 1000)}"`;
 
-        const response = await model.invoke(prompt);
+        const response = await runWithTelemetryContext(
+          { organizationId, feature: 'ingestion:analysis' },
+          () => model.invoke(prompt),
+        );
         let rawContent =
           typeof response.content === 'string' ? response.content : '';
 
@@ -283,7 +287,10 @@ ${messageContent}
 
 Sentiment:`;
 
-        const response = await model.invoke(prompt);
+        const response = await runWithTelemetryContext(
+          { organizationId, feature: 'ingestion:sentiment' },
+          () => model.invoke(prompt),
+        );
         const sentiment = (
           typeof response.content === 'string' ? response.content : 'neutral'
         )

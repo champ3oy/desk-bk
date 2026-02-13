@@ -129,12 +129,30 @@ export class AIModelFactory {
     const originalInvoke = model.invoke.bind(model);
 
     model.invoke = (async (...args: any[]) => {
+      // Dynamic import to avoid circular dependencies
+      const { AiUsageService } = require('./telemetry/ai-usage.service');
+      const { getTelemetryContext } = require('./telemetry/telemetry.context');
+
       const startTime = Date.now();
       let response: any;
       let error: any;
 
+      const context = getTelemetryContext();
+
+      // 1. Credit Guardrail: Check if organization has enough credits
+      if (context.organizationId) {
+        const hasCredits = await AiUsageService.hasEnoughCredits(
+          context.organizationId,
+        );
+        if (!hasCredits) {
+          throw new Error(
+            'Insufficient AI credits. Please top up your balance to continue.',
+          );
+        }
+      }
+
       try {
-        // 1. Handle Concurrency Semaphore (Gemini only for now)
+        // 2. Handle Concurrency Semaphore (Gemini only for now)
         if (
           provider.toLowerCase() === 'google' ||
           provider.toLowerCase() === 'vertex'
@@ -152,15 +170,12 @@ export class AIModelFactory {
       } finally {
         const performanceMs = Date.now() - startTime;
 
-        // 2. Handle Telemetry (Async log)
+        // 3. Handle Telemetry & Credit Deduction (Async)
         try {
-          // Dynamic import to avoid circular dependencies
-          const { AiUsageService } = require('./telemetry/ai-usage.service');
-
           const usage =
             response?.usage_metadata || response?.response_metadata?.tokenUsage;
 
-          AiUsageService.logUsage({
+          AiUsageService.logUsageAndDeduct({
             provider,
             modelName,
             inputTokens: usage?.input_tokens || usage?.promptTokens || 0,
@@ -170,7 +185,10 @@ export class AIModelFactory {
           });
         } catch (telemetryError) {
           // Never let telemetry failure break the main application
-          console.error('[Telemetry] Failed to log usage:', telemetryError);
+          console.error(
+            '[Telemetry] Failed to log/deduct usage:',
+            telemetryError,
+          );
         }
       }
     }) as any;

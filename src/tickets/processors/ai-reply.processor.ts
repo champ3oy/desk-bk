@@ -247,7 +247,7 @@ export class AiReplyProcessor extends WorkerHost {
         await this.threadsService.createMessage(
           thread._id.toString(),
           {
-            content: `Ticket automatically resolved by system based on customer gratitude/closure message.`,
+            content: `Ticket automatically resolved by Morpheus based on customer gratitude/closure message.`,
             messageType: MessageType.INTERNAL,
           },
           organizationId,

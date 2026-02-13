@@ -33,6 +33,7 @@ import {
 } from '../tickets/entities/ticket.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/entities/notification.entity';
+import { runWithTelemetryContext } from '../ai/telemetry/telemetry.context';
 
 @Injectable()
 export class IngestionService {
@@ -440,7 +441,7 @@ export class IngestionService {
         await this.threadsService.createMessage(
           thread._id.toString(),
           {
-            content: `Ticket automatically reopened by system due to customer follow-up message.`,
+            content: `Ticket automatically reopened by Morpheus due to customer follow-up message.`,
             messageType: MessageType.INTERNAL,
           },
           organizationId,
@@ -655,9 +656,13 @@ export class IngestionService {
       this.logger.debug(
         `[handleNewTicket] Calling analyzeInitialContent for subject generation...`,
       );
-      const analysis = await this.ticketsService.analyzeInitialContent(
-        message.content,
-        organizationId,
+      const analysis = await runWithTelemetryContext(
+        { organizationId, feature: 'ingestion:analysis' },
+        () =>
+          this.ticketsService.analyzeInitialContent(
+            message.content,
+            organizationId,
+          ),
       );
       subject = analysis.title;
       sentiment = analysis.sentiment;
@@ -670,9 +675,13 @@ export class IngestionService {
       this.logger.debug(
         `[handleNewTicket] Calling analyzeInitialContent for sentiment/priority...`,
       );
-      const analysis = await this.ticketsService.analyzeInitialContent(
-        message.content,
-        organizationId,
+      const analysis = await runWithTelemetryContext(
+        { organizationId, feature: 'ingestion:analysis' },
+        () =>
+          this.ticketsService.analyzeInitialContent(
+            message.content,
+            organizationId,
+          ),
       );
       sentiment = analysis.sentiment;
       priority = analysis.priority;

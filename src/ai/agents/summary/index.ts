@@ -5,6 +5,7 @@ import { ThreadsService } from '../../../threads/threads.service';
 import { CommentsService } from '../../../comments/comments.service';
 import { UserRole } from '../../../users/entities/user.entity';
 import { SystemMessage, HumanMessage } from '@langchain/core/messages';
+import { runWithTelemetryContext } from '../../telemetry/telemetry.context';
 
 const systemPrompt = `You are an expert ticket summarizer and analyst. You must analyze the provided ticket data and return a JSON object containing a comprehensive summary, sentiment analysis, urgency level, main topic, and recommended actions.
 
@@ -336,12 +337,16 @@ Respond ONLY with a JSON object. Analyze the ticket and provide:
       });
     }
 
-    response = await model.invoke([
-      new SystemMessage(systemPrompt),
-      new HumanMessage({
-        content: userMessageContent,
-      }),
-    ]);
+    response = await runWithTelemetryContext(
+      { organizationId, feature: 'summary' },
+      () =>
+        model.invoke([
+          new SystemMessage(systemPrompt),
+          new HumanMessage({
+            content: userMessageContent,
+          }),
+        ]),
+    );
   } catch (error: any) {
     console.error(`[ERROR] summarizeTicket LLM invocation failed:`, error);
     // ... rest of error handling same ...
