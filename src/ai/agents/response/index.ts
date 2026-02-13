@@ -456,23 +456,24 @@ export const draftResponse = async (
   // Build Multimodal History
   const historyMessages: BaseMessage[] = [];
 
-  // Helper to fetch image as base64
-  const fetchImageAsBase64 = async (url: string): Promise<string | null> => {
+  // Helper to fetch media (image, audio, video) as base64
+  const fetchMediaAsBase64 = async (url: string): Promise<string | null> => {
     try {
-      console.log(`[AI Agent] Fetching image for context: ${url}`);
+      console.log(`[AI Agent] Fetching media for context: ${url}`);
       const response = await fetch(url);
       if (!response.ok) {
         console.warn(
-          `[AI Agent] Failed to fetch image: ${response.statusText}`,
+          `[AI Agent] Failed to fetch media: ${response.statusText}`,
         );
         return null;
       }
       const arrayBuffer = await response.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
-      const contentType = response.headers.get('content-type') || 'image/jpeg';
+      const contentType =
+        response.headers.get('content-type') || 'application/octet-stream';
       return `data:${contentType};base64,${buffer.toString('base64')}`;
     } catch (e) {
-      console.warn(`[AI Agent] Failed to download image context: ${url}`, e);
+      console.warn(`[AI Agent] Failed to download media context: ${url}`, e);
       return null;
     }
   };
@@ -487,20 +488,33 @@ export const draftResponse = async (
       contentParts.push({ type: 'text', text: textContent });
     }
 
-    // Add Image attachments
+    // Add attachments (Images, Audio, Video)
     if (msg.attachments && msg.attachments.length > 0) {
       for (const att of msg.attachments) {
-        // Only add images for now
-        if (att.mimeType && att.mimeType.startsWith('image/')) {
-          // Use the public Vercel Blob URL directly
-          if (att.path && att.path.startsWith('http')) {
-            const base64Data = await fetchImageAsBase64(att.path);
-            if (base64Data) {
+        const isImage = att.mimeType && att.mimeType.startsWith('image/');
+        const isAudio = att.mimeType && att.mimeType.startsWith('audio/');
+        const isVideo = att.mimeType && att.mimeType.startsWith('video/');
+
+        if (
+          (isImage || isAudio || isVideo) &&
+          att.path &&
+          att.path.startsWith('http')
+        ) {
+          const base64Data = await fetchMediaAsBase64(att.path);
+          if (base64Data) {
+            if (isImage) {
               contentParts.push({
                 type: 'image_url',
                 image_url: {
                   url: base64Data,
                 },
+              });
+            } else {
+              // For Audio and Video, use the 'media' type supported by Gemini/Vertex models
+              contentParts.push({
+                type: 'media',
+                mimeType: att.mimeType,
+                data: base64Data.split(',')[1],
               });
             }
           }
