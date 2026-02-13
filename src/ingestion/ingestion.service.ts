@@ -411,7 +411,47 @@ export class IngestionService {
     }
 
     // Update ticket status if it was closed/resolved
-    // (This would require access to TicketsService - we'll handle this separately if needed)
+    try {
+      const ticket = await this.ticketsService.findOne(
+        ticketId,
+        organizationId,
+        UserRole.ADMIN,
+        organizationId,
+      );
+
+      if (
+        ticket &&
+        (ticket.status === TicketStatus.CLOSED ||
+          ticket.status === TicketStatus.RESOLVED)
+      ) {
+        this.logger.log(`Reopening ticket ${ticketId} due to customer reply`);
+        await this.ticketsService.update(
+          ticketId,
+          {
+            status: TicketStatus.OPEN,
+            resolvedAt: null,
+          } as any,
+          organizationId,
+          UserRole.ADMIN,
+          organizationId,
+        );
+
+        // Add an internal note about the reopening
+        await this.threadsService.createMessage(
+          thread._id.toString(),
+          {
+            content: `Ticket automatically reopened by system due to customer follow-up message.`,
+            messageType: MessageType.INTERNAL,
+          },
+          organizationId,
+          organizationId,
+          UserRole.ADMIN,
+          MessageAuthorType.SYSTEM,
+        );
+      }
+    } catch (err) {
+      this.logger.error(`Failed to reopen ticket ${ticketId}`, err);
+    }
 
     this.logger.log(
       `Reply processed: ticket=${ticketId}, message=${createdMessage._id}`,

@@ -210,6 +210,62 @@ export class AiReplyProcessor extends WorkerHost {
       const confidence = response.confidence || 0;
       const threshold = org.aiConfidenceThreshold || 85;
 
+      if (response.action === 'AUTO_RESOLVE') {
+        this.logger.log(
+          `[AiReplyProcessor] Auto-resolving ticket ${ticketId} due to gratitude/closure intent`,
+        );
+
+        await this.ticketsService.update(
+          ticketId,
+          {
+            status: TicketStatus.RESOLVED,
+            resolvedAt: new Date(),
+            resolutionType: 'ai',
+          } as any,
+          organizationId,
+          UserRole.ADMIN,
+          organizationId,
+        );
+
+        // Add an internal note about the auto-resolution
+        const thread = await this.threadsService.getOrCreateThread(
+          ticketId,
+          customerId,
+          organizationId,
+        );
+
+        await this.threadsService.createMessage(
+          thread._id.toString(),
+          {
+            content: `Ticket automatically resolved by system based on customer gratitude/closure message.`,
+            messageType: MessageType.INTERNAL,
+          },
+          organizationId,
+          organizationId,
+          UserRole.ADMIN,
+          MessageAuthorType.SYSTEM,
+        );
+
+        // Stop typing indicator
+        if (
+          channel?.toLowerCase() === 'widget' ||
+          channel?.toLowerCase() === 'chat'
+        ) {
+          const customer = await this.customersService.findOne(
+            customerId,
+            organizationId,
+          );
+          if (customer?.externalId) {
+            this.widgetGateway.sendTypingIndicator(
+              organizationId,
+              customer.externalId,
+              false,
+            );
+          }
+        }
+        return;
+      }
+
       if (response.action === 'IGNORE') {
         // Stop typing
         if (

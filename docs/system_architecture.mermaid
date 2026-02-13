@@ -1,6 +1,6 @@
 ---
 config:
-  layout: dagre
+  layout: elk
 ---
 flowchart TB
  subgraph subGraph0["API Layer (NestJS Controllers)"]
@@ -38,6 +38,60 @@ flowchart TB
         EmailPro["Email Providers Gmail/Outlook"]
         Twilio["SMS / WhatsApp Provider"]
   end
+ subgraph Loop["ReAct Loop (Max 5 Turns)"]
+        Act@{ label: "Select Tool: 'Action'" }
+        Reason@{ label: "LLM Reasoning: 'Thought'" }
+        Call{"Tool Call"}
+        KB["search_knowledge_base"]
+        CI["get_customer_context"]
+        UT["update_ticket_attributes"]
+        FR["send_final_reply"]
+        ESC["escalate_ticket"]
+        Obs["Observation: Tool Result"]
+  end
+ subgraph AI_Agent_Flow["AI Agent Architecture (ReAct Logic)"]
+    direction TB
+        Job["AI Reply Job Triggered"]
+        Start(("Start"))
+        Context["Hydrate Context: Ticket, Org, Customer, History"]
+        Intent{"Intent Classification"}
+        Ignore["Action: IGNORE"]
+        LoopStart["Start ReAct Loop"]
+        Loop
+        Reply["Action: REPLY"]
+        EscalateAction["Action: ESCALATE"]
+        Confidence{"Confidence > Threshold?"}
+        Send["Send Message to User"]
+        Notify["Notify Human Agents"]
+        GenMsg["Generate AI Escalation Message"]
+        End(("End"))
+  end
+  subgraph Background_Jobs["Background System Jobs"]
+    direction TB
+        Cron["TicketCronService: Hourly"]
+        ActiveOrgs["Fetch Orgs with autoCloseEnabled"]
+        FindPending@{ label: "Find 'pending' tickets < cutoff" }
+        GenClosureMsg@{ label: "AI: Generate Closure Message" }
+        SendClosureMsg@{ label: "Send EXTERNAL Message" }
+        CloseTicket["Status -> CLOSED"]
+        AddNote@{ label: "Add INTERNAL Note: 'Auto-closed'" }
+  end
+  subgraph Ingestion_Reopening["Intelligent Ingestion (Context Reopening)"]
+    direction TB
+        InMsg["Incoming Message"]
+        ActiveCheck{"Active Ticket Exists?"}
+        RecentClosedCheck{"Recent Closed Ticket (<7d)?"}
+        MatcherAgent{"AI: Ticket Matcher Agent"}
+        ReopenAction["Reopen Ticket + Internal Note"]
+        NewTicketAction["Create NEW Ticket"]
+
+        InMsg --> ActiveCheck
+        ActiveCheck -- No --> RecentClosedCheck
+        RecentClosedCheck -- Yes --> MatcherAgent
+        MatcherAgent -- FOLLOW_UP --> ReopenAction
+        MatcherAgent -- NEW_ISSUE --> NewTicketAction
+        ActiveCheck -- Yes --> ReopenAction
+  end
     Client["Web / Mobile Client"] --> AuthController & TicketController
     Widget["Chat Widget"] --> WebhookController
     ExtSources["Email / SMS / WhatsApp"] --> WebhookController
@@ -47,7 +101,9 @@ flowchart TB
     UserController --> UserService
     IngestService -- Parses Payload --> IngestService
     IngestService -- Resolves Customer/Org --> OrgService
-    IngestService -- Creates Ticket --> TicketService
+    IngestService -- "Checks Context" --> Ingestion_Reopening
+    Ingestion_Reopening -- Follow-up --> ThreadService
+    Ingestion_Reopening -- New Issue --> TicketService
     IngestService -- Push Job --> IngestQueue
     IngestQueue --> IngestProc
     IngestProc --> TicketService
@@ -61,7 +117,47 @@ flowchart TB
     IngestService --> Redis & EmailPro & Twilio
     TicketService --> NotifService
     NotifService --> Client
+    Start --> Job
+    Job --> Context
+    Context --> Intent
+    Intent -- Gratitude/Closure --> ResolveAction["Action: AUTO_RESOLVE"]
+    ResolveAction --> ResolveTicket["Status -> RESOLVED + System Note"]
+    ResolveTicket --> End
+    Intent -- Inquiry --> LoopStart
+    Reason --> Act
+    Act --> Call
+    Call -- KB Search --> KB
+    Call -- Customer Info --> CI
+    Call -- Update Ticket --> UT
+    Call -- Final Reply --> FR
+    Call -- Escalate --> ESC
+    KB --> Obs
+    CI --> Obs
+    UT --> Obs
+    Obs --> Reason
+    FR --> Reply
+    ESC --> EscalateAction
+    LoopStart --> Loop
+    Reply --> Confidence
+    Confidence -- Yes --> Send
+    Confidence -- No --> EscalateAction
+    EscalateAction --> Notify
+    Notify --> GenMsg
+    GenMsg --> Send
+    Send --> End
+    Ignore --> End
+    Cron --> ActiveOrgs
+    ActiveOrgs -- For each Org --> FindPending
+    FindPending -- For each Ticket --> GenClosureMsg
+    GenClosureMsg --> SendClosureMsg
+    SendClosureMsg --> CloseTicket
+    CloseTicket --> AddNote
+    subGraph3 --> AI_Agent_Flow
 
+    Reason@{ shape: rect}
+    Act@{ shape: rect}
+    FindPending@{ shape: rect}
+    AddNote@{ shape: rect}
      AuthService:::service
      IngestService:::service
      TicketService:::service

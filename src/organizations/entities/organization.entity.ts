@@ -70,6 +70,21 @@ export class Organization {
   @Prop({ default: false })
   aiAutoReplyLiveChat: boolean;
 
+  @ApiProperty({
+    description:
+      'Whether tickets should be automatically closed after inactivity',
+    example: false,
+  })
+  @Prop({ default: false })
+  autoCloseEnabled: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Number of hours of inactivity before auto-closing a ticket',
+    example: 72,
+  })
+  @Prop({ default: 72 })
+  autoCloseDelayHours: number;
+
   @ApiPropertyOptional({
     description: 'Confidence threshold for auto-replies (0-100)',
     example: 85,

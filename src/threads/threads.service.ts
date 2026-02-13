@@ -21,7 +21,11 @@ import {
   Customer,
   CustomerDocument,
 } from '../customers/entities/customer.entity';
-import { Ticket, TicketDocument } from '../tickets/entities/ticket.entity';
+import {
+  Ticket,
+  TicketDocument,
+  TicketStatus,
+} from '../tickets/entities/ticket.entity';
 import { CreateThreadDto } from './dto/create-thread.dto';
 import { CreateMessageDto } from './dto/create-message.dto';
 import { TicketsService } from '../tickets/tickets.service';
@@ -275,14 +279,28 @@ export class ThreadsService {
 
     // Update ticket with latest message info for preview
     try {
+      const updateData: any = {
+        latestMessageContent: savedMessage.content,
+        latestMessageAuthorType: savedMessage.authorType,
+      };
+
+      // Auto-update status based on who replied
+      if (savedMessage.messageType === MessageType.EXTERNAL) {
+        if (
+          savedMessage.authorType === MessageAuthorType.USER ||
+          savedMessage.authorType === MessageAuthorType.AI
+        ) {
+          // Agent/AI replied -> Waiting for customer
+          updateData.status = TicketStatus.PENDING;
+        } else if (savedMessage.authorType === MessageAuthorType.CUSTOMER) {
+          // Customer replied -> Waiting for agent
+          updateData.status = TicketStatus.OPEN;
+        }
+      }
+
       await this.ticketModel.updateOne(
         { _id: thread.ticketId },
-        {
-          $set: {
-            latestMessageContent: savedMessage.content,
-            latestMessageAuthorType: savedMessage.authorType,
-          },
-        },
+        { $set: updateData },
       );
     } catch (err) {
       console.error(

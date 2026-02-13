@@ -19,6 +19,8 @@ import { UsersModule } from '../users/users.module';
 import { EmailIntegrationModule } from '../integrations/email/email-integration.module';
 import { SocialIntegrationModule } from '../integrations/social/social-integration.module';
 
+import { TicketCronService } from './ticket-cron.service';
+
 @Module({
   imports: [
     MongooseModule.forFeature([
@@ -40,7 +42,7 @@ import { SocialIntegrationModule } from '../integrations/social/social-integrati
     }),
   ],
   controllers: [TicketsController, CustomerTicketsController],
-  providers: [TicketsService, AiReplyProcessor],
+  providers: [TicketsService, AiReplyProcessor, TicketCronService],
   exports: [TicketsService],
 })
 export class TicketsModule {}

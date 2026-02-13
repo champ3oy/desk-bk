@@ -1,4 +1,6 @@
 import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { analyzeIfFollowUp } from '../../ai/agents/ingestion/ticket-matcher';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { IncomingMessageDto } from '../dto/incoming-message.dto';
@@ -36,6 +38,7 @@ export class TicketResolver {
     private ticketModel: Model<TicketDocument>,
     @Inject(forwardRef(() => TicketsService))
     private ticketsService: TicketsService,
+    private configService: ConfigService,
   ) {}
 
   /**
@@ -121,6 +124,22 @@ export class TicketResolver {
         if (ticketId) {
           this.logger.debug(
             `Found most recent open ticket ${ticketId} for customer ${customerId}`,
+          );
+          return ticketId;
+        }
+      }
+
+      // Strategy 6: Context-Aware Reopening
+      // If Strategy 1-5 failed, check for recently CLOSED tickets and use AI to see if it's a follow-up
+      if (customerId && message.channel !== MessageChannel.WIDGET) {
+        const ticketId = await this.findRecentClosedTicketWithAiMatch(
+          customerId,
+          organizationId,
+          message.content,
+        );
+        if (ticketId) {
+          this.logger.log(
+            `AI decided new message is a FOLLOW-UP to closed ticket ${ticketId}. Reopening.`,
           );
           return ticketId;
         }
@@ -336,6 +355,51 @@ export class TicketResolver {
       }
     }
     return null;
+  }
+
+  /**
+   * Strategy 6: Find most recent closed ticket and use AI to check for follows-up
+   */
+  private async findRecentClosedTicketWithAiMatch(
+    customerId: string,
+    organizationId: string,
+    content: string,
+  ): Promise<string | null> {
+    try {
+      // Find tickets closed in the last 7 days
+      const gracePeriod = new Date();
+      gracePeriod.setDate(gracePeriod.getDate() - 7);
+
+      const recentClosedTickets = await this.ticketModel
+        .find({
+          customerId: new Types.ObjectId(customerId),
+          organizationId: new Types.ObjectId(organizationId),
+          status: TicketStatus.CLOSED,
+          updatedAt: { $gte: gracePeriod },
+        })
+        .sort({ updatedAt: -1 })
+        .limit(1) // Just check the absolute last one for now to avoid high token usage
+        .exec();
+
+      if (recentClosedTickets.length === 0) return null;
+
+      const lastTicket = recentClosedTickets[0];
+
+      // Use AI Agent to decide
+      const isFollowUp = await analyzeIfFollowUp(
+        content,
+        lastTicket.subject,
+        lastTicket.description || '',
+        this.configService,
+      );
+
+      return isFollowUp ? lastTicket._id.toString() : null;
+    } catch (err) {
+      this.logger.error(
+        `Error in findRecentClosedTicketWithAiMatch: ${err.message}`,
+      );
+      return null;
+    }
   }
 
   /**

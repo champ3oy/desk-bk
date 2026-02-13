@@ -299,6 +299,8 @@ export class AiController {
       aiConfidenceThreshold: org.aiConfidenceThreshold,
       aiRestrictedTopics: org.aiRestrictedTopics,
       aiEmailSignature: org.aiEmailSignature,
+      autoCloseEnabled: org.autoCloseEnabled,
+      autoCloseDelayHours: org.autoCloseDelayHours,
     };
   }
 
@@ -331,6 +333,8 @@ export class AiController {
       aiConfidenceThreshold: updatedOrg.aiConfidenceThreshold,
       aiRestrictedTopics: updatedOrg.aiRestrictedTopics,
       aiEmailSignature: updatedOrg.aiEmailSignature,
+      autoCloseEnabled: updatedOrg.autoCloseEnabled,
+      autoCloseDelayHours: updatedOrg.autoCloseDelayHours,
     };
   }
   @Get('models')

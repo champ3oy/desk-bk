@@ -70,4 +70,22 @@ export class UpdateResponseConfigDto {
   @IsOptional()
   @IsString()
   aiEmailSignature?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Whether tickets should be automatically closed after inactivity',
+    example: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  autoCloseEnabled?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Number of hours of inactivity before auto-closing a ticket',
+    example: 72,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  autoCloseDelayHours?: number;
 }

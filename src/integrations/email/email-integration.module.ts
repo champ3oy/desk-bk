@@ -1,7 +1,6 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ConfigModule } from '@nestjs/config';
-import { ScheduleModule } from '@nestjs/schedule';
 import { BullModule } from '@nestjs/bullmq';
 import { EmailIntegrationController } from './email-integration.controller';
 import { EmailIntegrationService } from './email-integration.service';
@@ -20,7 +19,6 @@ import {
       { name: EmailIntegration.name, schema: EmailIntegrationSchema },
     ]),
     ConfigModule,
-    ScheduleModule.forRoot(),
     forwardRef(() => IngestionModule),
     OrganizationsModule,
     BullModule.registerQueue({

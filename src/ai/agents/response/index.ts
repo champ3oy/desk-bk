@@ -34,7 +34,7 @@ const REACT_SYSTEM_PROMPT = `You are an expert customer support agent for our co
 -   If the user asks about a specific topic (e.g., "Billing"), use 'update_ticket_attributes' to tag it.
 -   **Final Step**: You must ALWAYS call 'send_final_reply' to send your message to the user, OR 'escalate_ticket' to hand off.
 -   **IMPORTANT**: Do NOT write the function call (e.g. "send_final_reply(...)") in the message text. You must use the tool/function calling feature.
--   **Conversation Closure**: If the user says "Thanks" or indicates the issue is resolved, do NOT reply "You're welcome". Just stop (return empty text, no tool calls).
+-   **Conversation Closure**: If the user says "Thanks" or indicates the issue is resolved, STOP IMMEDIATELY. Do NOT send any text. Do NOT call any tools. Return an empty string "". Never explain why you are not responding.
 
 # TONE & STYLE
 -   Professional, empathetic, and concise.
@@ -94,7 +94,7 @@ export function buildSystemPrompt(
 
 export type AgentResponse = {
   content?: string;
-  action: 'REPLY' | 'ESCALATE' | 'IGNORE'; // Added IGNORE
+  action: 'REPLY' | 'ESCALATE' | 'IGNORE' | 'AUTO_RESOLVE'; // Added AUTO_RESOLVE
   escalationReason?: string;
   escalationSummary?: string; // Added short summary for human agent
   confidence: number;
@@ -381,30 +381,58 @@ export const draftResponse = async (
       .map((m) => m.content)
       .join('\n');
 
+    const intentSchema = z.object({
+      intent: z
+        .enum(['GRATITUDE', 'CLOSURE', 'AFFIRMATIVE', 'INQUIRY', 'OTHER'])
+        .describe('The overall intent of the customer message'),
+    });
+
     const intentPrompt = `
       Analyze the following recent customer messages:
       "${recentCustomerText}"
       
-      Classify the OVERALL intent of the user into one of these categories:
-      - GRATITUDE: The user is ONLY saying thanks, you're welcome, or expressing appreciation (e.g. "Thanks!", "Great help").
-      - CLOSURE: The user is ONLY ending the conversation (e.g. "Bye", "Have a good day", "That's all").
-      - AFFIRMATIVE: A simple yes/ok answer to a question (e.g. "Yes", "Okay", "Sure").
-      - INQUIRY: The user is asking a question, reporting an issue, or continuing the conversation.
-      - OTHER: Anything else.
-      
-      Return ONLY the category name.
+      Categorize the user's intent:
+      - GRATITUDE: Purely saying thanks or appreciating help.
+      - CLOSURE: Ending the conversation (e.g. "Bye").
+      - AFFIRMATIVE: Simple yes/ok.
+      - INQUIRY: Asking questions or reporting issues.
+      - OTHER: Mixed or unclear.
       `;
 
-    const intentResponse = await fastModel.invoke([
-      new HumanMessage(intentPrompt),
-    ]);
-    const intent =
-      typeof intentResponse.content === 'string'
-        ? intentResponse.content
-            .trim()
-            .toUpperCase()
-            .replace(/[^A-Z]/g, '')
-        : 'OTHER';
+    let intentUsage: any = {};
+    let intent = 'OTHER';
+    try {
+      const modelWithStructuredIntent = (fastModel as any).withStructuredOutput
+        ? (fastModel as any).withStructuredOutput(intentSchema)
+        : null;
+
+      if (modelWithStructuredIntent) {
+        // We can't easily get usage back from withStructuredOutput in some versions,
+        // but we'll try to invoke in a way that gives us access or just accept {}
+        const intentResult = await modelWithStructuredIntent.invoke([
+          new SystemMessage(
+            'You are an intent classifier. Categorize the user message strictly. If it is purely gratitude, return GRATITUDE.',
+          ),
+          new HumanMessage(intentPrompt),
+        ]);
+        intent = intentResult.intent;
+      } else {
+        const intentResp = await fastModel.invoke([
+          new HumanMessage(`${intentPrompt}\nRespond ONLY with the category.`),
+        ]);
+        intentUsage = intentResp.usage_metadata;
+        const rawIntent =
+          typeof intentResp.content === 'string'
+            ? intentResp.content.trim().toUpperCase()
+            : 'OTHER';
+        intent =
+          ['GRATITUDE', 'CLOSURE', 'AFFIRMATIVE', 'INQUIRY', 'OTHER'].find(
+            (i) => rawIntent.includes(i),
+          ) || 'OTHER';
+      }
+    } catch (e) {
+      console.error(`[ReAct Agent] Intent detection failed:`, e);
+    }
 
     console.log(
       `[ReAct Agent] Intent Check: ${intent} for "${lastUserMessage.content}"`,
@@ -412,11 +440,11 @@ export const draftResponse = async (
 
     if (['GRATITUDE', 'CLOSURE'].includes(intent)) {
       return {
-        action: 'IGNORE',
+        action: 'AUTO_RESOLVE',
         content: '',
         confidence: 100,
         metadata: {
-          tokenUsage: intentResponse.usage_metadata,
+          tokenUsage: intentUsage,
           knowledgeBaseUsed: false,
           performanceMs: Date.now() - totalStart,
           toolCalls: ['intent_check'],

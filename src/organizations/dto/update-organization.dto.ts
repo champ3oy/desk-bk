@@ -207,4 +207,22 @@ export class UpdateOrganizationDto {
   @IsString()
   @IsOptional()
   timezone?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Whether tickets should be automatically closed after inactivity',
+    example: false,
+  })
+  @IsBoolean()
+  @IsOptional()
+  autoCloseEnabled?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Number of hours of inactivity before auto-closing a ticket',
+    example: 72,
+  })
+  @IsNumber()
+  @Min(1)
+  @IsOptional()
+  autoCloseDelayHours?: number;
 }
