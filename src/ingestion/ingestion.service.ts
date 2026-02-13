@@ -944,13 +944,24 @@ export class IngestionService {
           return;
         }
 
+        const accessToken = integration.accessToken;
+        const apiVersion = 'v21.0'; // Use a consistent version
+
         this.logger.debug(
-          `Hydrating ${message.attachments.length} WhatsApp attachments...`,
+          `Hydrating ${message.attachments.length} WhatsApp attachments for org ${organizationId}...`,
         );
 
         // Process each attachment
         for (const attachment of message.attachments) {
-          // 0. Fetch explicit URL if missing but we have mediaId
+          // Skip if already hydrated or no info to hydrate
+          if (attachment.path?.includes('public.blob.vercel-storage.com')) {
+            this.logger.debug(
+              `Attachment ${attachment.filename} already hydrated.`,
+            );
+            continue;
+          }
+
+          // 1. Fetch explicit URL if missing but we have mediaId
           if (
             (!attachment.path || !attachment.path.startsWith('http')) &&
             attachment.mediaId
@@ -960,10 +971,10 @@ export class IngestionService {
                 `Fetching media URL for ID ${attachment.mediaId}...`,
               );
               const mediaRes = await fetch(
-                `https://graph.facebook.com/v18.0/${attachment.mediaId}`,
+                `https://graph.facebook.com/${apiVersion}/${attachment.mediaId}`,
                 {
                   headers: {
-                    Authorization: `Bearer ${integration.accessToken}`,
+                    Authorization: `Bearer ${accessToken}`,
                   },
                 },
               );
@@ -972,13 +983,18 @@ export class IngestionService {
                 const mediaData = (await mediaRes.json()) as any;
                 if (mediaData.url) {
                   attachment.path = mediaData.url;
+                  // Update size if available
+                  if (mediaData.file_size)
+                    attachment.size = mediaData.file_size;
+
                   this.logger.debug(
-                    `Resolved media URL: ${attachment.path.substring(0, 50)}...`,
+                    `Resolved media URL for ${attachment.mediaId}: ${attachment.path.substring(0, 50)}...`,
                   );
                 }
               } else {
+                const errorData = await mediaRes.json().catch(() => ({}));
                 this.logger.warn(
-                  `Failed to resolve media URL: ${mediaRes.status} ${mediaRes.statusText}`,
+                  `Failed to resolve media URL for ${attachment.mediaId}: ${mediaRes.status} ${JSON.stringify(errorData)}`,
                 );
               }
             } catch (e) {
@@ -988,50 +1004,60 @@ export class IngestionService {
             }
           }
 
-          // Check if it's a Meta URL (starts with https://)
-          // Actually, if we are here, we assume the parser gave us a URL we need to download
-          if (!attachment.path || !attachment.path.startsWith('http')) continue;
-
-          try {
-            this.logger.debug(`Downloading media from: ${attachment.path}`);
-
-            // 1. Download from Meta
-            const response = await fetch(attachment.path, {
-              headers: {
-                Authorization: `Bearer ${integration.accessToken}`,
-              },
-            });
-
-            if (!response.ok) {
-              this.logger.warn(
-                `Failed to download media from Meta: ${response.statusText}`,
+          // 2. Download from Meta and Upload to Storage
+          if (attachment.path && attachment.path.startsWith('http')) {
+            try {
+              this.logger.debug(
+                `Downloading media from Meta: ${attachment.filename}`,
               );
-              continue;
+
+              const response = await fetch(attachment.path, {
+                headers: {
+                  Authorization: `Bearer ${accessToken}`,
+                },
+              });
+
+              if (!response.ok) {
+                this.logger.warn(
+                  `Failed to download media bits from Meta for ${attachment.filename}: ${response.statusText}`,
+                );
+                continue;
+              }
+
+              const arrayBuffer = await response.arrayBuffer();
+              const buffer = Buffer.from(arrayBuffer);
+
+              // Update size from actual buffer if it was 0
+              if (attachment.size === 0) attachment.size = buffer.length;
+
+              // Save to permanent storage
+              const uploadResult = await this.storageService.saveFile(
+                attachment.filename,
+                buffer,
+                attachment.mimeType,
+              );
+
+              // Update attachment path to our permanent URL
+              this.logger.log(
+                `Successfully hydrated attachment: ${attachment.filename} -> ${uploadResult.path}`,
+              );
+              attachment.path = uploadResult.path;
+            } catch (err) {
+              this.logger.error(
+                `Failed to download/upload attachment ${attachment.filename}: ${err.message}`,
+              );
             }
-
-            const arrayBuffer = await response.arrayBuffer();
-            const buffer = Buffer.from(arrayBuffer);
-
-            // 2. Upload to Storage
-            const uploadResult = await this.storageService.saveFile(
-              attachment.filename,
-              buffer,
-              attachment.mimeType,
-            );
-
-            // 3. Update attachment path
-            this.logger.log(
-              `Hydrated attachment: ${attachment.path} -> ${uploadResult.path}`,
-            );
-            attachment.path = uploadResult.path;
-          } catch (err) {
-            this.logger.error(
-              `Failed to hydrate attachment ${attachment.filename}: ${err.message}`,
+          } else {
+            this.logger.warn(
+              `No valid path found for attachment ${attachment.filename} after URL resolution attempt.`,
             );
           }
         }
       } catch (error) {
-        this.logger.error(`Error in hydrateAttachments: ${error.message}`);
+        this.logger.error(
+          `Error in hydrateAttachments pipeline: ${error.message}`,
+          error.stack,
+        );
       }
     }
   }

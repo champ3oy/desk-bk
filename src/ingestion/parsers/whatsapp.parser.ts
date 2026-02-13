@@ -86,13 +86,23 @@ export class WhatsAppParser {
       entry?.id;
 
     const attachments: any[] = [];
-    if (message?.type === 'image' && message.image) {
+    if (message?.type && message[message.type]) {
+      const media = message[message.type];
+      const mediaId = media.id;
+      const mediaMimeType = media.mime_type || this.getMimeType(message.type);
+      const extension = this.getExtension(message.type);
+
+      // Use original filename if provided (common for documents)
+      const originalName =
+        media.filename || `whatsapp_${message.type}_${mediaId}.${extension}`;
+
       attachments.push({
-        filename: `whatsapp_image_${message.image.id}.jpg`,
-        originalName: `whatsapp_image_${message.image.id}.jpg`,
-        mimeType: message.image.mime_type || 'image/jpeg',
+        filename: `whatsapp_${message.type}_${mediaId}.${extension}`,
+        originalName: originalName,
+        mimeType: mediaMimeType,
         size: 0,
-        path: message.image.url || '', // Note: Meta API requires a separate GET request for the actual URL, but we'll assume it's here or provided by a proxy
+        path: media.url || '',
+        mediaId: mediaId,
       });
     }
 
