@@ -186,7 +186,6 @@ export const draftHumanResponse = async (
   channel?: string,
 ): Promise<DraftHumanResponseResult> => {
   const totalStart = Date.now();
-  console.log(`[PERF] draftHumanResponse started for ticket ${ticket_id}`);
 
   // ========== FETCH DATA IN PARALLEL ==========
   const parallelStart = Date.now();
@@ -197,10 +196,6 @@ export const draftHumanResponse = async (
     threadsService.findAll(ticket_id, organizationId, userId, userRole),
     commentsService.findAll(ticket_id, userId, userRole),
   ]);
-
-  console.log(
-    `[PERF] Parallel fetch (ticket + org + threads + comments): ${Date.now() - parallelStart}ms`,
-  );
 
   // Fetch messages for all threads in parallel
   const messagesStart = Date.now();
@@ -218,22 +213,44 @@ export const draftHumanResponse = async (
       };
     }),
   );
-  console.log(
-    `[PERF] Fetch messages for ${threads.length} threads: ${Date.now() - messagesStart}ms`,
-  );
 
   // ========== KNOWLEDGE BASE RETRIEVAL ==========
   let knowledgeContext = '';
   if (knowledgeBaseService) {
     try {
-      const kbStart = Date.now();
-      const query = `${ticket.subject} ${ticket.description}`;
+      // Get the latest customer message (the "now" problem)
+      const lastCustomerMsg =
+        threadsWithMessages
+          .flatMap((t) => t.messages)
+          .filter((m) => m.authorType === 'customer')
+          .sort(
+            (a, b) =>
+              new Date(b.createdAt || 0).getTime() -
+              new Date(a.createdAt || 0).getTime(),
+          )[0]?.content || '';
+
+      // Get the latest internal note (the "behind the scenes" progress)
+      const lastInternalNote =
+        comments
+          ?.filter((c: any) => c.isInternal)
+          .sort(
+            (a, b) =>
+              new Date(b.createdAt || 0).getTime() -
+              new Date(a.createdAt || 0).getTime(),
+          )[0]?.content || '';
+
+      // Build a dynamic query that prioritizes current context
+      const query = `
+        Subject: ${ticket.subject} 
+        Current User Issue: ${lastCustomerMsg} 
+        Internal Note: ${lastInternalNote}
+      `.trim();
+
       knowledgeContext = await knowledgeBaseService.retrieveRelevantContent(
         query,
         organizationId,
-        5, // Max 5 relevant documents
+        8, // Max 8 relevant documents for Pro model reasoning
       );
-      console.log(`[PERF] Knowledge base retrieval: ${Date.now() - kbStart}ms`);
     } catch (error) {
       console.error('Failed to retrieve knowledge base content:', error);
     }
@@ -248,9 +265,10 @@ export const draftHumanResponse = async (
   const systemPrompt = buildDraftSystemPrompt(org, channel, customerName);
 
   // ========== MODEL INITIALIZATION ==========
-  const modelStart = Date.now();
-  const model = AIModelFactory.create(configService);
-  console.log(`[PERF] Model initialization: ${Date.now() - modelStart}ms`);
+  const model = AIModelFactory.create(configService, {
+    provider: 'vertex',
+    model: 'gemini-3-pro-preview',
+  });
 
   // ========== BUILD CONTEXT ==========
   const ticketData = {
