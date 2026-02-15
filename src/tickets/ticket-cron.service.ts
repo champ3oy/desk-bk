@@ -51,10 +51,12 @@ export class TicketCronService {
       cutoff.setHours(cutoff.getHours() - delayHours);
 
       // 2. Find tickets in 'pending' status that haven't been updated since cutoff
+      // Also exclude tickets that are escalated (either via status or AI flag)
       const inactiveTickets = await this.ticketModel
         .find({
           organizationId: org._id,
           status: TicketStatus.PENDING,
+          isAiEscalated: { $ne: true },
           updatedAt: { $lt: cutoff },
         })
         .exec();
