@@ -931,6 +931,24 @@ export class IngestionService {
   ): Promise<void> {
     if (!message.attachments || message.attachments.length === 0) return;
 
+    // 1. Normalize attachments for ALL channels
+    // Ensure 'path' is populated (some uploders return 'url') and sanitize fields
+    message.attachments = message.attachments
+      .map((att) => {
+        const path = att.path || (att as any).url || '';
+        return {
+          filename: att.filename || 'attachment',
+          originalName: att.originalName || att.filename || 'attachment',
+          mimeType: att.mimeType || 'application/octet-stream',
+          size: att.size || 0,
+          path: path,
+          // Keep internal IDs if needed for specific channel logic below
+          mediaId: att.mediaId,
+          contentId: att.contentId,
+        };
+      })
+      .filter((att) => !!att.path || !!att.mediaId); // Keep if it has path OR mediaId (for hydration)
+
     // Currently only WhatsApp requires hydration (Meta URLs are temporary)
     if (message.channel === MessageChannel.WHATSAPP) {
       try {
