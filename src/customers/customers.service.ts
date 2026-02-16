@@ -9,6 +9,7 @@ import { Model, Types } from 'mongoose';
 import { Customer, CustomerDocument } from './entities/customer.entity';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
+import { CustomerPaginationDto } from './dto/customer-pagination.dto';
 
 import { TicketsService } from '../tickets/tickets.service';
 import { ThreadsService } from '../threads/threads.service';
@@ -49,10 +50,74 @@ export class CustomersService {
     return savedCustomer;
   }
 
-  async findAll(organizationId: string): Promise<CustomerDocument[]> {
-    return this.customerModel
-      .find({ organizationId: new Types.ObjectId(organizationId) })
-      .exec();
+  async findAll(
+    organizationId: string,
+    paginationDto: CustomerPaginationDto = { page: 1, limit: 10 },
+  ): Promise<{
+    data: CustomerDocument[];
+    meta: { total: number; page: number; limit: number; totalPages: number };
+  }> {
+    const {
+      page = 1,
+      limit = 10,
+      status,
+      mood,
+      industry,
+      search,
+    } = paginationDto;
+    const skip = (page - 1) * limit;
+
+    const query: any = {
+      organizationId: new Types.ObjectId(organizationId),
+    };
+
+    if (status) {
+      if (status.toLowerCase() === 'active') {
+        query.isActive = true;
+      } else if (status.toLowerCase() === 'churned') {
+        query.isActive = false;
+      }
+    }
+
+    if (mood) {
+      query.mood = mood.toLowerCase();
+    }
+
+    if (industry) {
+      query.industry = { $regex: industry, $options: 'i' };
+    }
+
+    if (search) {
+      const searchRegex = new RegExp(search, 'i');
+      query.$or = [
+        { firstName: searchRegex },
+        { lastName: searchRegex },
+        { email: searchRegex },
+        { company: searchRegex },
+      ];
+    }
+
+    const [data, total] = await Promise.all([
+      this.customerModel
+        .find(query)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .exec(),
+      this.customerModel.countDocuments(query).exec(),
+    ]);
+
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages,
+      },
+    };
   }
 
   async findOne(id: string, organizationId: string): Promise<CustomerDocument> {

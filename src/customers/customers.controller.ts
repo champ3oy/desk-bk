@@ -8,6 +8,7 @@ import {
   Delete,
   UseGuards,
   Request,
+  Query,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -24,6 +25,7 @@ import { CustomersService } from './customers.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { MergeCustomerDto } from './dto/merge-customer.dto';
+import { CustomerPaginationDto } from './dto/customer-pagination.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -64,12 +66,31 @@ export class CustomersController {
   })
   @ApiResponse({
     status: 200,
-    description: 'List of customers',
-    type: [Customer],
+    description: 'Paginated list of customers',
+    schema: {
+      properties: {
+        data: {
+          type: 'array',
+          items: { $ref: '#/components/schemas/Customer' },
+        },
+        meta: {
+          type: 'object',
+          properties: {
+            total: { type: 'number' },
+            page: { type: 'number' },
+            limit: { type: 'number' },
+            totalPages: { type: 'number' },
+          },
+        },
+      },
+    },
   })
   @ApiForbiddenResponse({ description: 'Insufficient permissions' })
-  findAll(@Request() req) {
-    return this.customersService.findAll(req.user.organizationId);
+  findAll(@Request() req, @Query() paginationDto: CustomerPaginationDto) {
+    return this.customersService.findAll(
+      req.user.organizationId,
+      paginationDto,
+    );
   }
 
   @Get(':id')

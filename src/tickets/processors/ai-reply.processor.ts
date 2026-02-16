@@ -210,7 +210,7 @@ export class AiReplyProcessor extends WorkerHost {
         this.knowledgeBaseService,
         this.customersService,
         customerId,
-        UserRole.CUSTOMER,
+        UserRole.ADMIN,
         organizationId,
         undefined,
         channel,

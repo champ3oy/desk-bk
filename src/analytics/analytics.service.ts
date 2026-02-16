@@ -139,11 +139,16 @@ export class AnalyticsService {
   async getTrendingTopics(organizationId: string) {
     const orgId = new Types.ObjectId(organizationId);
 
-    // Fetch recent ticket subjects for AI analysis
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+    // Fetch tickets from the last 24 hours for AI analysis
     const recentTickets = await this.ticketModel
-      .find({ organizationId: orgId })
+      .find({
+        organizationId: orgId,
+        createdAt: { $gte: twentyFourHoursAgo },
+      })
       .sort({ createdAt: -1 })
-      .limit(50)
+      .limit(200) // Safety limit for AI prompt
       .select('subject createdAt')
       .exec();
 
@@ -155,16 +160,16 @@ export class AnalyticsService {
       const model = AIModelFactory.create(this.configService);
       const subjects = recentTickets.map((t) => t.subject).join('\n');
 
-      const prompt = `Analyze these customer support ticket subjects and identify the top 3-5 trending topics/issues.
+      const prompt = `Analyze these customer support ticket subjects from the LAST 24 HOURS and identify the top 3-8 trending topics/issues.
 For each topic, provide:
 1. Short 2-3 word name
-2. Volume (how many of these 50 tickets belong to this topic)
+2. Volume (how many of the provided tickets belong to this topic)
 3. Trend direction (UP, DOWN, or STABLE)
-4. Trend percentage (random-ish but realistic based on volume)
+4. Trend percentage (realistic based on recent spikes)
 
 Return ONLY a JSON array of objects with keys: "name", "volume", "trendDirection", "trendPercentage".
 
-Subjects:
+Subjects from last 24h:
 ${subjects}`;
 
       const response = await model.invoke([new HumanMessage(prompt)]);
@@ -179,8 +184,8 @@ ${subjects}`;
       return parsed.map((item: any, index: number) => ({
         topicId: (index + 1).toString(),
         name: item.name,
-        volume: item.volume,
-        trendPercentage: item.trendPercentage || 0,
+        volume: item.volume || 0,
+        trendPercentage: Number(item.trendPercentage) || 0,
         trendDirection: item.trendDirection || 'STABLE',
       }));
     } catch (error) {
@@ -209,21 +214,12 @@ ${subjects}`;
       0,
     );
 
-    const sentimentScoreMap = {
-      happy: 100,
-      grateful: 100,
-      neutral: 70,
-      confused: 50,
-      concerned: 40,
-      sad: 30,
-      frustrated: 20,
-      angry: 10,
-    };
-
     const topicBreakdown = sentimentCounts.map((s) => ({
       topicName: s._id.charAt(0).toUpperCase() + s._id.slice(1),
       averageScore:
-        sentimentScoreMap[s._id as keyof typeof sentimentScoreMap] || 50,
+        totalWithSentiment > 0
+          ? Math.round((s.count / totalWithSentiment) * 100)
+          : 0,
     }));
 
     // Find primary pain point via AI from negative tickets

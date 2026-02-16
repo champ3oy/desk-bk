@@ -186,7 +186,7 @@ export class IngestionService {
       // and allows Agents to reply via email to tickets.
 
       let agentUser: UserDocument | null = null;
-      if (message.senderEmail) {
+      if (message.senderEmail && message.channel !== MessageChannel.WIDGET) {
         agentUser = await this.usersService.findByEmailAndOrg(
           message.senderEmail,
           organizationId,

@@ -72,6 +72,21 @@ export class Customer {
   externalId?: string;
 
   @ApiPropertyOptional({
+    description: 'Customer mood based on sentiment',
+    example: 'happy',
+    enum: ['happy', 'neutral', 'frustrated', 'angry'],
+  })
+  @Prop({ required: false })
+  mood?: string;
+
+  @ApiPropertyOptional({
+    description: 'Industry category',
+    example: 'Technology',
+  })
+  @Prop({ required: false })
+  industry?: string;
+
+  @ApiPropertyOptional({
     description: 'Creation timestamp',
     example: '2024-01-01T00:00:00.000Z',
   })
