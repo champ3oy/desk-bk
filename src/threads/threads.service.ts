@@ -663,58 +663,13 @@ export class ThreadsService {
     userRole: UserRole,
     messageType?: MessageType,
   ): Promise<MessageDocument[]> {
-    const thread = await this.findOne(
-      threadId,
-      organizationId,
-      userId,
-      userRole,
-    );
-
-    const ticket = await this.ticketsService.findOne(
-      thread.ticketId.toString(),
-      userId,
-      userRole,
-      organizationId,
-    );
-
     const query: any = {
       threadId: new Types.ObjectId(threadId),
       organizationId: new Types.ObjectId(organizationId),
     };
 
-    // Determine if the user has permission to see internal messages
-    let canSeeInternal = false;
-
-    canSeeInternal = true;
-
-    // Apply message type filtering based on permissions
-    if (canSeeInternal) {
-      // User has full access to this thread/ticket
-      if (messageType) {
-        query.messageType = messageType;
-      }
-      // No filter means see everything (INTERNAL and EXTERNAL)
-    } else {
-      // Restricted access (Customers or Agents without special access)
-      if (messageType) {
-        if (messageType === MessageType.EXTERNAL) {
-          query.messageType = MessageType.EXTERNAL;
-        } else {
-          // User requested INTERNAL but doesn't have full access
-          // Only show internal messages authored by this user
-          query.messageType = MessageType.INTERNAL;
-          query.authorId = new Types.ObjectId(userId);
-        }
-      } else {
-        // No filter requested, show EXTERNAL and internal notes by the user
-        query.$or = [
-          { messageType: MessageType.EXTERNAL },
-          {
-            messageType: MessageType.INTERNAL,
-            authorId: new Types.ObjectId(userId),
-          },
-        ];
-      }
+    if (messageType) {
+      query.messageType = messageType;
     }
 
     const messages = await this.messageModel
