@@ -83,41 +83,48 @@ export const analyzeSentiment = async (
   console.log(`[PERF] Model initialization: ${Date.now() - modelStart}ms`);
 
   // ========== BUILD CONTEXT WITH PRE-FETCHED DATA ==========
-  const ticketData = {
-    ticket: ticket.toObject(),
-    threads: threadsWithMessages,
-    comments: JSON.parse(JSON.stringify(comments)),
-  };
+  const allMessages = threadsWithMessages
+    .flatMap((t) => t.messages)
+    .sort(
+      (a, b) =>
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    );
+
+  const totalMessageCount = allMessages.length;
+  const prunedMessages = allMessages.slice(-15); // Focusing on most recent for current sentiment
 
   const contextPrompt = `# TICKET DATA FOR SENTIMENT ANALYSIS
 
 ## Ticket Details
-- ID: ${ticketData.ticket._id}
-- Subject: ${ticketData.ticket.subject}
-- Description: ${ticketData.ticket.description}
-- Status: ${ticketData.ticket.status}
-- Priority: ${ticketData.ticket.priority}
-- Created: ${ticketData.ticket.createdAt}
+- ID: ${ticket._id}
+- Subject: ${ticket.subject}
+- Description: ${ticket.description}
 
-## Conversation History (Focus on customer messages for sentiment)
-${threadsWithMessages
-  .map(
-    (thread, idx) => `
-### Thread ${idx + 1}
-${thread.messages
+## Recent Conversation History ${totalMessageCount > 15 ? `(Most recent 15 of ${totalMessageCount} messages)` : ''}
+${prunedMessages
   .map(
     (
       msg: any,
     ) => `[${msg.authorType === 'customer' ? 'Customer' : 'Agent'}] (${new Date(msg.createdAt).toLocaleString()})
-${msg.content}`,
+${msg.content}${msg.attachments
+      ?.filter((a: any) => a.aiDescription)
+      .map((a: any) => `\n[ATTACHMENT SUMMARY: ${a.aiDescription}]`)
+      .join('')}`,
   )
   .join('\n\n')}
-`,
-  )
-  .join('\n')}
 
-## Comments
-${ticketData.comments.map((comment: any) => `[${comment.isInternal ? 'Internal' : 'Public'}] ${comment.content}`).join('\n')}
+## Recent Internal Comments
+${
+  comments && comments.length > 0
+    ? comments
+        .slice(-5)
+        .map(
+          (comment: any) =>
+            `[${comment.isInternal ? 'Internal' : 'Public'}] ${comment.content}`,
+        )
+        .join('\n')
+    : 'No comments'
+}
 
 # TASK
 Analyze the sentiment of the customer communications in this ticket. Consider all customer messages, the ticket subject and description, and any relevant comments. Return the sentiment analysis in a structured format with:

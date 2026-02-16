@@ -18,6 +18,8 @@ import { StorageService } from '../storage/storage.service';
 import { WidgetGateway } from '../gateways/widget.gateway';
 import { UsersService } from '../users/users.service'; // Added UsersService
 import { UserRole, UserDocument } from '../users/entities/user.entity';
+import { ConfigService } from '@nestjs/config';
+import { summarizeMedia } from '../ai/agents/media-summarizer';
 import {
   Message,
   MessageDocument,
@@ -63,6 +65,7 @@ export class IngestionService {
     private notificationsService: NotificationsService,
     private socialIntegrationService: SocialIntegrationService,
     private storageService: StorageService,
+    private configService: ConfigService,
   ) {}
 
   /**
@@ -1085,6 +1088,35 @@ export class IngestionService {
           `Error in hydrateAttachments pipeline: ${error.message}`,
           error.stack,
         );
+      }
+    }
+
+    // 3. New Step: Generate AI Descriptions for all media attachments (Image, Audio, Video)
+    // This allows the AI to "know" what happened in the past without re-processing large binary files.
+    for (const attachment of message.attachments) {
+      if (!attachment.path || attachment.aiDescription) continue;
+
+      const isImage = attachment.mimeType.startsWith('image/');
+      const isAudio = attachment.mimeType.startsWith('audio/');
+      const isVideo = attachment.mimeType.startsWith('video/');
+
+      if (isImage || isAudio || isVideo) {
+        try {
+          this.logger.debug(
+            `Generating AI description for ${attachment.filename}...`,
+          );
+          const description = await summarizeMedia(
+            attachment.path,
+            attachment.mimeType,
+            this.configService,
+          );
+          attachment.aiDescription = description;
+          this.logger.debug(`AI Description: ${description}`);
+        } catch (e) {
+          this.logger.error(
+            `Failed to generate AI description for ${attachment.filename}: ${e.message}`,
+          );
+        }
       }
     }
   }

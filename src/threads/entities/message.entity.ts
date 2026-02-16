@@ -134,6 +134,7 @@ export class Message {
     mimeType: string;
     size: number;
     path: string;
+    aiDescription?: string;
   }>;
 
   @ApiPropertyOptional({

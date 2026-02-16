@@ -1,4 +1,5 @@
 import { Module, forwardRef } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { BullModule } from '@nestjs/bullmq';
 import { EmailIntegrationModule } from '../integrations/email/email-integration.module';
@@ -41,6 +42,7 @@ import { EmailIngestionProcessor } from './email-ingestion.processor';
       { name: Thread.name, schema: ThreadSchema },
       { name: Ticket.name, schema: TicketSchema },
     ]),
+    ConfigModule,
     OrganizationsModule,
     forwardRef(() => CustomersModule),
     forwardRef(() => TicketsModule),

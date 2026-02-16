@@ -340,17 +340,18 @@ export const draftResponse = async (
   ];
 
   // 3. Initialize Model and Messages
-  // ReAct Agent now uses gemini-3-pro-preview for both Intent Check and Reasoning Loop
-  const agentModel = 'gemini-3-pro-preview';
+  // Optimized: Use Flash for intent detection (cheap) and Pro for reasoning (expensive)
+  const proModelName = 'gemini-3-pro-preview';
+  const flashModelName = 'gemini-3-flash-preview';
 
   const fastModel = AIModelFactory.create(configService, {
     provider: 'vertex',
-    model: agentModel,
+    model: flashModelName,
   });
 
   const mainModel = AIModelFactory.create(configService, {
     provider: 'vertex',
-    model: agentModel,
+    model: proModelName,
   });
 
   const modelWithTools = (mainModel as any).bindTools
@@ -371,10 +372,9 @@ export const draftResponse = async (
 
   // 4. Intent Classification Check (Stop Infinite Loops)
   // We check the LAST user message to see if it's gratitude or closure.
-  // We use the same model but with a specific prompt.
   const lastUserMessage = recentMessages[recentMessages.length - 1];
   if (lastUserMessage && lastUserMessage.authorType === 'customer') {
-    // Context: Last 3 customer messages to catch compound thoughts (e.g. "Thanks" + "But I have an issue")
+    // Context: Last 3 customer messages to catch compound thoughts
     const recentCustomerText = recentMessages
       .filter((m) => m.authorType === 'customer')
       .slice(-3)
@@ -407,8 +407,6 @@ export const draftResponse = async (
         : null;
 
       if (modelWithStructuredIntent) {
-        // We can't easily get usage back from withStructuredOutput in some versions,
-        // but we'll try to invoke in a way that gives us access or just accept {}
         const intentResult = await modelWithStructuredIntent.invoke([
           new SystemMessage(
             'You are an intent classifier. Categorize the user message strictly. If it is purely gratitude, return GRATITUDE.',
@@ -435,7 +433,7 @@ export const draftResponse = async (
     }
 
     console.log(
-      `[ReAct Agent] Intent Check: ${intent} for "${lastUserMessage.content}"`,
+      `[ReAct Agent] Intent Check (Flash): ${intent} for "${lastUserMessage.content}"`,
     );
 
     if (['GRATITUDE', 'CLOSURE'].includes(intent)) {
@@ -459,70 +457,69 @@ export const draftResponse = async (
   // Helper to fetch media (image, audio, video) as base64
   const fetchMediaAsBase64 = async (url: string): Promise<string | null> => {
     try {
-      console.log(`[AI Agent] Fetching media for context: ${url}`);
       const response = await fetch(url);
-      if (!response.ok) {
-        console.warn(
-          `[AI Agent] Failed to fetch media: ${response.statusText}`,
-        );
-        return null;
-      }
+      if (!response.ok) return null;
       const arrayBuffer = await response.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
       const contentType =
         response.headers.get('content-type') || 'application/octet-stream';
       return `data:${contentType};base64,${buffer.toString('base64')}`;
     } catch (e) {
-      console.warn(`[AI Agent] Failed to download media context: ${url}`, e);
       return null;
     }
   };
 
-  for (const msg of recentMessages) {
+  // Process history: Only include large media for the very recent messages
+  for (let i = 0; i < recentMessages.length; i++) {
+    const msg = recentMessages[i];
+    const isVeryRecent = i >= recentMessages.length - 3; // Keep media only for last 3 messages
     const role = msg.authorType === 'customer' ? 'user' : 'assistant';
     const contentParts: any[] = [];
 
-    // Add text content (default to empty string if missing to avoid validation errors, though [Attachment] usually present)
     const textContent = msg.content || '';
     if (textContent) {
       contentParts.push({ type: 'text', text: textContent });
     }
 
-    // Add attachments (Images, Audio, Video)
+    // Add attachments (Only for very recent messages to save tokens)
     if (msg.attachments && msg.attachments.length > 0) {
       for (const att of msg.attachments) {
         const isImage = att.mimeType && att.mimeType.startsWith('image/');
         const isAudio = att.mimeType && att.mimeType.startsWith('audio/');
         const isVideo = att.mimeType && att.mimeType.startsWith('video/');
 
-        if (
-          (isImage || isAudio || isVideo) &&
-          att.path &&
-          att.path.startsWith('http')
-        ) {
-          const base64Data = await fetchMediaAsBase64(att.path);
-          if (base64Data) {
-            if (isImage) {
-              contentParts.push({
-                type: 'image_url',
-                image_url: {
-                  url: base64Data,
-                },
-              });
-            } else {
-              // For Audio and Video, use the 'media' type supported by Gemini/Vertex models
-              contentParts.push({
-                type: 'media',
-                mimeType: att.mimeType,
-                data: base64Data.split(',')[1],
-              });
+        if ((isImage || isAudio || isVideo) && att.path?.startsWith('http')) {
+          if (isVeryRecent) {
+            const base64Data = await fetchMediaAsBase64(att.path);
+            if (base64Data) {
+              if (isImage) {
+                contentParts.push({
+                  type: 'image_url',
+                  image_url: { url: base64Data },
+                });
+              } else {
+                contentParts.push({
+                  type: 'media',
+                  mimeType: att.mimeType,
+                  data: base64Data.split(',')[1],
+                });
+              }
             }
+          } else {
+            // Use the stored AI description if available, otherwise fallback to placeholder
+            const summary = att.aiDescription
+              ? `[MEDIA SUMMARY: ${att.aiDescription}]`
+              : `[${att.mimeType.split('/')[0].toUpperCase()} ATTACHMENT: ${att.name || 'File'}]`;
+
+            contentParts.push({
+              type: 'text',
+              text: summary,
+            });
           }
         }
       }
     }
 
-    // fallback for empty content (rare)
     if (contentParts.length === 0) {
       contentParts.push({ type: 'text', text: '[Empty Message]' });
     }

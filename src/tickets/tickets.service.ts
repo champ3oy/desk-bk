@@ -172,7 +172,10 @@ export class TicketsService {
           };
         }
 
-        const model = AIModelFactory.create(this.configService);
+        const model = AIModelFactory.create(this.configService, {
+          provider: 'vertex',
+          model: 'gemini-3-flash-preview',
+        });
         const prompt = `Analyze the following customer support message and provide:
 1. A very short, precise 3-5 word title (no quotes, no "ID", just the title).
 2. The sentiment/mood of the customer (one of: angry, sad, happy, frustrated, neutral, concerned, grateful, confused).
@@ -275,7 +278,10 @@ Message: "${content.substring(0, 1000)}"`;
           .map((m) => m.content)
           .join('\n---\n');
 
-        const model = AIModelFactory.create(this.configService);
+        const model = AIModelFactory.create(this.configService, {
+          provider: 'vertex',
+          model: 'gemini-3-flash-preview',
+        });
         const prompt = `Analyze the sentiment/mood of the customer based on their recent messages. 
 Return ONLY one of the following words in lowercase: angry, sad, happy, frustrated, neutral, concerned, grateful, confused.
 

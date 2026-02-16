@@ -267,17 +267,27 @@ export const draftHumanResponse = async (
   // ========== MODEL INITIALIZATION ==========
   const model = AIModelFactory.create(configService, {
     provider: 'vertex',
-    model: 'gemini-3-pro-preview',
+    model: 'gemini-3-flash-preview',
   });
 
   // ========== BUILD CONTEXT ==========
   const ticketData = {
     ticket: ticket.toObject(),
-    threads: threadsWithMessages,
   };
 
+  // Optimization: Prune conversation history to last 20 messages for context
+  const allMessages = threadsWithMessages
+    .flatMap((t) => t.messages)
+    .sort(
+      (a, b) =>
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    );
+
+  const totalMessageCount = allMessages.length;
+  const prunedMessages = allMessages.slice(-20); // Last 20 is plenty for a draft
+
   let contextPrompt = `# TICKET DATA
-Here is the complete ticket information with all threads and messages:
+Here is the ticket information and recent conversation history:
 
 ## Ticket Details
 - ID: ${ticketData.ticket._id}
@@ -285,24 +295,19 @@ Here is the complete ticket information with all threads and messages:
 - Description: ${ticketData.ticket.description}
 - Status: ${ticketData.ticket.status}
 - Priority: ${ticketData.ticket.priority}
-- Created: ${ticketData.ticket.createdAt}
 
-## Conversation History
-${threadsWithMessages
-  .map(
-    (thread, idx) => `
-### Thread ${idx + 1}
-${thread.messages
+## Recent Conversation History ${totalMessageCount > 20 ? `(Showing last 20 of ${totalMessageCount} messages)` : ''}
+${prunedMessages
   .map(
     (
       msg: any,
     ) => `[${msg.authorType === 'customer' ? 'Customer' : 'Agent'}] (${new Date(msg.createdAt).toLocaleString()})
-${msg.content}`,
+${msg.content}${msg.attachments
+      ?.filter((a: any) => a.aiDescription)
+      .map((a: any) => `\n[ATTACHMENT SUMMARY: ${a.aiDescription}]`)
+      .join('')}`,
   )
   .join('\n\n')}
-`,
-  )
-  .join('\n')}
 
 ## Team Coordination & Progress (Internal Notes)
 ${
@@ -320,8 +325,6 @@ ${
 Draft a helpful response for the human agent to send to the customer.${
     additionalContext ? ` Additional context: ${additionalContext}` : ''
   }
-
-Remember: You are helping a human agent draft a response. Provide a clear, professional message that addresses the customer's needs. The agent will review and may edit your draft before sending.
 `;
 
   // Add knowledge base context if available
@@ -330,135 +333,44 @@ Remember: You are helping a human agent draft a response. Provide a clear, profe
   }
 
   // ========== PREPARE IMAGES FOR AI CONTEXT ==========
-  // Extract images from messages to provide visual context
-  const images: any[] = [];
+  const imageContents: any[] = [];
   try {
-    const base64Regex = /data:image\/([a-zA-Z+]*);base64,([^"'\s>]+)/g;
-    const urlRegex =
-      /(https?:\/\/[^\s]+?\.(?:png|jpe?g|gif|webp)(?:\?[^\s]*)?)/gi;
+    // Only fetch raw binary images for the very recent interactions (last 3 messages)
+    // For anything older, we rely on the [ATTACHMENT SUMMARY] already included in the text context above
+    const recentMessagesForImages = prunedMessages.slice(-3);
 
-    // Scan ticket description and raw body for images
-    const ticketSearchContent =
-      (ticketData.ticket.description || '') + (ticketData.ticket.rawBody || '');
-
-    let tMatch;
-    while ((tMatch = base64Regex.exec(ticketSearchContent)) !== null) {
-      images.push({
-        mimeType: `image/${tMatch[1] === 'jpeg' ? 'jpeg' : tMatch[1] || 'png'}`,
-        base64Data: tMatch[2],
-        isBase64: true,
-        filename: 'ticket_embedded_image',
-      });
-    }
-
-    const tUrls = ticketSearchContent.match(urlRegex);
-    if (tUrls) {
-      tUrls.forEach((url: string) => {
-        images.push({
-          path: url,
-          mimeType: url.toLowerCase().endsWith('.png')
-            ? 'image/png'
-            : 'image/jpeg',
-          filename: 'ticket_url_image',
-        });
-      });
-    }
-
-    console.log(
-      `[AI Draft] Scanning ${threadsWithMessages.length} threads for images...`,
-    );
-    threadsWithMessages.forEach((thread: any, tIdx: number) => {
-      if (thread.messages && Array.isArray(thread.messages)) {
-        thread.messages.forEach((msg: any, mIdx: number) => {
-          if (msg.attachments && msg.attachments.length > 0) {
-            msg.attachments.forEach((att: any) => {
-              const mime = att.mimeType || att.mime_type || att.mimetype;
-              if (mime && mime.startsWith('image/')) {
-                if (att.path) {
-                  images.push({ ...att, mimeType: mime });
-                } else if (att.base64 || att.data) {
-                  images.push({
-                    mimeType: mime,
-                    base64Data: att.base64 || att.data,
-                    isBase64: true,
-                    filename: att.filename || 'attachment_image',
-                  });
-                }
-              }
-            });
-          }
-
-          // Check for base64 images in rawBody or content
-          const msgSearchContent = (msg.rawBody || '') + (msg.content || '');
-          let bMatch;
-          while ((bMatch = base64Regex.exec(msgSearchContent)) !== null) {
-            images.push({
-              mimeType: `image/${bMatch[1] === 'jpeg' ? 'jpeg' : bMatch[1] || 'png'}`,
-              base64Data: bMatch[2],
-              isBase64: true,
-              filename: 'embedded_image',
-            });
-          }
-
-          const foundUrls = msgSearchContent.match(urlRegex);
-          if (foundUrls) {
-            foundUrls.forEach((url: string) => {
-              if (!images.find((img) => img.path === url)) {
-                images.push({
-                  path: url,
-                  mimeType: url.toLowerCase().endsWith('.png')
-                    ? 'image/png'
-                    : 'image/jpeg',
-                  filename: 'url_image',
+    for (const msg of recentMessagesForImages) {
+      if (msg.attachments && msg.attachments.length > 0) {
+        for (const att of msg.attachments) {
+          const mime = att.mimeType || att.mime_type || att.mimetype;
+          if (
+            mime &&
+            mime.startsWith('image/') &&
+            att.path?.startsWith('http')
+          ) {
+            try {
+              const res = await fetch(att.path);
+              if (res.ok) {
+                const arrayBuffer = await res.arrayBuffer();
+                imageContents.push({
+                  type: 'image',
+                  source_type: 'base64',
+                  mime_type: mime,
+                  data: Buffer.from(arrayBuffer).toString('base64'),
                 });
               }
-            });
-          }
-        });
-      }
-    });
-  } catch (e) {
-    console.warn('Error extracting images for AI draft:', e);
-  }
-
-  // Take most recent 3 images
-  const recentImages = images.slice(-3);
-  const imageContents: any[] = [];
-
-  if (recentImages.length > 0) {
-    console.log(
-      `[AI Draft] Fetching ${recentImages.length} images for context...`,
-    );
-    await Promise.all(
-      recentImages.map(async (img) => {
-        try {
-          let base64Data = '';
-          if (img.isBase64) {
-            base64Data = img.base64Data;
-          } else if (
-            typeof img.path === 'string' &&
-            img.path.startsWith('http')
-          ) {
-            const res = await fetch(img.path);
-            if (res.ok) {
-              const arrayBuffer = await res.arrayBuffer();
-              base64Data = Buffer.from(arrayBuffer).toString('base64');
+            } catch (e) {
+              console.warn(
+                `Failed to fetch recent image for draft: ${att.path}`,
+                e,
+              );
             }
           }
-
-          if (base64Data) {
-            imageContents.push({
-              type: 'image',
-              source_type: 'base64',
-              mime_type: img.mimeType,
-              data: base64Data,
-            });
-          }
-        } catch (e) {
-          console.error(`Failed to fetch image for AI draft: ${img.path}`, e);
         }
-      }),
-    );
+      }
+    }
+  } catch (e) {
+    console.warn('Error processing images for AI draft:', e);
   }
 
   // ========== LLM INVOCATION ==========
