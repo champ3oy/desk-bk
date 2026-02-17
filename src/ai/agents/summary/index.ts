@@ -61,6 +61,8 @@ export const summarizeTicket = async (
         organizationId,
         userId,
         userRole,
+        undefined,
+        50,
       );
       return {
         ...thread.toObject(),
@@ -74,7 +76,9 @@ export const summarizeTicket = async (
 
   // ========== MODEL INITIALIZATION ==========
   const modelStart = Date.now();
-  const model = AIModelFactory.create(configService);
+  const model = AIModelFactory.create(configService, {
+    model: 'gemini-3-flash-preview',
+  });
   console.log(`[PERF] Model initialization: ${Date.now() - modelStart}ms`);
 
   // ========== BUILD CONTEXT WITH PRE-FETCHED DATA ==========
@@ -96,6 +100,7 @@ export const summarizeTicket = async (
 - Description: ${ticket.description}
 - Status: ${ticket.status}
 - Priority: ${ticket.priority}
+- Previous Summary: ${ticket.summary || 'None'}
 
 ## Conversation History ${totalMessageCount > 40 ? `(Showing last 40 of ${totalMessageCount} messages)` : ''}
 ${prunedMessages

@@ -662,6 +662,8 @@ export class ThreadsService {
     userId: string,
     userRole: UserRole,
     messageType?: MessageType,
+    limit?: number,
+    skip?: number,
   ): Promise<MessageDocument[]> {
     const query: any = {
       threadId: new Types.ObjectId(threadId),
@@ -672,11 +674,20 @@ export class ThreadsService {
       query.messageType = messageType;
     }
 
-    const messages = await this.messageModel
-      .find(query)
-      .sort({ createdAt: 1 })
-      .lean()
-      .exec();
+    const queryBuilder = this.messageModel.find(query).sort({ createdAt: -1 }); // Sort desc to get latest first if limiting
+
+    if (skip) {
+      queryBuilder.skip(skip);
+    }
+
+    if (limit) {
+      queryBuilder.limit(limit);
+    }
+
+    const messagesRaw = await queryBuilder.lean().exec();
+
+    // Reverse back to chronological order
+    const messages = messagesRaw.reverse();
 
     // Manual population for authorId
     const userIds = new Set<string>();

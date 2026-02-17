@@ -295,6 +295,7 @@ Here is the ticket information and recent conversation history:
 - Description: ${ticketData.ticket.description}
 - Status: ${ticketData.ticket.status}
 - Priority: ${ticketData.ticket.priority}
+- Summary of Issue: ${ticketData.ticket.summary || ticketData.ticket.description || 'No summary available.'}
 
 ## Recent Conversation History ${totalMessageCount > 20 ? `(Showing last 20 of ${totalMessageCount} messages)` : ''}
 ${prunedMessages

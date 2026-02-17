@@ -149,6 +149,8 @@ export const draftResponse = async (
         organizationId,
         userId,
         userRole,
+        undefined,
+        20,
       );
       return { ...thread.toObject(), messages };
     }),
@@ -163,7 +165,7 @@ export const draftResponse = async (
     );
 
   // Take last 15 messages for context window
-  const recentMessages = allMessages.slice(-15);
+  const recentMessages = allMessages.slice(-10);
 
   // 2. Define Tools
   const tools = [
@@ -354,15 +356,25 @@ export const draftResponse = async (
     model: proModelName,
   });
 
-  const modelWithTools = (mainModel as any).bindTools
-    ? (mainModel as any).bindTools(
-        tools.map((t) => ({
-          name: t.name,
-          description: t.description,
-          schema: t.schema,
-        })),
-      )
-    : mainModel;
+  // Dynamic Model Selection based on Complexity
+  // We default to Pro, but if we detected 'SIMPLE' complexity in a previous step, we might want to use Flash.
+  // However, since we define 'modelWithTools' BEFORE the intent check loop in original code, we need to defer binding.
+  // OR we can move the model definition down.
+  // Let's defer binding to the ReAct loop or bind both.
+  const bindToolsToModel = (model: any) => {
+    return (model as any).bindTools
+      ? (model as any).bindTools(
+          tools.map((t) => ({
+            name: t.name,
+            description: t.description,
+            schema: t.schema,
+          })),
+        )
+      : model;
+  };
+
+  const fastModelWithTools = bindToolsToModel(fastModel);
+  const mainModelWithTools = bindToolsToModel(mainModel);
 
   const systemPrompt = buildSystemPrompt(
     org,
@@ -372,6 +384,8 @@ export const draftResponse = async (
 
   // 4. Intent Classification Check (Stop Infinite Loops)
   // We check the LAST user message to see if it's gratitude or closure.
+  // We check the LAST user message to see if it's gratitude or closure.
+  let requestComplexity = 'COMPLEX';
   const lastUserMessage = recentMessages[recentMessages.length - 1];
   if (lastUserMessage && lastUserMessage.authorType === 'customer') {
     // Context: Last 3 customer messages to catch compound thoughts
@@ -407,26 +421,65 @@ export const draftResponse = async (
         : null;
 
       if (modelWithStructuredIntent) {
-        const intentResult = await modelWithStructuredIntent.invoke([
-          new SystemMessage(
-            'You are an intent classifier. Categorize the user message strictly. If it is purely gratitude, return GRATITUDE.',
-          ),
-          new HumanMessage(intentPrompt),
-        ]);
-        intent = intentResult.intent;
+        // Updated schema to include complexity
+        const routingSchema = z.object({
+          intent: z
+            .enum([
+              'GRATITUDE',
+              'CLOSURE',
+              'AFFIRMATIVE',
+              'INQUIRY',
+              'GREETING',
+              'OTHER',
+            ])
+            .describe('The overall intent of the customer message'),
+          complexity: z
+            .enum(['SIMPLE', 'COMPLEX'])
+            .describe(
+              'SIMPLE if the user is just saying hi, thanks, or simple phatic communication. COMPLEX if the user is asking a question, reporting an issue, or needs information.',
+            ),
+        });
+
+        const routingResult = await (fastModel as any)
+          .withStructuredOutput(routingSchema)
+          .invoke([
+            new SystemMessage(
+              'You are a routing agent. Categorize the user message and determining complexity. If it is purely gratitude, return GRATITUDE.',
+            ),
+            new HumanMessage(intentPrompt),
+          ]);
+        intent = routingResult.intent;
+        // Store complexity for later use
+        requestComplexity = routingResult.complexity;
       } else {
         const intentResp = await fastModel.invoke([
-          new HumanMessage(`${intentPrompt}\nRespond ONLY with the category.`),
+          new HumanMessage(
+            `${intentPrompt}\n\nAlso classify complexity as SIMPLE or COMPLEX.\nRespond in format: INTENT|COMPLEXITY`,
+          ),
         ]);
         intentUsage = intentResp.usage_metadata;
-        const rawIntent =
+        const rawResponse =
           typeof intentResp.content === 'string'
             ? intentResp.content.trim().toUpperCase()
-            : 'OTHER';
+            : '';
+        const parts = rawResponse.split('|');
+
+        const rawIntent = parts[0] ? parts[0].trim() : 'OTHER';
+        const rawComplexity = parts[1] ? parts[1].trim() : 'COMPLEX';
+
         intent =
-          ['GRATITUDE', 'CLOSURE', 'AFFIRMATIVE', 'INQUIRY', 'OTHER'].find(
-            (i) => rawIntent.includes(i),
-          ) || 'OTHER';
+          [
+            'GRATITUDE',
+            'CLOSURE',
+            'AFFIRMATIVE',
+            'INQUIRY',
+            'GREETING',
+            'OTHER',
+          ].find((i) => rawIntent.includes(i)) || 'OTHER';
+
+        requestComplexity = rawComplexity.includes('SIMPLE')
+          ? 'SIMPLE'
+          : 'COMPLEX';
       }
     } catch (e) {
       console.error(`[ReAct Agent] Intent detection failed:`, e);
@@ -446,6 +499,30 @@ export const draftResponse = async (
           knowledgeBaseUsed: false,
           performanceMs: Date.now() - totalStart,
           toolCalls: ['intent_check'],
+        },
+      };
+    }
+
+    // Direct Reply for Greetings (Flash)
+    if (intent === 'GREETING') {
+      const greetingResp = await fastModel.invoke([
+        new SystemMessage(
+          'You are a helpful customer support agent. Reply to the user greeting politely and offer help. Keep it short.',
+        ),
+        new HumanMessage(lastUserMessage.content),
+      ]);
+      return {
+        action: 'REPLY',
+        content:
+          typeof greetingResp.content === 'string'
+            ? greetingResp.content
+            : 'Hello! How can I help you today?',
+        confidence: 100,
+        metadata: {
+          tokenUsage: greetingResp.usage_metadata,
+          knowledgeBaseUsed: false,
+          performanceMs: Date.now() - totalStart,
+          toolCalls: ['greeting_reply'],
         },
       };
     }
@@ -537,6 +614,7 @@ Context:
 - Subject: ${ticket.subject}
 - Status: ${ticket.status}
 - Current Priority: ${ticket.priority}
+- Summary of Issue: ${ticket.summary || ticket.description || 'No summary available.'}
 
 ${additionalContext ? `Additional Instruction: ${additionalContext}` : ''}
 ${isWaitingForNewTopicCheck ? 'Note: User is in escalation buffer. Check if this is a new topic.' : ''}
@@ -582,8 +660,19 @@ Please decide on the next best action.
         );
       }
 
+      // Select Model based on Complexity Check from earlier
+      // We use the local complexity flag or default to COMPLEX (Pro)
+      const isSimple = requestComplexity === 'SIMPLE';
+      const selectedModelProxy = isSimple
+        ? fastModelWithTools
+        : mainModelWithTools;
+
+      console.log(
+        `[ReAct Loop] Using ${isSimple ? 'Flash (Simple)' : 'Pro (Complex)'} model for turn ${turn}`,
+      );
+
       // Invoke Model
-      const aiResponse = await modelWithTools.invoke(messages);
+      const aiResponse = await selectedModelProxy.invoke(messages);
       messages.push(aiResponse);
 
       // FORCE REPLY ON MAX TURNS: If we are at the limit and have content, return it.

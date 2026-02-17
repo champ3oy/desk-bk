@@ -79,7 +79,9 @@ export const analyzeSentiment = async (
 
   // ========== MODEL INITIALIZATION ==========
   const modelStart = Date.now();
-  const model = AIModelFactory.create(configService);
+  const model = AIModelFactory.create(configService, {
+    model: 'gemini-3-flash-preview',
+  });
   console.log(`[PERF] Model initialization: ${Date.now() - modelStart}ms`);
 
   // ========== BUILD CONTEXT WITH PRE-FETCHED DATA ==========
@@ -99,6 +101,7 @@ export const analyzeSentiment = async (
 - ID: ${ticket._id}
 - Subject: ${ticket.subject}
 - Description: ${ticket.description}
+- Summary of Issue: ${ticket.summary || ticket.description || 'No summary available.'}
 
 ## Recent Conversation History ${totalMessageCount > 15 ? `(Most recent 15 of ${totalMessageCount} messages)` : ''}
 ${prunedMessages

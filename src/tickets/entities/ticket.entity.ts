@@ -42,6 +42,13 @@ export class Ticket {
   @Prop({ required: true })
   description: string;
 
+  @ApiPropertyOptional({
+    description: 'AI-generated running summary of the ticket',
+    example: 'User is facing login issues...',
+  })
+  @Prop({ required: false })
+  summary?: string;
+
   @ApiProperty({
     description: 'Ticket status',
     enum: TicketStatus,
