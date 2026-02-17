@@ -463,10 +463,10 @@ export class IngestionService {
 
     // Re-examine ticket mood and trigger auto-reply
     this.ticketsService
-      .analyzeTicketMood(ticketId, message.content, organizationId)
+      .updateTicketContext(ticketId, message.content, organizationId)
       .catch((e) =>
         this.logger.error(
-          `Failed to re-analyze mood for ticket ${ticketId}`,
+          `Failed to update ticket context for ticket ${ticketId}`,
           e,
         ),
       );

@@ -344,7 +344,7 @@ export const draftResponse = async (
   // 3. Initialize Model and Messages
   // Optimized: Use Flash for intent detection (cheap) and Pro for reasoning (expensive)
   const proModelName = 'gemini-3-pro-preview';
-  const flashModelName = 'gemini-3-flash-preview';
+  const flashModelName = 'gemini-3-pro-preview';
 
   const fastModel = AIModelFactory.create(configService, {
     provider: 'vertex',

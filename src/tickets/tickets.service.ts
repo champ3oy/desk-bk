@@ -239,9 +239,9 @@ Message: "${content.substring(0, 1000)}"`;
   }
 
   /**
-   * Re-examine the mood of the chat and update the ticket
+   * Re-examine the context (mood, title) of the chat and update the ticket
    */
-  async analyzeTicketMood(
+  async updateTicketContext(
     ticketId: string,
     messageContent: string,
     organizationId: string,
@@ -272,66 +272,133 @@ Message: "${content.substring(0, 1000)}"`;
         );
 
         // Focus on recent customer messages
-        const customerMessages = messages
-          .filter((m) => m.authorType === MessageAuthorType.CUSTOMER)
+        // Count total customer messages to limit AI usage (cost optimization)
+        const customerMessages = messages.filter(
+          (m) => m.authorType === MessageAuthorType.CUSTOMER,
+        );
+
+        if (customerMessages.length > 2) {
+          console.log(
+            `[updateTicketContext] Skipping AI analysis for ticket ${ticketId}: Customer message count ${customerMessages.length} > 2`,
+          );
+          return;
+        }
+
+        // We include the last few messages to give context for the title
+        const conversationHistory = messages
           .slice(-5)
-          .map((m) => m.content)
-          .join('\n---\n');
+          .map((m) => `${m.authorType}: ${m.content}`)
+          .join('\n');
 
         const model = AIModelFactory.create(this.configService, {
           provider: 'vertex',
           model: 'gemini-3-flash-preview',
         });
-        const prompt = `Analyze the sentiment/mood of the customer based on their recent messages. 
-Return ONLY one of the following words in lowercase: angry, sad, happy, frustrated, neutral, concerned, grateful, confused.
 
-Recent messages:
-${customerMessages}
+        const prompt = `Analyze the recent customer support conversation and provide:
+1. The sentiment/mood of the customer (one of: angry, sad, happy, frustrated, neutral, concerned, grateful, confused).
+2. A short, precise 3-5 word title that describes the *actual issue* discussed.
 
+Current Title: "${ticket.subject}"
+
+Rules for Title:
+- If the current title is generic (e.g. "New Conversation", "Chat Conversation", "New message", "Support Request", "Hello") and the conversation reveals a specific issue, provide a NEW, better title.
+- If the current title is already specific and accurate, return null or the same title.
+- Do NOT use quotes or "ID" in the title.
+
+Return ONLY a JSON object: { "sentiment": "string", "title": "string | null" }
+
+Conversation:
+${conversationHistory}
 New message:
-${messageContent}
-
-Sentiment:`;
+${messageContent}`;
 
         const response = await runWithTelemetryContext(
           { organizationId, feature: 'ingestion:sentiment' },
           () => model.invoke(prompt),
         );
-        const sentiment = (
-          typeof response.content === 'string' ? response.content : 'neutral'
-        )
-          .trim()
-          .toLowerCase();
 
-        // Clean up sentiment (sometimes LLM returns more than one word)
-        const validSentiments = [
-          'angry',
-          'sad',
-          'happy',
-          'frustrated',
-          'neutral',
-          'concerned',
-          'grateful',
-          'confused',
-        ];
-        const detected = validSentiments.find((s) => sentiment.includes(s));
+        let rawContent =
+          typeof response.content === 'string' ? response.content : '';
 
-        if (detected) {
+        if (Array.isArray(response.content)) {
+          rawContent = (response.content as any)
+            .map((c: any) => c.text || '')
+            .join('');
+        }
+
+        // Extract JSON
+        const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
+        const jsonString = jsonMatch ? jsonMatch[0] : rawContent;
+        let parsed: any = {};
+
+        try {
+          parsed = JSON.parse(jsonString);
+        } catch (e) {
+          // Fallback if JSON parsing fails - try to just extract sentiment
+          console.warn(
+            'Failed to parse updateTicketContext JSON, falling back to neutral',
+          );
+          parsed = { sentiment: 'neutral', title: null };
+        }
+
+        const updates: any = {};
+
+        // Update Sentiment
+        if (parsed.sentiment) {
+          const sentiment = parsed.sentiment.trim().toLowerCase();
+          const validSentiments = [
+            'angry',
+            'sad',
+            'happy',
+            'frustrated',
+            'neutral',
+            'concerned',
+            'grateful',
+            'confused',
+          ];
+          const detected = validSentiments.find((s) => sentiment.includes(s));
+          if (detected && detected !== ticket.sentiment) {
+            updates.sentiment = detected;
+          }
+        }
+
+        // Update Title
+        if (parsed.title) {
+          const newTitle = parsed.title.trim().replace(/^"|"$/g, '');
+          // Only update if it's different and not null/empty
+          if (newTitle && newTitle.length > 2 && newTitle !== ticket.subject) {
+            // Basic check to avoid overwriting with "New Conversation" again if AI hallucinates
+            const isGeneric = [
+              'new conversation',
+              'chat conversation',
+              'new message',
+              'support request',
+            ].includes(newTitle.toLowerCase());
+            if (!isGeneric) {
+              updates.subject = newTitle;
+            }
+          }
+        }
+
+        if (Object.keys(updates).length > 0) {
           await this.ticketModel.updateOne(
             { _id: ticketId },
-            { $set: { sentiment: detected } },
+            { $set: updates },
           );
-          console.log(`Updated ticket ${ticketId} sentiment to: ${detected}`);
+          console.log(
+            `[updateTicketContext] Updated ticket ${ticketId} with: ${JSON.stringify(updates)}`,
+          );
         }
         return; // Success
       } catch (e) {
         attempt++;
         if (attempt > maxRetries) {
-          console.error('Failed to re-analyze ticket mood after retries', e);
+          console.error('Failed to re-analyze ticket context after retries', e);
           return;
         }
         console.warn(
-          `Retry ${attempt}/${maxRetries} for analyzeTicketMood due to error: ${e.message}`,
+          `Retry ${attempt}/${maxRetries} for updateTicketContext due to error: ${e.message}`,
         );
         await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
       }
