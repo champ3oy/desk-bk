@@ -32,7 +32,8 @@ const REACT_SYSTEM_PROMPT = `You are an expert customer support agent for our co
 -   **Always** check 'get_customer_context' if you need to know who the user is (e.g. VIP status, recent orders).
 -   If the user is angry or the issue is complex, use 'escalate_ticket'.
 -   If the user asks about a specific topic (e.g., "Billing"), use 'update_ticket_attributes' to tag it.
--   **Final Step**: You must ALWAYS call 'send_final_reply' to send your message to the user, OR 'escalate_ticket' to hand off.
+-   **Missing Information**: If you cannot find the answer in the Knowledge Base after searching, or if the user's request is ambiguous, use 'ask_customer_for_clarification' to get more details. Do NOT keep searching if the information simply isn't there.
+-   **Final Step**: You must ALWAYS call 'send_final_reply' or 'ask_customer_for_clarification' to send your message to the user, OR 'escalate_ticket' to hand off.
 -   **IMPORTANT**: Do NOT write the function call (e.g. "send_final_reply(...)") in the message text. You must use the tool/function calling feature.
 -   **Conversation Closure**: If the user says "Thanks" or indicates the issue is resolved, STOP IMMEDIATELY. Do NOT send any text. Do NOT call any tools. Return an empty string "". Never explain why you are not responding.
 
@@ -337,6 +338,22 @@ export const draftResponse = async (
           __action: 'REPLY',
           message: `I've created a new ticket (#${(newTicket as any).displayId}) for "${subject}".`,
         };
+      },
+    },
+    {
+      name: 'ask_customer_for_clarification',
+      description:
+        'Ask the customer for more information or clarification when you are stuck or missing details needed to help them.',
+      schema: z.object({
+        question: z
+          .string()
+          .describe(
+            'The specific question or request for info to send to the customer.',
+          ),
+      }),
+      func: async ({ question }: { question: string }) => {
+        console.log(`[Tool] Asking for clarification`);
+        return { __action: 'REPLY', message: question };
       },
     },
   ];

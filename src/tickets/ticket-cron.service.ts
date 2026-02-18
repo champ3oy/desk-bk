@@ -78,6 +78,34 @@ export class TicketCronService {
           );
 
           if (thread) {
+            // 3b. Check if the last message was from an agent (human or AI)
+            const messages = await this.threadsService.getMessages(
+              thread._id.toString(),
+              org._id.toString(),
+              org._id.toString(), // Use org ID for system access
+              UserRole.ADMIN,
+              undefined,
+              1, // Just get the latest
+            );
+
+            const lastMessage =
+              messages && messages.length > 0
+                ? messages[messages.length - 1]
+                : null;
+
+            if (
+              !lastMessage ||
+              (lastMessage.authorType !== MessageAuthorType.USER &&
+                lastMessage.authorType !== MessageAuthorType.AI)
+            ) {
+              this.logger.debug(
+                `[TicketCronService] Skipping ticket ${
+                  ticket.displayId || ticket._id
+                } because the last message was not from an agent (human or AI).`,
+              );
+              continue;
+            }
+
             // 4. Generate AI Closure Message for the customer
             const closureMessage = await generateAutoCloseMessage(
               ticket.displayId || ticket._id.toString(),

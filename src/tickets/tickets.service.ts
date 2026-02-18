@@ -933,12 +933,14 @@ ${messageContent}`;
           break;
       }
     } else {
-      // PROCEED WITH ORIGINAL ROLE-BASED SCOPING IF NO FOLDER SPECIFIED
       // Scope tickets based on user role
-      // Admins see all tickets in the org
-      // Agents see: assigned to them, their groups, unassigned, or following
+      // Admins and Agents see: assigned to them, their groups, unassigned, or following
       // Light Agents see: assigned to them, their groups, or following (no unassigned)
-      if (userRole === UserRole.AGENT || userRole === UserRole.LIGHT_AGENT) {
+      if (
+        userRole === UserRole.ADMIN ||
+        userRole === UserRole.AGENT ||
+        userRole === UserRole.LIGHT_AGENT
+      ) {
         const userGroups = await this.groupsService.findByMember(
           userId,
           organizationId,
@@ -956,8 +958,8 @@ ${messageContent}`;
           { followers: new Types.ObjectId(userId) },
         ];
 
-        // Only regular agents can see unassigned tickets
-        if (userRole === UserRole.AGENT) {
+        // Admins and regular agents can see unassigned tickets
+        if (userRole === UserRole.ADMIN || userRole === UserRole.AGENT) {
           accessConditions.push({
             $and: [
               {
@@ -1393,6 +1395,94 @@ ${messageContent}`;
 
     if (!updatedTicket) {
       throw new NotFoundException(`Ticket with ID ${id} not found`);
+    }
+
+    // Track changes and create system messages for Audit Trail
+    if (updatedTicket) {
+      const thread = await this.threadsService.findByTicket(
+        id,
+        organizationId,
+        userId,
+        userRole,
+      );
+
+      if (thread) {
+        // 1. Status Change
+        if (
+          updateTicketDto.status &&
+          updateTicketDto.status !== existingTicket.status
+        ) {
+          await this.threadsService.createSystemMessage(
+            thread._id.toString(),
+            organizationId,
+            `STATUS CHANGED TO ${updateTicketDto.status.toUpperCase()}`,
+            userId,
+          );
+        }
+
+        // 2. Individual Assignment Change
+        if (
+          updateTicketDto.assignedToId !== undefined &&
+          String(updateTicketDto.assignedToId || '') !==
+            String(
+              (existingTicket.assignedToId as any)?._id ||
+                existingTicket.assignedToId ||
+                '',
+            )
+        ) {
+          const assigneeName = updatedTicket.assignedToId
+            ? `${(updatedTicket.assignedToId as any).firstName} ${(updatedTicket.assignedToId as any).lastName || ''}`.trim()
+            : 'UNASSIGNED';
+          await this.threadsService.createSystemMessage(
+            thread._id.toString(),
+            organizationId,
+            `ASSIGNED TO ${assigneeName.toUpperCase()}`,
+            userId,
+          );
+        }
+
+        // 3. Team Assignment Change
+        if (
+          updateTicketDto.assignedToGroupId !== undefined &&
+          String(updateTicketDto.assignedToGroupId || '') !==
+            String(
+              (existingTicket.assignedToGroupId as any)?._id ||
+                existingTicket.assignedToGroupId ||
+                '',
+            )
+        ) {
+          const groupName = updatedTicket.assignedToGroupId
+            ? (updatedTicket.assignedToGroupId as any).name
+            : 'NO TEAM';
+          await this.threadsService.createSystemMessage(
+            thread._id.toString(),
+            organizationId,
+            `ASSIGNED TO ${groupName.toUpperCase()}`,
+            userId,
+          );
+        }
+
+        // 4. Followers Added
+        if (updateTicketDto.followers && existingTicket.followers) {
+          const existingFollowerIds = existingTicket.followers.map((f: any) =>
+            String(f._id || f),
+          );
+          const newFollowers = (updatedTicket.followers || []).filter(
+            (f: any) => !existingFollowerIds.includes(String(f._id || f)),
+          );
+
+          for (const follower of newFollowers) {
+            const followerName =
+              `${(follower as any).firstName} ${(follower as any).lastName || ''}`.trim();
+            await this.threadsService.createSystemMessage(
+              thread._id.toString(),
+              organizationId,
+              `${followerName.toUpperCase()} ADDED AS FOLLOWER`,
+              userId,
+            );
+          }
+        }
+      }
     }
 
     // Notify agents via WebSocket

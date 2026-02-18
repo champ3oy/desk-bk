@@ -656,6 +656,47 @@ export class ThreadsService {
     return savedMessage;
   }
 
+  async createSystemMessage(
+    threadId: string,
+    organizationId: string,
+    content: string,
+    userId?: string,
+  ): Promise<MessageDocument> {
+    const thread = await this.threadModel
+      .findOne({
+        _id: threadId,
+        organizationId: new Types.ObjectId(organizationId),
+      })
+      .exec();
+
+    if (!thread) {
+      throw new NotFoundException(`Thread with ID ${threadId} not found`);
+    }
+
+    const message = new this.messageModel({
+      threadId: new Types.ObjectId(threadId),
+      organizationId: new Types.ObjectId(organizationId),
+      messageType: MessageType.INTERNAL,
+      authorType: MessageAuthorType.SYSTEM,
+      authorId: userId ? new Types.ObjectId(userId) : new Types.ObjectId(),
+      content: content,
+      channel: MessageChannel.PLATFORM,
+      readBy: [],
+      isRead: true,
+    });
+
+    const savedMessage = await message.save();
+
+    // Notify agents via WebSocket
+    this.agentGateway.emitToTicket(
+      thread.ticketId.toString(),
+      'new_message',
+      savedMessage,
+    );
+
+    return savedMessage;
+  }
+
   async getMessages(
     threadId: string,
     organizationId: string,
