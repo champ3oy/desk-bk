@@ -9,6 +9,14 @@ export class KnowledgeBaseService {
   private readonly logger = new Logger(KnowledgeBaseService.name);
   private embeddingsInstance: GoogleGenerativeAIEmbeddings | null = null;
 
+  // In-memory KB result cache: key -> { result, expiresAt }
+  // 5 minute TTL — cheap to hold, avoids re-embedding the same query repeatedly
+  private readonly kbCache = new Map<
+    string,
+    { result: string; expiresAt: number }
+  >();
+  private readonly KB_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
   constructor(
     private readonly trainingService: TrainingService,
     private readonly configService: ConfigService,
@@ -55,6 +63,14 @@ export class KnowledgeBaseService {
     maxResults: number = 3,
   ): Promise<string> {
     const startTime = Date.now();
+
+    // Check cache first
+    const cacheKey = `${organizationId}:${query.trim().toLowerCase()}`;
+    const cached = this.kbCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      this.logger.debug(`[KB Cache] HIT for query: "${query}"`);
+      return cached.result;
+    }
 
     try {
       const embeddings = this.getEmbeddingsInstance();
@@ -107,6 +123,11 @@ export class KnowledgeBaseService {
         this.logger.debug(
           `[PERF] Total retrieveRelevantContent: ${Date.now() - startTime}ms (no results)`,
         );
+        // Cache empty results too (1 min TTL) to prevent hammering for unindexed queries
+        this.kbCache.set(cacheKey, {
+          result: '',
+          expiresAt: Date.now() + 60_000,
+        });
         return '';
       }
 
@@ -123,7 +144,16 @@ export class KnowledgeBaseService {
       this.logger.debug(
         `[PERF] Total retrieveRelevantContent: ${Date.now() - startTime}ms (${results.length} results)`,
       );
-      return contextParts.join('\n\n');
+      const finalResult = contextParts.join('\n\n');
+
+      // Cache the result for 5 minutes
+      this.kbCache.set(cacheKey, {
+        result: finalResult,
+        expiresAt: Date.now() + this.KB_CACHE_TTL_MS,
+      });
+      this.logger.debug(`[KB Cache] STORED result for query: "${query}"`);
+
+      return finalResult;
     } catch (error) {
       if (error.message === 'Embedding timeout') {
         this.logger.warn(

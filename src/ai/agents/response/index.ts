@@ -165,7 +165,7 @@ export const draftResponse = async (
         userId,
         userRole,
         undefined,
-        20,
+        10, // Fetch 10 max (we'll slice to 5 below)
       );
       return { ...thread.toObject(), messages };
     }),
@@ -179,8 +179,8 @@ export const draftResponse = async (
         new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
     );
 
-  // Take last 15 messages for context window
-  const recentMessages = allMessages.slice(-10);
+  // Take last 5 messages for context window (reduced from 10 for cost savings)
+  const recentMessages = allMessages.slice(-5);
 
   // 2. Define Tools
   const tools = [
@@ -373,9 +373,9 @@ export const draftResponse = async (
   ];
 
   // 3. Initialize Model and Messages
-  // Optimized: Use Flash for intent detection (cheap) and Pro for reasoning (expensive)
+  // Flash for cheap intent/routing/greetings; Pro for full ReAct reasoning
   const proModelName = 'gemini-3-pro-preview';
-  const flashModelName = 'gemini-3-pro-preview';
+  const flashModelName = 'gemini-3-flash-preview'; // FIX: was incorrectly set to Pro
 
   const fastModel = AIModelFactory.create(configService, {
     provider: 'vertex',
@@ -584,7 +584,8 @@ export const draftResponse = async (
     const role = msg.authorType === 'customer' ? 'user' : 'assistant';
     const contentParts: any[] = [];
 
-    const textContent = msg.content || '';
+    // Cap each message at 800 chars to prevent large email bodies from blowing up the context
+    const textContent = (msg.content || '').slice(0, 800);
     if (textContent) {
       contentParts.push({ type: 'text', text: textContent });
     }
@@ -639,13 +640,20 @@ export const draftResponse = async (
     }
   }
 
+  // Cap description length to avoid huge email bodies ballooning the context
+  const issueContext = (
+    ticket.summary ||
+    ticket.description ||
+    'No summary available.'
+  ).slice(0, 500);
+
   const contextInstruction = `
 Context:
 - Ticket ID: ${ticket.displayId || ticket._id}
 - Subject: ${ticket.subject}
 - Status: ${ticket.status}
 - Current Priority: ${ticket.priority}
-- Summary of Issue: ${ticket.summary || ticket.description || 'No summary available.'}
+- Summary of Issue: ${issueContext}
 
 ${additionalContext ? `Additional Instruction: ${additionalContext}` : ''}
 ${isWaitingForNewTopicCheck ? 'Note: User is in escalation buffer. Check if this is a new topic.' : ''}
@@ -660,8 +668,8 @@ Please decide on the next best action.
     new HumanMessage(contextInstruction),
   ];
 
-  // 4. ReAct Loop
-  const MAX_TURNS = 5;
+  // 4. ReAct Loop (reduced from 5 to 3 turns for cost savings)
+  const MAX_TURNS = 3;
   let turn = 0;
   const finalResult: AgentResponse = {
     action: 'ESCALATE',
