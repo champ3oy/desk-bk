@@ -82,6 +82,20 @@ export function buildSystemPrompt(
       '- This is a chat/messaging channel. Keep it short and conversational.',
     );
     instructions.push('- Do NOT use complex markdown headers.');
+
+    // WhatsApp Name Verification
+    if (channel === 'whatsapp' && customerName) {
+      const isGenericName =
+        /^(whatsapp user|wa user|phone user|customer|\+\d+)$/i.test(
+          customerName,
+        ) || customerName.includes('+');
+
+      if (isGenericName) {
+        instructions.push(
+          "- The customer's name appears to be a placeholder or phone number. Politely ask for their actual name and email early in the conversation to better assist them.",
+        );
+      }
+    }
   } else {
     instructions.push('- This is an email. Use standard email formatting.');
   }

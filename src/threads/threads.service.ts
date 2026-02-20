@@ -673,13 +673,30 @@ export class ThreadsService {
       throw new NotFoundException(`Thread with ID ${threadId} not found`);
     }
 
+    let finalContent = content;
+    if (userId) {
+      try {
+        const user = await this.userModel
+          .findById(userId)
+          .select('firstName lastName')
+          .lean()
+          .exec();
+        if (user) {
+          const name = `${user.firstName} ${user.lastName || ''}`.trim();
+          finalContent = `${content} by ${name}`;
+        }
+      } catch (e) {
+        // Ignore error if user not found or other issues
+      }
+    }
+
     const message = new this.messageModel({
       threadId: new Types.ObjectId(threadId),
       organizationId: new Types.ObjectId(organizationId),
       messageType: MessageType.INTERNAL,
       authorType: MessageAuthorType.SYSTEM,
       authorId: userId ? new Types.ObjectId(userId) : new Types.ObjectId(),
-      content: content,
+      content: finalContent,
       channel: MessageChannel.PLATFORM,
       readBy: [],
       isRead: true,
@@ -735,7 +752,11 @@ export class ThreadsService {
     const customerIds = new Set<string>();
 
     messages.forEach((msg) => {
-      if (msg.authorType === MessageAuthorType.USER && msg.authorId) {
+      if (
+        (msg.authorType === MessageAuthorType.USER ||
+          msg.authorType === MessageAuthorType.SYSTEM) &&
+        msg.authorId
+      ) {
         userIds.add(msg.authorId.toString());
       } else if (
         msg.authorType === MessageAuthorType.CUSTOMER &&
@@ -763,7 +784,10 @@ export class ThreadsService {
 
     // Attach authors
     return messages.map((msg: any) => {
-      if (msg.authorType === MessageAuthorType.USER) {
+      if (
+        msg.authorType === MessageAuthorType.USER ||
+        msg.authorType === MessageAuthorType.SYSTEM
+      ) {
         msg.authorId = userMap.get(msg.authorId.toString()) || msg.authorId;
       } else if (msg.authorType === MessageAuthorType.CUSTOMER) {
         msg.authorId = customerMap.get(msg.authorId.toString()) || msg.authorId;
