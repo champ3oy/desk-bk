@@ -75,7 +75,8 @@ export async function testResponseAgent(
       userId,
       userRole,
       organizationId,
-      'Customer is a VIP member',
+      undefined,
+      undefined,
     );
 
     console.log('Response Agent Result:');

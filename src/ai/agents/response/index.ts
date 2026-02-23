@@ -5,6 +5,7 @@ import { UserRole } from '../../../users/entities/user.entity';
 import { OrganizationsService } from '../../../organizations/organizations.service';
 import { Organization } from '../../../organizations/entities/organization.entity';
 import { AIModelFactory } from '../../ai-model.factory';
+import { SmartCacheService } from '../../smart-cache.service';
 import { z } from 'zod';
 import {
   SystemMessage,
@@ -132,6 +133,7 @@ export const draftResponse = async (
   userId: string,
   userRole: UserRole,
   organizationId: string,
+  smartCacheService?: SmartCacheService,
   additionalContext?: string,
   channel?: string,
   isWaitingForNewTopicCheck = false,
@@ -413,24 +415,55 @@ export const draftResponse = async (
     (ticket.customerId as any).firstName,
   );
 
-  // 4. Intent Classification Check (Stop Infinite Loops)
-  // We check the LAST user message to see if it's gratitude or closure.
-  // We check the LAST user message to see if it's gratitude or closure.
+  // 4. SMART CACHE CHECK (Literal & Semantic Cache) - SUPER FAST PATH
   let requestComplexity = 'COMPLEX';
+  let intent = 'OTHER';
+  let intentUsage: any = {};
   const lastUserMessage = recentMessages[recentMessages.length - 1];
+
+  if (
+    smartCacheService &&
+    lastUserMessage &&
+    lastUserMessage.authorType === 'customer'
+  ) {
+    const cacheResult = await smartCacheService.findMatch(
+      lastUserMessage.content,
+      organizationId,
+    );
+
+    if (
+      cacheResult.type !== 'NONE' &&
+      cacheResult.response &&
+      (cacheResult.type === 'LITERAL' || (cacheResult.score || 1) >= 0.94)
+    ) {
+      const customerName = (ticket.customerId as any).firstName || 'Customer';
+      const personalizedContent = await smartCacheService.personalize(
+        cacheResult.response,
+        { name: customerName },
+        lastUserMessage.content,
+      );
+
+      return {
+        action: 'REPLY',
+        content: personalizedContent,
+        confidence: 100,
+        metadata: {
+          tokenUsage: {},
+          knowledgeBaseUsed: true,
+          performanceMs: Date.now() - totalStart,
+          toolCalls: [`smart_cache_${cacheResult.type.toLowerCase()}`],
+        },
+      };
+    }
+  }
+
+  // 5. Intent Classification Check (Stop Infinite Loops)
   if (lastUserMessage && lastUserMessage.authorType === 'customer') {
-    // Context: Last 3 customer messages to catch compound thoughts
     const recentCustomerText = recentMessages
       .filter((m) => m.authorType === 'customer')
       .slice(-3)
       .map((m) => m.content)
       .join('\n');
-
-    const intentSchema = z.object({
-      intent: z
-        .enum(['GRATITUDE', 'CLOSURE', 'AFFIRMATIVE', 'INQUIRY', 'OTHER'])
-        .describe('The overall intent of the customer message'),
-    });
 
     const intentPrompt = `
       Analyze the following recent customer messages:
@@ -444,43 +477,37 @@ export const draftResponse = async (
       - OTHER: Mixed or unclear.
       `;
 
-    let intentUsage: any = {};
-    let intent = 'OTHER';
     try {
+      const routingSchema = z.object({
+        intent: z
+          .enum([
+            'GRATITUDE',
+            'CLOSURE',
+            'AFFIRMATIVE',
+            'INQUIRY',
+            'GREETING',
+            'OTHER',
+          ])
+          .describe('The overall intent of the customer message'),
+        complexity: z
+          .enum(['SIMPLE', 'COMPLEX'])
+          .describe(
+            'SIMPLE if the user is just saying hi, thanks, or simple phatic communication. COMPLEX if the user is asking a question, reporting an issue, or needs information.',
+          ),
+      });
+
       const modelWithStructuredIntent = (fastModel as any).withStructuredOutput
-        ? (fastModel as any).withStructuredOutput(intentSchema)
+        ? (fastModel as any).withStructuredOutput(routingSchema)
         : null;
 
       if (modelWithStructuredIntent) {
-        // Updated schema to include complexity
-        const routingSchema = z.object({
-          intent: z
-            .enum([
-              'GRATITUDE',
-              'CLOSURE',
-              'AFFIRMATIVE',
-              'INQUIRY',
-              'GREETING',
-              'OTHER',
-            ])
-            .describe('The overall intent of the customer message'),
-          complexity: z
-            .enum(['SIMPLE', 'COMPLEX'])
-            .describe(
-              'SIMPLE if the user is just saying hi, thanks, or simple phatic communication. COMPLEX if the user is asking a question, reporting an issue, or needs information.',
-            ),
-        });
-
-        const routingResult = await (fastModel as any)
-          .withStructuredOutput(routingSchema)
-          .invoke([
-            new SystemMessage(
-              'You are a routing agent. Categorize the user message and determining complexity. If it is purely gratitude, return GRATITUDE.',
-            ),
-            new HumanMessage(intentPrompt),
-          ]);
+        const routingResult = await modelWithStructuredIntent.invoke([
+          new SystemMessage(
+            'You are a routing agent. Categorize the user message and determining complexity.',
+          ),
+          new HumanMessage(intentPrompt),
+        ]);
         intent = routingResult.intent;
-        // Store complexity for later use
         requestComplexity = routingResult.complexity;
       } else {
         const intentResp = await fastModel.invoke([
@@ -494,7 +521,6 @@ export const draftResponse = async (
             ? intentResp.content.trim().toUpperCase()
             : '';
         const parts = rawResponse.split('|');
-
         const rawIntent = parts[0] ? parts[0].trim() : 'OTHER';
         const rawComplexity = parts[1] ? parts[1].trim() : 'COMPLEX';
 
@@ -668,8 +694,8 @@ Please decide on the next best action.
     new HumanMessage(contextInstruction),
   ];
 
-  // 4. ReAct Loop (reduced from 5 to 3 turns for cost savings)
-  const MAX_TURNS = 3;
+  // 4. ReAct Loop
+  const MAX_TURNS = 10;
   let turn = 0;
   const finalResult: AgentResponse = {
     action: 'ESCALATE',
@@ -803,6 +829,20 @@ Please decide on the next best action.
               };
             }
             if (raw.__action === 'REPLY') {
+              // Store high-confidence response in cache if it's a long message
+              if (
+                raw.message &&
+                raw.message.length > 50 &&
+                smartCacheService &&
+                lastUserMessage
+              ) {
+                smartCacheService
+                  .store(lastUserMessage.content, raw.message, organizationId)
+                  .catch((e) =>
+                    console.error('[SmartCache] Async store failed:', e),
+                  );
+              }
+
               return {
                 action: 'REPLY',
                 content: raw.message,
@@ -875,7 +915,7 @@ Please decide on the next best action.
   } catch (err) {
     console.error(`[ReAct Loop] Error:`, err);
     return {
-      action: 'IGNORE', // Fail silently on internal error
+      action: 'ESCALATE', // Escalate on internal error instead of ignoring
       escalationReason: 'Agent Error: ' + err.message,
       confidence: 0,
       metadata: {

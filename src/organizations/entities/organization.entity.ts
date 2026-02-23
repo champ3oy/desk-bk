@@ -95,9 +95,9 @@ export class Organization {
 
   @ApiPropertyOptional({
     description: 'Confidence threshold for auto-replies (0-100)',
-    example: 85,
+    example: 60,
   })
-  @Prop({ default: 85 })
+  @Prop({ default: 60 })
   aiConfidenceThreshold: number;
 
   @ApiPropertyOptional({
@@ -344,6 +344,12 @@ export class Organization {
   })
   @Prop({ default: 0 })
   aiCredits: number;
+
+  @ApiPropertyOptional({
+    description: 'Knowledge base version for cache invalidation',
+  })
+  @Prop({ default: 'v1' })
+  aiKbVersion: string;
 }
 
 export const OrganizationSchema = SchemaFactory.createForClass(Organization);

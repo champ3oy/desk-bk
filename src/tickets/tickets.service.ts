@@ -1619,4 +1619,165 @@ ${messageContent}`;
       },
     );
   }
+
+  /**
+   * Centralized escalation logic that updates ticket status, notifies agents,
+   * and generates a professional AI hand-off message for the customer.
+   */
+  async escalateTicketWithAI(
+    ticketId: string,
+    organizationId: string,
+    customerId: string,
+    reason: string,
+    escalationSummary?: string,
+    confidence?: number,
+    channel?: string,
+  ): Promise<void> {
+    const [ticket, org] = await Promise.all([
+      this.ticketModel.findById(ticketId),
+      this.organizationsService.findOne(organizationId),
+    ]);
+    if (!ticket || !org) return;
+
+    // 1. Update Ticket Status & Flags
+    await this.ticketModel.updateOne(
+      { _id: ticketId },
+      {
+        $set: {
+          isAiEscalated: true,
+          aiEscalationReason: escalationSummary
+            ? `${reason}\n\nSummary: ${escalationSummary}`
+            : reason,
+          aiConfidenceScore: confidence || 0,
+          aiAutoReplyDisabled: true,
+          status: TicketStatus.ESCALATED,
+        },
+      },
+    );
+
+    // 2. Notify Agents Internally
+    this.notifyAgentsOfEscalation(ticket as any, reason, organizationId).catch(
+      (err) =>
+        console.error(
+          '[TicketsService] Internal escalation notification failed',
+          err,
+        ),
+    );
+
+    const businessStatus = this.organizationsService.isWithinBusinessHours(org);
+    const nextOpening = businessStatus.nextOpeningTime
+      ? businessStatus.nextOpeningTime.toFormat('DDDD @ t (ZZZZ)')
+      : 'our next business day';
+
+    // 3. Generate and Send Customer Hand-off Message
+    let escalationMessage = '';
+    try {
+      const thread = await this.threadsService.getOrCreateThread(
+        ticketId,
+        customerId,
+        organizationId,
+      );
+      const messages = await this.threadsService.getMessages(
+        thread._id.toString(),
+        organizationId,
+        organizationId,
+        UserRole.ADMIN,
+      );
+
+      const contextMessages = messages
+        .slice(-5)
+        .map((m) => `${m.authorType}: ${m.content}`)
+        .join('\n');
+
+      let businessHoursPromptExtra = '';
+      if (!businessStatus.isWithin) {
+        businessHoursPromptExtra = `\n\nCRITICAL: We are currently OUTSIDE of business hours. 
+You MUST inform the customer that while you are escalating to a human, they are currently away and will respond on ${nextOpening}. 
+Make sure this is very clear so they don't expect an immediate reply.`;
+      }
+
+      const prompt = `You are a helpful customer support AI.
+The current conversation needs to be escalated to a human agent.
+Reason: ${reason}
+
+Context:
+Ticket Subject: ${ticket.subject}
+Recent Messages:
+${contextMessages}${businessHoursPromptExtra}
+
+Task: Write a polite, concise message to the customer explaining that you are passing the conversation to a human agent.
+Do not apologize unless necessary. Be professional and reassuring.
+Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at the start or end.`;
+
+      const model = AIModelFactory.create(this.configService, {
+        model: 'gemini-3-flash-preview',
+      });
+
+      const aiResult = await Promise.race([
+        model.invoke(prompt),
+        new Promise<any>((_, reject) =>
+          setTimeout(
+            () => reject(new Error('Escalation message generation timed out')),
+            45000,
+          ),
+        ),
+      ]);
+
+      const generatedText =
+        typeof aiResult.content === 'string' ? aiResult.content : '';
+      if (generatedText && generatedText.length > 5) {
+        escalationMessage = generatedText.trim().replace(/^"|"$/g, '');
+      }
+    } catch (e) {
+      console.error(
+        '[TicketsService] Failed to generate AI escalation message',
+        e,
+      );
+    }
+
+    if (!escalationMessage) {
+      escalationMessage =
+        "I'll connect you with a human agent to assist you further.";
+      if (!businessStatus.isWithin) {
+        escalationMessage += ` Please note that we are currently outside of business hours, so an agent will get back to you on ${nextOpening}.`;
+      }
+    }
+
+    const thread = await this.threadsService.getOrCreateThread(
+      ticketId,
+      customerId,
+      organizationId,
+    );
+
+    await this.threadsService.createMessage(
+      thread._id.toString(),
+      {
+        content: escalationMessage,
+        messageType: MessageType.EXTERNAL,
+        channel: this.mapChannelToMessageChannel(channel),
+      },
+      organizationId,
+      organizationId,
+      UserRole.ADMIN,
+      MessageAuthorType.AI,
+    );
+
+    await this.ticketModel.updateOne(
+      { _id: ticketId },
+      { $set: { escalationNoticeSent: true } },
+    );
+  }
+
+  /**
+   * Helper to map raw channel string to MessageChannel enum
+   */
+  public mapChannelToMessageChannel(channel?: string): MessageChannel {
+    if (!channel) return MessageChannel.EMAIL;
+    const c = channel.toLowerCase();
+    if (c === 'chat' || c === 'widget') return MessageChannel.WIDGET;
+    if (c === 'whatsapp') return MessageChannel.WHATSAPP;
+    if (c === 'email') return MessageChannel.EMAIL;
+    if (c === 'sms') return MessageChannel.SMS;
+    return channel as any;
+  }
 }

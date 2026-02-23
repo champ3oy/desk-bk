@@ -88,6 +88,12 @@ export class TrainingService {
     // For text/manual content, add to ElevenLabs immediately
     else if (savedSource.content) {
       this.syncToElevenLabs(savedSource, organizationId);
+      // Rotate cache version
+      this.organizationsService
+        .rotateKbVersion(organizationId)
+        .catch((e) =>
+          this.logger.error(`Failed to rotate KB version: ${e.message}`),
+        );
     }
 
     return savedSource;
@@ -137,7 +143,16 @@ export class TrainingService {
     }
 
     Object.assign(source, updateDto);
-    return source.save();
+    await source.save();
+
+    // Rotate cache version
+    this.organizationsService
+      .rotateKbVersion(organizationId)
+      .catch((e) =>
+        this.logger.error(`Failed to rotate KB version: ${e.message}`),
+      );
+
+    return source;
   }
 
   async remove(id: string, organizationId: string): Promise<void> {
@@ -149,6 +164,13 @@ export class TrainingService {
     if (result.deletedCount === 0) {
       throw new NotFoundException(`Training source with ID ${id} not found`);
     }
+
+    // Rotate cache version
+    this.organizationsService
+      .rotateKbVersion(organizationId)
+      .catch((e) =>
+        this.logger.error(`Failed to rotate KB version: ${e.message}`),
+      );
   }
 
   async removeMany(ids: string[], organizationId: string): Promise<void> {
@@ -163,6 +185,12 @@ export class TrainingService {
       );
     } else {
       this.logger.log(`Deleted ${result.deletedCount} training sources`);
+      // Rotate cache version
+      this.organizationsService
+        .rotateKbVersion(organizationId)
+        .catch((e) =>
+          this.logger.error(`Failed to rotate KB version: ${e.message}`),
+        );
     }
   }
 

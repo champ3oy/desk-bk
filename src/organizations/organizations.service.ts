@@ -281,7 +281,15 @@ export class OrganizationsService {
         }
       }
     }
-
     return { isWithin: false };
+  }
+
+  async rotateKbVersion(id: string): Promise<string> {
+    const newVersion = `v${Date.now()}`;
+    await this.organizationModel.updateOne(
+      { _id: id },
+      { $set: { aiKbVersion: newVersion } },
+    );
+    return newVersion;
   }
 }

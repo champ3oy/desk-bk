@@ -1,4 +1,5 @@
 import { Module, forwardRef } from '@nestjs/common';
+import { MongooseModule } from '@nestjs/mongoose';
 import { ConfigModule } from '@nestjs/config';
 import { AiController } from './ai.controller';
 import { TicketsModule } from '../tickets/tickets.module';
@@ -11,8 +12,14 @@ import { CustomersModule } from '../customers/customers.module';
 import { AiVoiceGateway } from '../gateways/ai-voice.gateway';
 import { AiTelemetryModule } from './telemetry/ai-telemetry.module';
 
+import { SmartCache, SmartCacheSchema } from './entities/smart-cache.entity';
+import { SmartCacheService } from './smart-cache.service';
+
 @Module({
   imports: [
+    MongooseModule.forFeature([
+      { name: SmartCache.name, schema: SmartCacheSchema },
+    ]),
     forwardRef(() => TicketsModule),
     ThreadsModule,
     CommentsModule,
@@ -23,7 +30,7 @@ import { AiTelemetryModule } from './telemetry/ai-telemetry.module';
     AiTelemetryModule,
   ],
   controllers: [AiController],
-  providers: [KnowledgeBaseService, AiVoiceGateway],
-  exports: [KnowledgeBaseService],
+  providers: [KnowledgeBaseService, AiVoiceGateway, SmartCacheService],
+  exports: [KnowledgeBaseService, SmartCacheService],
 })
 export class AiModule {}

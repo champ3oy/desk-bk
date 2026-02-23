@@ -10,6 +10,7 @@ import { CustomersService } from '../../customers/customers.service';
 import { RedisLockService } from '../../common/services/redis-lock.service';
 import { SocialIntegrationService } from '../../integrations/social/social-integration.service';
 import { WidgetGateway } from '../../gateways/widget.gateway';
+import { SmartCacheService } from '../../ai/smart-cache.service';
 
 import { draftResponse } from '../../ai/agents/response';
 import { TicketStatus } from '../entities/ticket.entity';
@@ -41,6 +42,8 @@ export class AiReplyProcessor extends WorkerHost {
     private redisLockService: RedisLockService,
     @Inject(forwardRef(() => WidgetGateway))
     private widgetGateway: WidgetGateway,
+    @Inject(forwardRef(() => SmartCacheService))
+    private smartCacheService: SmartCacheService,
   ) {
     super();
   }
@@ -212,13 +215,14 @@ export class AiReplyProcessor extends WorkerHost {
         customerId,
         UserRole.ADMIN,
         organizationId,
+        this.smartCacheService,
         undefined,
         channel,
         ticket.isWaitingForNewTopicCheck,
       );
 
       const confidence = response.confidence || 0;
-      const threshold = org.aiConfidenceThreshold || 85;
+      const threshold = org.aiConfidenceThreshold || 60;
 
       if (response.action === 'AUTO_RESOLVE') {
         this.logger.log(
@@ -304,124 +308,14 @@ export class AiReplyProcessor extends WorkerHost {
             ? `Confidence ${confidence}% below threshold ${threshold}%`
             : 'AI decided to escalate');
 
-        await this.ticketsService.update(
+        await this.ticketsService.escalateTicketWithAI(
           ticketId,
-          {
-            isAiEscalated: true,
-            aiEscalationReason: response.escalationSummary
-              ? `${reason}\n\nSummary: ${response.escalationSummary}`
-              : reason,
-            aiConfidenceScore: confidence,
-            aiAutoReplyDisabled: true,
-            status: TicketStatus.ESCALATED,
-          } as any,
           organizationId,
-          UserRole.ADMIN,
-          organizationId,
-        );
-
-        this.ticketsService
-          .notifyAgentsOfEscalation(ticket, reason, organizationId)
-          .catch((err) => console.error(err));
-
-        // Generate AI escalation message
-        let escalationMessage = '';
-        try {
-          const thread = await this.threadsService.getOrCreateThread(
-            ticketId,
-            customerId,
-            organizationId,
-          );
-          const messages = await this.threadsService.getMessages(
-            thread._id.toString(),
-            organizationId,
-            organizationId,
-            UserRole.ADMIN,
-          );
-
-          const contextMessages = messages
-            .slice(-5)
-            .map((m) => `${m.authorType}: ${m.content}`)
-            .join('\n');
-
-          const businessStatus =
-            this.organizationsService.isWithinBusinessHours(org);
-          let businessHoursPromptExtra = '';
-          if (!businessStatus.isWithin) {
-            const nextOpening = businessStatus.nextOpeningTime
-              ? businessStatus.nextOpeningTime.toFormat('DDDD @ t (ZZZZ)')
-              : 'our next business day';
-            businessHoursPromptExtra = `\n\nCRITICAL: We are currently OUTSIDE of business hours. 
-You MUST inform the customer that while you are escalating to a human, they are currently away and will respond on ${nextOpening}. 
-Make sure this is very clear so they don't expect an immediate reply.`;
-          }
-
-          const prompt = `You are a helpful customer support AI.
-The current conversation needs to be escalated to a human agent.
-Reason: ${reason}
-
-Context:
-Ticket Subject: ${ticket.subject}
-Recent Messages:
-${contextMessages}${businessHoursPromptExtra}
-
-Task: Write a polite, concise message to the customer explaining that you are passing the conversation to a human agent.
-Do not apologize unless necessary. Be professional and reassuring.
-Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at the start or end.`;
-
-          const model = AIModelFactory.create(this.configService, {
-            model: 'gemini-3-flash-preview',
-          });
-          const aiResult = await Promise.race([
-            model.invoke(prompt),
-            new Promise<any>((_, reject) =>
-              setTimeout(
-                () =>
-                  reject(new Error('Escalation message generation timed out')),
-                45000,
-              ),
-            ),
-          ]);
-
-          const generatedText =
-            typeof aiResult.content === 'string' ? aiResult.content : '';
-          if (generatedText && generatedText.length > 5) {
-            escalationMessage = generatedText.trim().replace(/^"|"$/g, '');
-          }
-        } catch (e) {
-          console.error('Failed to generate AI escalation message', e);
-        }
-
-        if (!escalationMessage) {
-          escalationMessage =
-            "I'll connect you with a human agent to assist you further.";
-        }
-
-        const thread = await this.threadsService.getOrCreateThread(
-          ticketId,
           customerId,
-          organizationId,
-        );
-
-        await this.threadsService.createMessage(
-          thread._id.toString(),
-          {
-            content: escalationMessage,
-            messageType: MessageType.EXTERNAL,
-            channel: this.mapChannel(channel),
-          },
-          organizationId,
-          organizationId,
-          UserRole.ADMIN,
-          MessageAuthorType.AI,
-        );
-
-        await this.ticketsService.update(
-          ticketId,
-          { escalationNoticeSent: true } as any,
-          organizationId,
-          UserRole.ADMIN,
-          organizationId,
+          reason,
+          response.escalationSummary,
+          confidence,
+          channel,
         );
       } else if (response.action === 'REPLY' && response.content) {
         const thread = await this.threadsService.getOrCreateThread(
@@ -440,7 +334,7 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
           {
             content: finalContent,
             messageType: MessageType.EXTERNAL,
-            channel: this.mapChannel(channel),
+            channel: this.ticketsService.mapChannelToMessageChannel(channel),
           },
           organizationId,
           organizationId,
@@ -504,7 +398,7 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
       {
         content: interventionMessage,
         messageType: MessageType.EXTERNAL,
-        channel: this.mapChannel(channel),
+        channel: this.ticketsService.mapChannelToMessageChannel(channel),
       },
       organizationId,
       organizationId,
@@ -523,55 +417,14 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
 
   private async handleSendEscalationNotice(data: any): Promise<void> {
     const { ticketId, customerId, organizationId, channel } = data;
-    const thread = await this.threadsService.getOrCreateThread(
+    await this.ticketsService.escalateTicketWithAI(
       ticketId,
-      customerId,
-      organizationId,
-    );
-
-    const org = await this.organizationsService.findOne(organizationId);
-    const businessStatus = org
-      ? this.organizationsService.isWithinBusinessHours(org)
-      : { isWithin: true };
-
-    let escalationNotice =
-      'Your conversation has been escalated to a human agent. They will respond to you as soon as possible. Thank you for your patience!';
-
-    if (!businessStatus.isWithin) {
-      const nextOpening = businessStatus.nextOpeningTime
-        ? businessStatus.nextOpeningTime.toFormat('DDDD @ t (ZZZZ)')
-        : 'our next business day';
-      escalationNotice = `Your conversation has been escalated to a human agent. Please note that we are currently outside of business hours, so an agent will get back to you on ${nextOpening}. Thank you for your patience!`;
-    }
-
-    await this.threadsService.createMessage(
-      thread._id.toString(),
-      {
-        content: escalationNotice,
-        messageType: MessageType.EXTERNAL,
-        channel: this.mapChannel(channel),
-      },
       organizationId,
       customerId,
-      UserRole.CUSTOMER,
-      MessageAuthorType.AI,
+      'Automated Escalation Notice',
+      undefined,
+      100,
+      channel,
     );
-
-    await this.ticketsService.update(
-      ticketId,
-      { escalationNoticeSent: true } as any,
-      organizationId,
-      UserRole.ADMIN,
-      organizationId,
-    );
-  }
-
-  private mapChannel(channel?: string): MessageChannel {
-    if (!channel) return MessageChannel.EMAIL;
-    const c = channel.toLowerCase();
-    if (c === 'chat' || c === 'widget') return MessageChannel.WIDGET;
-    if (c === 'whatsapp') return MessageChannel.WHATSAPP;
-    if (c === 'email') return MessageChannel.EMAIL;
-    return channel as any;
   }
 }
