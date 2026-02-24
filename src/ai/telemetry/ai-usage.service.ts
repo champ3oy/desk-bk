@@ -89,6 +89,8 @@ export class AiUsageService implements OnModuleInit {
     outputTokens: number;
     performanceMs: number;
     metadata?: Record<string, any>;
+    cacheHit?: boolean;
+    cacheType?: string;
   }) {
     if (!this.instance) return;
 
@@ -115,6 +117,8 @@ export class AiUsageService implements OnModuleInit {
         creditsUsed: retailCredits,
         wholesaleCost: wholesaleCost,
         metadata: data.metadata,
+        cacheHit: data.cacheHit,
+        cacheType: data.cacheType,
       });
 
       // 2. Deduct credits from organization balance

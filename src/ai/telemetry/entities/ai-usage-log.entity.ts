@@ -45,6 +45,12 @@ export class AIUsageLog {
   @Prop({ required: true, default: 0 })
   wholesaleCost: number; // The actual cost in USD from the provider
 
+  @Prop({ required: false, default: null })
+  cacheHit?: boolean; // true = served from cache, false = full AI flow, null = N/A
+
+  @Prop({ required: false })
+  cacheType?: string; // 'LITERAL' | 'SEMANTIC' | 'GREETING' | 'NONE'
+
   @Prop({ type: Object, required: false })
   metadata?: Record<string, any>;
 }
@@ -55,3 +61,4 @@ export const AIUsageLogSchema = SchemaFactory.createForClass(AIUsageLog);
 AIUsageLogSchema.index({ organizationId: 1, createdAt: -1 });
 AIUsageLogSchema.index({ feature: 1, createdAt: -1 });
 AIUsageLogSchema.index({ modelName: 1 });
+AIUsageLogSchema.index({ cacheHit: 1, createdAt: -1 });

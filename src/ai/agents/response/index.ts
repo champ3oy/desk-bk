@@ -6,6 +6,7 @@ import { OrganizationsService } from '../../../organizations/organizations.servi
 import { Organization } from '../../../organizations/entities/organization.entity';
 import { AIModelFactory } from '../../ai-model.factory';
 import { SmartCacheService } from '../../smart-cache.service';
+import { AiUsageService } from '../../telemetry/ai-usage.service';
 import { z } from 'zod';
 import {
   SystemMessage,
@@ -468,6 +469,23 @@ export const draftResponse = async (
         lastUserMessage.content,
       );
 
+      // Log cache HIT for telemetry tracking
+      AiUsageService.logUsageAndDeduct({
+        feature: 'smart-cache',
+        provider: 'cache',
+        modelName: 'smart-cache',
+        inputTokens: 0,
+        outputTokens: 0,
+        performanceMs: Date.now() - totalStart,
+        cacheHit: true,
+        cacheType: cacheResult.type,
+        metadata: {
+          type: 'smart-cache-decision',
+          score: cacheResult.score,
+          ticketId: ticket_id,
+        },
+      });
+
       return {
         action: 'REPLY',
         content: personalizedContent,
@@ -480,6 +498,28 @@ export const draftResponse = async (
         },
       };
     }
+  }
+
+  // Log cache MISS — we're proceeding to the full AI flow
+  if (
+    smartCacheService &&
+    lastUserMessage &&
+    lastUserMessage.authorType === 'customer'
+  ) {
+    AiUsageService.logUsageAndDeduct({
+      feature: 'smart-cache',
+      provider: 'cache',
+      modelName: 'smart-cache',
+      inputTokens: 0,
+      outputTokens: 0,
+      performanceMs: 0,
+      cacheHit: false,
+      cacheType: 'NONE',
+      metadata: {
+        type: 'smart-cache-decision',
+        ticketId: ticket_id,
+      },
+    });
   }
 
   // 5. Intent Classification Check (Stop Infinite Loops)
