@@ -229,6 +229,30 @@ export class AiReplyProcessor extends WorkerHost {
           `[AiReplyProcessor] Auto-resolving ticket ${ticketId} due to gratitude/closure intent`,
         );
 
+        const thread = await this.threadsService.getOrCreateThread(
+          ticketId,
+          customerId,
+          organizationId,
+        );
+
+        // Send a friendly closing message to the customer
+        const closingMessage =
+          "Glad to hear that! I'm marking this as resolved. If you have any other questions or need further assistance, feel free to reach out anytime. 😊";
+
+        await this.threadsService.createMessage(
+          thread._id.toString(),
+          {
+            content: closingMessage,
+            messageType: MessageType.EXTERNAL,
+            channel: this.ticketsService.mapChannelToMessageChannel(channel),
+          },
+          organizationId,
+          organizationId,
+          UserRole.ADMIN,
+          MessageAuthorType.AI,
+        );
+
+        // Now resolve the ticket
         await this.ticketsService.update(
           ticketId,
           {
@@ -242,12 +266,6 @@ export class AiReplyProcessor extends WorkerHost {
         );
 
         // Add an internal note about the auto-resolution
-        const thread = await this.threadsService.getOrCreateThread(
-          ticketId,
-          customerId,
-          organizationId,
-        );
-
         await this.threadsService.createMessage(
           thread._id.toString(),
           {

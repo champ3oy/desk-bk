@@ -86,9 +86,6 @@ export class AIModelFactory {
     const cacheKey = `${provider}:${modelName}${apiKeyHash}`;
     const cachedModel = this.modelCache.get(cacheKey);
     if (cachedModel) {
-      this.logger.debug(
-        `[AI Factory] Using cached model: '${modelName}' Provider: '${provider}'`,
-      );
       return cachedModel;
     }
 

@@ -237,6 +237,20 @@ export class Ticket {
   displayId?: string;
 
   @ApiPropertyOptional({
+    description: 'Total number of AI auto-reply invocations for this ticket',
+    example: 3,
+  })
+  @Prop({ default: 0 })
+  aiReplyCount?: number;
+
+  @ApiPropertyOptional({
+    description: 'Timestamp of the last AI auto-reply',
+    example: '2024-01-01T00:00:00.000Z',
+  })
+  @Prop({ required: false })
+  lastAutoReplyAt?: Date;
+
+  @ApiPropertyOptional({
     description: 'Latest message content for preview',
     example: 'Hello, I need help.',
   })

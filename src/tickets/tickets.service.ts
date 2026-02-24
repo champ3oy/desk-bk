@@ -497,6 +497,52 @@ ${messageContent}`;
         return;
       }
 
+      // ── GUARDRAIL #1: Cap auto-replies per ticket (max 13) ──
+      const MAX_AUTO_REPLIES_PER_TICKET = 13;
+      const currentReplyCount = ticket.aiReplyCount || 0;
+      if (currentReplyCount >= MAX_AUTO_REPLIES_PER_TICKET) {
+        console.log(
+          `[AutoReply] Ticket ${ticketId} reached auto-reply cap (${currentReplyCount}/${MAX_AUTO_REPLIES_PER_TICKET}). Escalating.`,
+        );
+
+        // Disable auto-reply on this ticket and escalate
+        await this.ticketModel.updateOne(
+          { _id: ticketId },
+          {
+            $set: {
+              aiAutoReplyDisabled: true,
+              isAiEscalated: true,
+              aiEscalationReason: `Auto-reply limit reached (${MAX_AUTO_REPLIES_PER_TICKET} replies). Human review required.`,
+              status: TicketStatus.ESCALATED,
+            },
+          },
+        );
+
+        // Notify via WebSocket
+        this.agentGateway.emitToOrg(organizationId, 'ticket_updated', {
+          ticketId,
+        });
+
+        await this.redisLockService.releaseLock(lockKey);
+        return;
+      }
+
+      // ── GUARDRAIL #2: Cooldown debounce (30s between auto-replies) ──
+      const COOLDOWN_SECONDS = 30;
+      const cooldownKey = `autoreply_cooldown:${ticketId}`;
+      const isInCooldown = !(await this.redisLockService.acquireLock(
+        cooldownKey,
+        COOLDOWN_SECONDS,
+      ));
+
+      if (isInCooldown) {
+        console.log(
+          `[AutoReply] Ticket ${ticketId} is within ${COOLDOWN_SECONDS}s cooldown. Skipping to batch.`,
+        );
+        await this.redisLockService.releaseLock(lockKey);
+        return;
+      }
+
       // If ticket is escalated, handle counter and possible intervention
       if (ticket.status === TicketStatus.ESCALATED || ticket.isAiEscalated) {
         // Increment reply count
@@ -573,9 +619,13 @@ ${messageContent}`;
       // Add to BullMQ Queue
       // We set isAiProcessing to true here to prevent immediate re-triggering,
       // but the Processor will also handle locks and flags.
+      // Also increment aiReplyCount and record lastAutoReplyAt
       await this.ticketModel.updateOne(
         { _id: ticketId },
-        { $set: { isAiProcessing: true } },
+        {
+          $set: { isAiProcessing: true, lastAutoReplyAt: new Date() },
+          $inc: { aiReplyCount: 1 },
+        },
       );
 
       await this.aiReplyQueue.add(
@@ -598,7 +648,9 @@ ${messageContent}`;
         },
       );
 
-      console.log(`[AutoReply] Queued job for ticket ${ticketId}`);
+      console.log(
+        `[AutoReply] Queued job for ticket ${ticketId} (reply #${currentReplyCount + 1}/${MAX_AUTO_REPLIES_PER_TICKET})`,
+      );
       await this.redisLockService.releaseLock(lockKey);
     } catch (error) {
       console.error('Failed to check auto-reply settings:', error);

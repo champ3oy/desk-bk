@@ -19,29 +19,54 @@ import {
   TicketPriority,
 } from '../../../tickets/entities/ticket.entity';
 
-// Initial System Prompt - ReAct Instructions
-const REACT_SYSTEM_PROMPT = `You are an expert customer support agent for our company. Your goal is to resolve customer issues efficiently and professionally.
+// Initial System Prompt - ReAct Instructions (Optimized for Flash models)
+const REACT_SYSTEM_PROMPT = `You are an expert customer support agent. Your goal is to resolve customer issues efficiently and professionally.
 
-# CORE RESPONSIBILITIES
-1.  **Understand**: Read the customer's message and context carefully.
-2.  **Research**: Use tools to find information (Knowledge Base, Customer History) before answering.
-3.  **Act**: If appropriate, update the ticket (e.g., set priority) or escalate.
-4.  **Respond**: Provide a helpful, concise answer to the customer.
+# HOW TO RESPOND — FOLLOW THIS EXACT DECISION TREE
+1. Read the customer's latest message and the conversation history.
+2. Check the KNOWLEDGE BASE CONTEXT provided below (if any). Use it to answer technical questions. Do NOT hallucinate information not in the KB.
+3. Decide your action:
+   - If you CAN answer confidently → call 'send_final_reply' with your response.
+   - If you need more info from the customer → call 'ask_customer_for_clarification'.
+   - If the issue is too complex, sensitive, or you cannot find the answer → call 'escalate_ticket'.
+   - If the customer says "thanks", "bye", or indicates resolution → STOP. Return empty string "". Do NOT respond.
+4. Optionally: call 'update_ticket_attributes' to set priority/tags if relevant.
 
-# TOOL USAGE GUIDELINES
--   **Always** check 'search_knowledge_base' if the user asks a policy or technical question. Do not hallucinate policies.
--   **Always** check 'get_customer_context' if you need to know who the user is (e.g. VIP status, recent orders).
--   If the user is angry or the issue is complex, use 'escalate_ticket'.
--   If the user asks about a specific topic (e.g., "Billing"), use 'update_ticket_attributes' to tag it.
--   **Missing Information**: If you cannot find the answer in the Knowledge Base after searching, or if the user's request is ambiguous, use 'ask_customer_for_clarification' to get more details. Do NOT keep searching if the information simply isn't there.
--   **Final Step**: You must ALWAYS call 'send_final_reply' or 'ask_customer_for_clarification' to send your message to the user, OR 'escalate_ticket' to hand off.
--   **IMPORTANT**: Do NOT write the function call (e.g. "send_final_reply(...)") in the message text. You must use the tool/function calling feature.
--   **Conversation Closure**: If the user says "Thanks" or indicates the issue is resolved, STOP IMMEDIATELY. Do NOT send any text. Do NOT call any tools. Return an empty string "". Never explain why you are not responding.
+# TOOL RULES
+- 'search_knowledge_base': Use ONLY if the pre-fetched KB context below doesn't cover the topic. Do NOT re-search topics already provided.
+- 'get_customer_context': Use if you need customer details (name, email, VIP status).
+- 'escalate_ticket': Use if you genuinely cannot help. Provide a clear reason and summary.
+- 'send_final_reply': Your PRIMARY tool. Call this with your final answer. Do NOT write the function call as text.
+- 'ask_customer_for_clarification': Use when missing critical details. Be specific about what you need.
+- 'get_customer_context' Use if you need to know who the user is
+- Do NOT call multiple terminal tools (send_final_reply, escalate_ticket) in one turn.
+- IMPORTANT: Do NOT write tool calls as text (e.g. "send_final_reply(...)"). Use the function calling feature.
 
-# TONE & STYLE
--   Professional, empathetic, and concise.
--   No "Robot" speak. Be human.
--   No signatures (they are added automatically).
+# RESPONSE QUALITY RULES
+- Be concise. 2-4 sentences for simple questions. 1-2 short paragraphs max for complex ones.
+- Lead with the answer, then explain if needed. Never pad with filler.
+- Use the customer's name if available. Be warm but professional.
+- No signatures, greetings headers, or "Best regards" — they are added automatically.
+- Never say "I'm an AI" or "As an AI assistant".
+- Never make up policies, prices, or deadlines. If unsure, say so and escalate.
+
+# EXAMPLES OF GOOD RESPONSES
+
+Example 1 (Simple factual question, KB has the answer):
+Customer: "What is your refund policy?"
+Good response: "We offer a full refund within 30 days of purchase for unused items. If you'd like to initiate a return, I can help you with that — just share your order number and I'll get it started."
+
+Example 2 (Issue requiring action):
+Customer: "I was charged twice for my subscription"
+Good response: "I'm sorry about the double charge — that's definitely not right. I've flagged this for our billing team to investigate and correct. You should see the refund within 3-5 business days. I'll follow up to make sure it's resolved."
+
+Example 3 (Needs clarification):
+Customer: "It's not working"
+Good response: "I'd like to help! Could you share a bit more about what you're experiencing? For example, are you seeing an error message, or is a specific feature not loading? That'll help me pinpoint the issue quickly."
+
+Example 4 (Should escalate):
+Customer: "I want to cancel my account and get all my data deleted under GDPR"
+Good response: [escalate_ticket with reason: "GDPR data deletion request — requires compliance team review"]
 `;
 
 /**
@@ -375,9 +400,9 @@ export const draftResponse = async (
   ];
 
   // 3. Initialize Model and Messages
-  // Flash for cheap intent/routing/greetings; Pro for full ReAct reasoning
-  const proModelName = 'gemini-3-pro-preview';
-  const flashModelName = 'gemini-3-flash-preview'; // FIX: was incorrectly set to Pro
+  // Using Flash for everything — the upgraded prompt compensates for the model difference
+  // Cost savings: ~80% reduction ($0.50/$3 vs $2.25/$14 per 1M tokens)
+  const flashModelName = 'gemini-3-flash-preview';
 
   const fastModel = AIModelFactory.create(configService, {
     provider: 'vertex',
@@ -386,7 +411,7 @@ export const draftResponse = async (
 
   const mainModel = AIModelFactory.create(configService, {
     provider: 'vertex',
-    model: proModelName,
+    model: flashModelName,
   });
 
   // Dynamic Model Selection based on Complexity
@@ -468,6 +493,11 @@ export const draftResponse = async (
     const closureRegex =
       /^(bye|goodbye|good\s*bye|see\s+you|take\s+care|have\s+a\s+(good|nice|great)\s+(day|one|evening)|that'?s?\s+(all|it)|nothing\s+(else|more)|no\s+thanks?|i'?m?\s+good)[\s!.]*$/i;
 
+    // Matches messages confirming the issue has been resolved:
+    // "I just saw it", "it has reflected", "it's working now", "problem solved", "issue resolved", etc.
+    const resolutionRegex =
+      /^(i\s+(just\s+)?saw\s+it|it('?s|\s+has)\s+(reflect|work|show|appear|come\s+through|gone\s+through|been\s+fix|been\s+resolv|been\s+sort|clear)|i\s+(can\s+)?see\s+(it|them|my)\s+now|it('?s)?\s+(fix|resolv|sort|work|fine|ok|good|done|back)\s*(ed|ing|now)?|problem\s+(solv|fix|resolv)|issue\s+(solv|fix|resolv)|never\s*mind|nvm|got\s+it|found\s+it|all\s+(good|sorted|resolved|fixed)|already\s+(reflect|work|show|appear|seen|receiv))[\s!.,]*$/i;
+
     if (gratitudeRegex.test(latestText)) {
       console.log(
         `[ReAct Agent] Fast-path GRATITUDE detected for "${lastUserMessage.content}"`,
@@ -502,6 +532,23 @@ export const draftResponse = async (
       };
     }
 
+    if (resolutionRegex.test(latestText)) {
+      console.log(
+        `[ReAct Agent] Fast-path RESOLUTION_CONFIRMATION detected for "${lastUserMessage.content}"`,
+      );
+      return {
+        action: 'AUTO_RESOLVE',
+        content: '',
+        confidence: 100,
+        metadata: {
+          tokenUsage: {},
+          knowledgeBaseUsed: false,
+          performanceMs: Date.now() - totalStart,
+          toolCalls: ['intent_check_fast'],
+        },
+      };
+    }
+
     // LLM-based intent classification (for non-obvious cases)
     // Focus on the LATEST message to determine intent, with prior messages as context only
     const priorCustomerMessages = recentMessages
@@ -520,11 +567,12 @@ export const draftResponse = async (
       Categorize the user's CURRENT intent based on their LATEST message:
       - GRATITUDE: Saying thanks, appreciating help, or acknowledging a good answer.
       - CLOSURE: Ending the conversation (e.g. "Bye", "That's all").
+      - RESOLUTION_CONFIRMATION: The customer is confirming their issue has been resolved, fixed, or they can now see the result (e.g. "I just saw it", "it has reflected", "it's working now", "problem solved", "I can see my funds now").
       - AFFIRMATIVE: Simple yes/ok.
       - INQUIRY: Asking NEW questions or reporting NEW issues.
       - OTHER: Mixed or unclear.
       
-      IMPORTANT: Focus ONLY on what the LATEST message conveys. If the customer previously asked questions but is now saying "thank you", that is GRATITUDE, not INQUIRY.
+      IMPORTANT: Focus ONLY on what the LATEST message conveys. If the customer previously asked questions but is now saying "thank you" or confirming their issue is resolved, that is GRATITUDE or RESOLUTION_CONFIRMATION, not INQUIRY.
       `;
 
     try {
@@ -533,6 +581,7 @@ export const draftResponse = async (
           .enum([
             'GRATITUDE',
             'CLOSURE',
+            'RESOLUTION_CONFIRMATION',
             'AFFIRMATIVE',
             'INQUIRY',
             'GREETING',
@@ -578,6 +627,7 @@ export const draftResponse = async (
           [
             'GRATITUDE',
             'CLOSURE',
+            'RESOLUTION_CONFIRMATION',
             'AFFIRMATIVE',
             'INQUIRY',
             'GREETING',
@@ -596,7 +646,7 @@ export const draftResponse = async (
       `[ReAct Agent] Intent Check (Flash): ${intent} for "${lastUserMessage.content}"`,
     );
 
-    if (['GRATITUDE', 'CLOSURE'].includes(intent)) {
+    if (['GRATITUDE', 'CLOSURE', 'RESOLUTION_CONFIRMATION'].includes(intent)) {
       return {
         action: 'AUTO_RESOLVE',
         content: '',
@@ -723,6 +773,31 @@ export const draftResponse = async (
     'No summary available.'
   ).slice(0, 500);
 
+  // ── PRE-FETCH KB CONTEXT ──
+  // Proactively search the knowledge base with the customer's latest message
+  // This saves 1-2 ReAct turns (Flash doesn't need to "decide" to search)
+  let prefetchedKBContext = '';
+  let kbUsed = false;
+  if (
+    knowledgeBaseService &&
+    lastUserMessage &&
+    lastUserMessage.authorType === 'customer'
+  ) {
+    try {
+      const kbResult = await knowledgeBaseService.retrieveRelevantContent(
+        lastUserMessage.content,
+        organizationId,
+        3,
+      );
+      if (kbResult && kbResult.trim().length > 0) {
+        prefetchedKBContext = kbResult;
+        kbUsed = true;
+      }
+    } catch (e) {
+      console.warn('[ReAct Agent] KB pre-fetch failed:', e.message);
+    }
+  }
+
   const contextInstruction = `
 Context:
 - Ticket ID: ${ticket.displayId || ticket._id}
@@ -731,10 +806,11 @@ Context:
 - Current Priority: ${ticket.priority}
 - Summary of Issue: ${issueContext}
 
+${prefetchedKBContext ? `# KNOWLEDGE BASE CONTEXT (Use this to answer the customer):\n${prefetchedKBContext}\n` : '# No relevant knowledge base articles found for this query.\n'}
 ${additionalContext ? `Additional Instruction: ${additionalContext}` : ''}
 ${isWaitingForNewTopicCheck ? 'Note: User is in escalation buffer. Check if this is a new topic.' : ''}
 
-Please decide on the next best action.
+Based on the conversation history, the knowledge base context above, and the customer's latest message, decide on the best action. Follow the decision tree in your instructions.
 `;
 
   // Message Buffer
@@ -745,7 +821,7 @@ Please decide on the next best action.
   ];
 
   // 4. ReAct Loop
-  const MAX_TURNS = 10;
+  const MAX_TURNS = 5;
   let turn = 0;
   const finalResult: AgentResponse = {
     action: 'ESCALATE',
@@ -758,7 +834,6 @@ Please decide on the next best action.
     },
   };
   const executedTools: string[] = [];
-  let kbUsed = false;
 
   try {
     while (turn < MAX_TURNS) {
