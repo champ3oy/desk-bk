@@ -459,22 +459,72 @@ export const draftResponse = async (
 
   // 5. Intent Classification Check (Stop Infinite Loops)
   if (lastUserMessage && lastUserMessage.authorType === 'customer') {
-    const recentCustomerText = recentMessages
+    const latestText = lastUserMessage.content.trim().toLowerCase();
+
+    // Fast-path: Regex check for obvious gratitude/closure phrases
+    // This avoids sending a costly LLM call for simple "Thank you" messages
+    const gratitudeRegex =
+      /^(thanks?(\s+you)?|thank\s+you(\s+(so|very)\s+much)?|thx|ty|cheers|appreciated?|great\s+thanks?|ok\s+thanks?|perfect\s+thanks?|wonderful\s+thanks?)[\s!.]*$/i;
+    const closureRegex =
+      /^(bye|goodbye|good\s*bye|see\s+you|take\s+care|have\s+a\s+(good|nice|great)\s+(day|one|evening)|that'?s?\s+(all|it)|nothing\s+(else|more)|no\s+thanks?|i'?m?\s+good)[\s!.]*$/i;
+
+    if (gratitudeRegex.test(latestText)) {
+      console.log(
+        `[ReAct Agent] Fast-path GRATITUDE detected for "${lastUserMessage.content}"`,
+      );
+      return {
+        action: 'AUTO_RESOLVE',
+        content: '',
+        confidence: 100,
+        metadata: {
+          tokenUsage: {},
+          knowledgeBaseUsed: false,
+          performanceMs: Date.now() - totalStart,
+          toolCalls: ['intent_check_fast'],
+        },
+      };
+    }
+
+    if (closureRegex.test(latestText)) {
+      console.log(
+        `[ReAct Agent] Fast-path CLOSURE detected for "${lastUserMessage.content}"`,
+      );
+      return {
+        action: 'AUTO_RESOLVE',
+        content: '',
+        confidence: 100,
+        metadata: {
+          tokenUsage: {},
+          knowledgeBaseUsed: false,
+          performanceMs: Date.now() - totalStart,
+          toolCalls: ['intent_check_fast'],
+        },
+      };
+    }
+
+    // LLM-based intent classification (for non-obvious cases)
+    // Focus on the LATEST message to determine intent, with prior messages as context only
+    const priorCustomerMessages = recentMessages
       .filter((m) => m.authorType === 'customer')
-      .slice(-3)
+      .slice(-3, -1) // exclude the latest
       .map((m) => m.content)
       .join('\n');
 
     const intentPrompt = `
-      Analyze the following recent customer messages:
-      "${recentCustomerText}"
+      Analyze the customer's LATEST message and determine their current intent.
       
-      Categorize the user's intent:
-      - GRATITUDE: Purely saying thanks or appreciating help.
-      - CLOSURE: Ending the conversation (e.g. "Bye").
+      ${priorCustomerMessages ? `Prior messages (for context only):\n"${priorCustomerMessages}"\n` : ''}
+      LATEST message (this is what you must classify):
+      "${lastUserMessage.content}"
+      
+      Categorize the user's CURRENT intent based on their LATEST message:
+      - GRATITUDE: Saying thanks, appreciating help, or acknowledging a good answer.
+      - CLOSURE: Ending the conversation (e.g. "Bye", "That's all").
       - AFFIRMATIVE: Simple yes/ok.
-      - INQUIRY: Asking questions or reporting issues.
+      - INQUIRY: Asking NEW questions or reporting NEW issues.
       - OTHER: Mixed or unclear.
+      
+      IMPORTANT: Focus ONLY on what the LATEST message conveys. If the customer previously asked questions but is now saying "thank you", that is GRATITUDE, not INQUIRY.
       `;
 
     try {
@@ -488,7 +538,7 @@ export const draftResponse = async (
             'GREETING',
             'OTHER',
           ])
-          .describe('The overall intent of the customer message'),
+          .describe('The intent of the customer LATEST message'),
         complexity: z
           .enum(['SIMPLE', 'COMPLEX'])
           .describe(
@@ -503,7 +553,7 @@ export const draftResponse = async (
       if (modelWithStructuredIntent) {
         const routingResult = await modelWithStructuredIntent.invoke([
           new SystemMessage(
-            'You are a routing agent. Categorize the user message and determining complexity.',
+            'You are a routing agent. Categorize the user LATEST message intent and determine complexity. Focus on what the LATEST message says, not the overall conversation history.',
           ),
           new HumanMessage(intentPrompt),
         ]);

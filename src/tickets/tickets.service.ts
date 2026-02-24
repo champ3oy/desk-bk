@@ -33,7 +33,6 @@ import {
   MessageAuthorType,
   MessageChannel,
 } from '../threads/entities/message.entity';
-import { PaginationDto } from '../common/dto/pagination.dto';
 import { TicketPaginationDto } from './dto/ticket-pagination.dto';
 import { AIModelFactory } from '../ai/ai-model.factory';
 import { CustomersService } from '../customers/customers.service';
