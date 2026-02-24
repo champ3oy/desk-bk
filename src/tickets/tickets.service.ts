@@ -27,7 +27,6 @@ import { Counter, CounterDocument } from './entities/counter.entity';
 import { GroupsService } from '../groups/groups.service';
 import { ThreadsService } from '../threads/threads.service';
 import { OrganizationsService } from '../organizations/organizations.service';
-import { draftResponse } from '../ai/agents/response';
 import {
   MessageType,
   MessageAuthorType,
@@ -988,8 +987,29 @@ ${messageContent}`;
     // Apply filters - support multiple values (comma-separated)
     if (status) {
       const statusList = status.split(',');
-      query.status =
-        statusList.length > 1 ? { $in: statusList } : statusList[0];
+
+      // Special handling: "escalated" should match both status='escalated' AND isAiEscalated=true
+      if (statusList.length === 1 && statusList[0] === TicketStatus.ESCALATED) {
+        query.$and = query.$and || [];
+        query.$and.push({
+          $or: [{ status: TicketStatus.ESCALATED }, { isAiEscalated: true }],
+        });
+      } else if (statusList.includes(TicketStatus.ESCALATED)) {
+        // Multi-status filter that includes escalated
+        const otherStatuses = statusList.filter(
+          (s) => s !== TicketStatus.ESCALATED,
+        );
+        query.$and = query.$and || [];
+        query.$and.push({
+          $or: [
+            { status: { $in: [TicketStatus.ESCALATED, ...otherStatuses] } },
+            { isAiEscalated: true },
+          ],
+        });
+      } else {
+        query.status =
+          statusList.length > 1 ? { $in: statusList } : statusList[0];
+      }
     }
     if (priority) {
       const priorityList = priority.split(',');

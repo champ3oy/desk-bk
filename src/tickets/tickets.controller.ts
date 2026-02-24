@@ -65,7 +65,7 @@ export class TicketsController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'Get all tickets (filtered by user role)' })
+  @ApiOperation({ summary: 'Get all tickets' })
   @ApiResponse({ status: 200, description: 'List of tickets', type: [Ticket] })
   findAll(@Request() req, @Query() paginationDto: TicketPaginationDto) {
     return this.ticketsService.findAll(

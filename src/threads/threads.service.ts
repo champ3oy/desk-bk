@@ -285,16 +285,27 @@ export class ThreadsService {
       };
 
       // Auto-update status based on who replied
+      // But preserve ESCALATED status — only a human agent de-escalation should clear it
       if (savedMessage.messageType === MessageType.EXTERNAL) {
-        if (
-          savedMessage.authorType === MessageAuthorType.USER ||
-          savedMessage.authorType === MessageAuthorType.AI
-        ) {
-          // Agent/AI replied -> Waiting for customer
-          updateData.status = TicketStatus.PENDING;
-        } else if (savedMessage.authorType === MessageAuthorType.CUSTOMER) {
-          // Customer replied -> Waiting for agent
-          updateData.status = TicketStatus.OPEN;
+        const currentTicket = await this.ticketModel
+          .findById(thread.ticketId)
+          .select('status')
+          .lean()
+          .exec();
+
+        const isEscalated = currentTicket?.status === TicketStatus.ESCALATED;
+
+        if (!isEscalated) {
+          if (
+            savedMessage.authorType === MessageAuthorType.USER ||
+            savedMessage.authorType === MessageAuthorType.AI
+          ) {
+            // Agent/AI replied -> Waiting for customer
+            updateData.status = TicketStatus.PENDING;
+          } else if (savedMessage.authorType === MessageAuthorType.CUSTOMER) {
+            // Customer replied -> Waiting for agent
+            updateData.status = TicketStatus.OPEN;
+          }
         }
       }
 
