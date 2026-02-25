@@ -397,6 +397,53 @@ export class EmailIntegrationService {
       await integration.save();
     });
 
+    // Proactively refresh if token is expired or about to expire (5 min buffer)
+    const isExpired =
+      integration.expiryDate &&
+      integration.expiryDate.getTime() - 5 * 60 * 1000 < Date.now();
+
+    if (isExpired && integration.refreshToken) {
+      try {
+        this.logger.debug(`Proactively refreshing Gmail token for ${email}`);
+        const { credentials } = await oauth2Client.refreshAccessToken();
+        oauth2Client.setCredentials(credentials);
+
+        // Persist refreshed tokens
+        if (credentials.access_token) {
+          integration.accessToken = credentials.access_token;
+        }
+        if (credentials.refresh_token) {
+          integration.refreshToken = credentials.refresh_token;
+        }
+        if (credentials.expiry_date) {
+          integration.expiryDate = new Date(credentials.expiry_date);
+        }
+        integration.status = EmailIntegrationStatus.ACTIVE;
+        await integration.save();
+      } catch (error) {
+        const errorMsg = error?.response?.data?.error || error?.message || '';
+        this.logger.error(
+          `Failed to refresh Gmail token for ${email}: ${errorMsg}`,
+        );
+
+        // Mark as needs reauth if the refresh token is invalid
+        if (
+          errorMsg === 'invalid_grant' ||
+          errorMsg.includes('invalid_grant') ||
+          errorMsg.includes('Token has been expired or revoked')
+        ) {
+          this.logger.warn(
+            `Gmail refresh token for ${email} is invalid. Marking as NEEDS_REAUTH.`,
+          );
+          integration.status = EmailIntegrationStatus.NEEDS_REAUTH;
+          integration.isActive = false;
+          await integration.save();
+        }
+
+        throw error;
+      }
+    }
+
     return {
       gmail: google.gmail({ version: 'v1', auth: oauth2Client }),
       integration,

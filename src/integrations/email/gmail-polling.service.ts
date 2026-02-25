@@ -52,9 +52,24 @@ export class GmailPollingService {
         try {
           await this.listAndQueueMessages(integration);
         } catch (error) {
+          const errorMsg = error?.response?.data?.error || error?.message || '';
           this.logger.error(
-            `Error polling for ${integration.email}: ${error.message}`,
+            `Error polling for ${integration.email}: ${errorMsg}`,
           );
+
+          // Mark as needs reauth if the refresh token is invalid
+          if (
+            errorMsg === 'invalid_grant' ||
+            errorMsg.includes('invalid_grant') ||
+            errorMsg.includes('Token has been expired or revoked')
+          ) {
+            this.logger.warn(
+              `Gmail refresh token for ${integration.email} is invalid. Marking as NEEDS_REAUTH.`,
+            );
+            integration.status = EmailIntegrationStatus.NEEDS_REAUTH;
+            integration.isActive = false;
+            await integration.save();
+          }
         }
       }
     } catch (error) {
