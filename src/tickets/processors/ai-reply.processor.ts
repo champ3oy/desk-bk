@@ -236,8 +236,13 @@ export class AiReplyProcessor extends WorkerHost {
         );
 
         // Send a friendly closing message to the customer
-        const closingMessage =
+        let closingMessage =
           "Glad to hear that! I'm marking this as resolved. If you have any other questions or need further assistance, feel free to reach out anytime. 😊";
+
+        // Append AI email signature to closing message if configured
+        if (org.aiEmailSignature && channel?.toLowerCase() === 'email') {
+          closingMessage += `\n\n${org.aiEmailSignature}`;
+        }
 
         await this.threadsService.createMessage(
           thread._id.toString(),
@@ -408,8 +413,16 @@ export class AiReplyProcessor extends WorkerHost {
       organizationId,
     );
 
-    const interventionMessage =
-      "I notice you've been waiting for a while. I want to make sure your time is used effectively—is there anything else I can help you with or any other query I can answer while the agent gets to your previous request?";
+    let interventionMessage =
+      "I notice you've been waiting for a while. I want to make sure your time is used effectively—is there anything else I can help you with or any other query I can answer while our team processes your previous request?";
+
+    // Append AI email signature if configured and channel is email
+    if (channel?.toLowerCase() === 'email') {
+      const org = await this.organizationsService.findOne(organizationId);
+      if (org?.aiEmailSignature) {
+        interventionMessage += `\n\n${org.aiEmailSignature}`;
+      }
+    }
 
     await this.threadsService.createMessage(
       thread._id.toString(),

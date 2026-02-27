@@ -40,6 +40,11 @@ export class TicketPaginationDto extends PaginationDto {
   @IsString()
   search?: string;
 
+  @ApiPropertyOptional({ description: 'Filter by channel' })
+  @IsOptional()
+  @IsString()
+  channel?: string;
+
   @ApiPropertyOptional({
     description: 'Filter by predefined folder views',
     example: 'your_unsolved',

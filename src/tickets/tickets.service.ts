@@ -920,6 +920,7 @@ ${messageContent}`;
       assignedToGroupId,
       customerId,
       sentiment,
+      channel,
       folder,
     } = paginationDto;
     const skip = (page - 1) * limit;
@@ -1084,6 +1085,11 @@ ${messageContent}`;
     }
     if (customerId) {
       query.customerId = new Types.ObjectId(customerId);
+    }
+    if (channel) {
+      const channelList = channel.split(',');
+      query.channel =
+        channelList.length > 1 ? { $in: channelList } : channelList[0];
     }
 
     if (paginationDto.search) {
@@ -1768,7 +1774,7 @@ Make sure this is very clear so they don't expect an immediate reply.`;
       }
 
       const prompt = `You are a helpful customer support AI.
-The current conversation needs to be escalated to a human agent.
+The current conversation needs to be escalated to a specialized team member.
 Reason: ${reason}
 
 Context:
@@ -1776,7 +1782,7 @@ Ticket Subject: ${ticket.subject}
 Recent Messages:
 ${contextMessages}${businessHoursPromptExtra}
 
-Task: Write a polite, concise message to the customer explaining that you are passing the conversation to a human agent.
+Task: Write a polite, concise message to the customer explaining that a specialist from our team will be joining the conversation to assist further.
 Do not apologize unless necessary. Be professional and reassuring.
 Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at the start or end.`;
 
@@ -1812,6 +1818,11 @@ Return ONLY the message text. Do NOT use JSON format. Do NOT include quotes at t
       if (!businessStatus.isWithin) {
         escalationMessage += ` Please note that we are currently outside of business hours, so an agent will get back to you on ${nextOpening}.`;
       }
+    }
+
+    // Append AI email signature if configured and channel is email
+    if (channel?.toLowerCase() === 'email' && org.aiEmailSignature) {
+      escalationMessage += `\n\n${org.aiEmailSignature}`;
     }
 
     const thread = await this.threadsService.getOrCreateThread(

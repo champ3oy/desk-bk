@@ -49,25 +49,8 @@ const REACT_SYSTEM_PROMPT = `You are an expert customer support agent. Your goal
 - Use the customer's name if available. Be warm but professional.
 - No signatures, greetings headers, or "Best regards" — they are added automatically.
 - Never say "I'm an AI" or "As an AI assistant".
-- Never make up policies, prices, or deadlines. If unsure, say so and escalate.
-
-# EXAMPLES OF GOOD RESPONSES
-
-Example 1 (Simple factual question, KB has the answer):
-Customer: "What is your refund policy?"
-Good response: "We offer a full refund within 30 days of purchase for unused items. If you'd like to initiate a return, I can help you with that — just share your order number and I'll get it started."
-
-Example 2 (Issue requiring action):
-Customer: "I was charged twice for my subscription"
-Good response: "I'm sorry about the double charge — that's definitely not right. I've flagged this for our billing team to investigate and correct. You should see the refund within 3-5 business days. I'll follow up to make sure it's resolved."
-
-Example 3 (Needs clarification):
-Customer: "It's not working"
-Good response: "I'd like to help! Could you share a bit more about what you're experiencing? For example, are you seeing an error message, or is a specific feature not loading? That'll help me pinpoint the issue quickly."
-
-Example 4 (Should escalate):
-Customer: "I want to cancel my account and get all my data deleted under GDPR"
-Good response: [escalate_ticket with reason: "GDPR data deletion request — requires compliance team review"]
+- Never make up policies, prices, or deadlines. If you cannot help directly, explain that our team will investigate, but do NOT claim to have "flagged" it to a specific department or "triggered" a process yourself unless you have used a tool to do so.
+- BE HONEST ABOUT TOOLS: Do not claim to possess internal capabilities (like "manual reconciliation") that are not explicitly provided to you as tools.
 `;
 
 /**
@@ -445,15 +428,21 @@ export const draftResponse = async (
   let requestComplexity = 'COMPLEX';
   let intent = 'OTHER';
   let intentUsage: any = {};
+
+  // Find the latest message from the customer to check against cache
+  const lastCustomerMessage = [...recentMessages]
+    .reverse()
+    .find((m) => m.authorType === 'customer');
   const lastUserMessage = recentMessages[recentMessages.length - 1];
 
   if (
     smartCacheService &&
-    lastUserMessage &&
-    lastUserMessage.authorType === 'customer'
+    lastCustomerMessage &&
+    (!lastCustomerMessage.attachments ||
+      lastCustomerMessage.attachments.length === 0)
   ) {
     const cacheResult = await smartCacheService.findMatch(
-      lastUserMessage.content,
+      lastCustomerMessage.content,
       organizationId,
     );
 
@@ -466,7 +455,7 @@ export const draftResponse = async (
       const personalizedContent = await smartCacheService.personalize(
         cacheResult.response,
         { name: customerName },
-        lastUserMessage.content,
+        lastCustomerMessage.content,
       );
 
       // Log cache HIT for telemetry tracking
@@ -501,11 +490,7 @@ export const draftResponse = async (
   }
 
   // Log cache MISS — we're proceeding to the full AI flow
-  if (
-    smartCacheService &&
-    lastUserMessage &&
-    lastUserMessage.authorType === 'customer'
-  ) {
+  if (smartCacheService && lastCustomerMessage) {
     AiUsageService.logUsageAndDeduct({
       feature: 'smart-cache',
       provider: 'cache',
@@ -523,8 +508,8 @@ export const draftResponse = async (
   }
 
   // 5. Intent Classification Check (Stop Infinite Loops)
-  if (lastUserMessage && lastUserMessage.authorType === 'customer') {
-    const latestText = lastUserMessage.content.trim().toLowerCase();
+  if (lastCustomerMessage) {
+    const latestText = lastCustomerMessage.content.trim().toLowerCase();
 
     // Fast-path: Regex check for obvious gratitude/closure phrases
     // This avoids sending a costly LLM call for simple "Thank you" messages
@@ -540,7 +525,7 @@ export const draftResponse = async (
 
     if (gratitudeRegex.test(latestText)) {
       console.log(
-        `[ReAct Agent] Fast-path GRATITUDE detected for "${lastUserMessage.content}"`,
+        `[ReAct Agent] Fast-path GRATITUDE detected for "${lastCustomerMessage.content}"`,
       );
       return {
         action: 'AUTO_RESOLVE',
@@ -557,7 +542,7 @@ export const draftResponse = async (
 
     if (closureRegex.test(latestText)) {
       console.log(
-        `[ReAct Agent] Fast-path CLOSURE detected for "${lastUserMessage.content}"`,
+        `[ReAct Agent] Fast-path CLOSURE detected for "${lastCustomerMessage.content}"`,
       );
       return {
         action: 'AUTO_RESOLVE',
@@ -574,7 +559,7 @@ export const draftResponse = async (
 
     if (resolutionRegex.test(latestText)) {
       console.log(
-        `[ReAct Agent] Fast-path RESOLUTION_CONFIRMATION detected for "${lastUserMessage.content}"`,
+        `[ReAct Agent] Fast-path RESOLUTION_CONFIRMATION detected for "${lastCustomerMessage.content}"`,
       );
       return {
         action: 'AUTO_RESOLVE',
@@ -602,7 +587,7 @@ export const draftResponse = async (
       
       ${priorCustomerMessages ? `Prior messages (for context only):\n"${priorCustomerMessages}"\n` : ''}
       LATEST message (this is what you must classify):
-      "${lastUserMessage.content}"
+      "${lastCustomerMessage.content}"
       
       Categorize the user's CURRENT intent based on their LATEST message:
       - GRATITUDE: Saying thanks, appreciating help, or acknowledging a good answer.
@@ -683,7 +668,7 @@ export const draftResponse = async (
     }
 
     console.log(
-      `[ReAct Agent] Intent Check (Flash): ${intent} for "${lastUserMessage.content}"`,
+      `[ReAct Agent] Intent Check (Flash): ${intent} for "${lastCustomerMessage.content}"`,
     );
 
     if (['GRATITUDE', 'CLOSURE', 'RESOLUTION_CONFIRMATION'].includes(intent)) {
@@ -706,7 +691,7 @@ export const draftResponse = async (
         new SystemMessage(
           'You are a helpful customer support agent. Reply to the user greeting politely and offer help. Keep it short.',
         ),
-        new HumanMessage(lastUserMessage.content),
+        new HumanMessage(lastCustomerMessage.content),
       ]);
       return {
         action: 'REPLY',
@@ -999,7 +984,9 @@ Based on the conversation history, the knowledge base context above, and the cus
                 raw.message &&
                 raw.message.length > 50 &&
                 smartCacheService &&
-                lastUserMessage
+                lastUserMessage &&
+                (!lastUserMessage.attachments ||
+                  lastUserMessage.attachments.length === 0)
               ) {
                 smartCacheService
                   .store(lastUserMessage.content, raw.message, organizationId)
