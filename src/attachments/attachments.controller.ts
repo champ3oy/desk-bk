@@ -87,12 +87,21 @@ export class AttachmentsController {
     @UploadedFiles() files: Array<Express.Multer.File>,
     @Request() req,
     @Body('ticketId') ticketId?: string,
+    @Body('organizationId') organizationId?: string,
   ) {
-    console.log('[AttachmentsController] uploadMultiple req.user:', req.user);
-    // organizationId will be resolved from the ticketId in the service if req.user is missing
+    console.log(
+      '[AttachmentsController] uploadMultiple req.user:',
+      req.user,
+      'body.organizationId:',
+      organizationId,
+      'body.ticketId:',
+      ticketId,
+    );
+    // Use organizationId from body if req.user is missing,
+    // or it will be resolved from ticketId in the service.
     return this.attachmentsService.uploadFiles(
       files,
-      req.user?.organizationId,
+      req.user?.organizationId || organizationId,
       ticketId,
     );
   }
