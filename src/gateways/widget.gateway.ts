@@ -239,7 +239,12 @@ export class WidgetGateway implements OnModuleInit {
         timestamp: message.createdAt
           ? new Date(message.createdAt).getTime()
           : Date.now(),
-        attachments: message.attachments || [],
+        attachments: (message.attachments || []).map((att: any) => ({
+          ...att,
+          url: att.path?.startsWith('http')
+            ? att.path
+            : `http://localhost:3005${att.path?.startsWith('/') ? '' : '/'}${att.path}`,
+        })),
       };
 
       const payload = JSON.stringify({

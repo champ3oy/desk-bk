@@ -12,6 +12,7 @@ import {
   Organization,
   OrganizationSchema,
 } from '../organizations/entities/organization.entity';
+import { Message, MessageSchema } from '../threads/entities/message.entity';
 import { AiModule } from '../ai/ai.module'; // Import AiModule for forwardRef check
 import { Tag, TagSchema } from '../tags/entities/tag.entity';
 import { CustomersModule } from '../customers/customers.module';
@@ -32,6 +33,7 @@ import { TicketCronService } from './ticket-cron.service';
       { name: Tag.name, schema: TagSchema },
       { name: Counter.name, schema: CounterSchema },
       { name: Organization.name, schema: OrganizationSchema },
+      { name: Message.name, schema: MessageSchema },
     ]),
     forwardRef(() => CustomersModule),
     GroupsModule,

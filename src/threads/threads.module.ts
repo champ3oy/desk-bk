@@ -11,6 +11,10 @@ import {
   CustomerSchema,
 } from '../customers/entities/customer.entity';
 import { Ticket, TicketSchema } from '../tickets/entities/ticket.entity';
+import {
+  Attachment,
+  AttachmentSchema,
+} from '../attachments/entities/attachment.entity';
 import { TicketsModule } from '../tickets/tickets.module';
 import { CustomersModule } from '../customers/customers.module';
 import { GroupsModule } from '../groups/groups.module';
@@ -30,6 +34,7 @@ import { AuthModule } from '../auth/auth.module';
       { name: User.name, schema: UserSchema },
       { name: Customer.name, schema: CustomerSchema },
       { name: Ticket.name, schema: TicketSchema },
+      { name: Attachment.name, schema: AttachmentSchema },
     ]),
     forwardRef(() => TicketsModule),
     forwardRef(() => CustomersModule),

@@ -31,6 +31,8 @@ import {
   MessageType,
   MessageAuthorType,
   MessageChannel,
+  Message,
+  MessageDocument,
 } from '../threads/entities/message.entity';
 import { TicketPaginationDto } from './dto/ticket-pagination.dto';
 import { AIModelFactory } from '../ai/ai-model.factory';
@@ -49,6 +51,8 @@ export class TicketsService {
   constructor(
     @InjectModel(Ticket.name)
     private ticketModel: Model<TicketDocument>,
+    @InjectModel(Message.name)
+    private messageModel: Model<MessageDocument>,
     @InjectModel(Tag.name)
     private tagModel: Model<TagDocument>,
     private groupsService: GroupsService,
@@ -704,6 +708,7 @@ ${messageContent}`;
     organizationId: string,
     channel?: string, // Optional: 'email' | 'widget' | 'whatsapp' | 'sms' - defaults to 'email'
     integrationId?: string,
+    createInitialMessage = true,
   ): Promise<Ticket> {
     const ticketData: any = {
       ...createTicketDto,
@@ -836,13 +841,29 @@ ${messageContent}`;
 
     // Auto-create thread for ticket (one thread per ticket)
     try {
-      await this.threadsService.getOrCreateThread(
+      const thread = await this.threadsService.getOrCreateThread(
         savedTicket._id.toString(),
         createTicketDto.customerId,
         organizationId,
       );
+
+      // Create initial message from ticket description so it appears in history
+      if (createInitialMessage) {
+        await this.messageModel.create({
+          threadId: thread._id,
+          organizationId: new Types.ObjectId(organizationId),
+          messageType: MessageType.EXTERNAL,
+          authorType: MessageAuthorType.CUSTOMER,
+          authorId: new Types.ObjectId(createTicketDto.customerId),
+          content: createTicketDto.description,
+          channel: channel || MessageChannel.EMAIL,
+          attachments: [], // Manual ticket creation usually doesn't have attachments in the same DTO yet
+          readBy: [],
+          isRead: false,
+        });
+      }
     } catch (error) {
-      console.error('Failed to auto-create thread:', error);
+      console.error('Failed to auto-create thread or initial message:', error);
     }
 
     // Call shared Auto-reply logic using the provided channel or defaulting to 'email'

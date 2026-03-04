@@ -21,6 +21,10 @@ import {
 import { Message, MessageSchema } from '../threads/entities/message.entity';
 import { Thread, ThreadSchema } from '../threads/entities/thread.entity';
 import { Ticket, TicketSchema } from '../tickets/entities/ticket.entity';
+import {
+  Attachment,
+  AttachmentSchema,
+} from '../attachments/entities/attachment.entity';
 import { OrganizationsModule } from '../organizations/organizations.module';
 import { CustomersModule } from '../customers/customers.module';
 import { TicketsModule } from '../tickets/tickets.module';
@@ -41,6 +45,7 @@ import { EmailIngestionProcessor } from './email-ingestion.processor';
       { name: Message.name, schema: MessageSchema },
       { name: Thread.name, schema: ThreadSchema },
       { name: Ticket.name, schema: TicketSchema },
+      { name: Attachment.name, schema: AttachmentSchema },
     ]),
     ConfigModule,
     OrganizationsModule,

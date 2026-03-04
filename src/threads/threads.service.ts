@@ -16,6 +16,10 @@ import {
   MessageType,
   MessageChannel,
 } from './entities/message.entity';
+import {
+  Attachment,
+  AttachmentDocument,
+} from '../attachments/entities/attachment.entity';
 import { User, UserDocument } from '../users/entities/user.entity';
 import {
   Customer,
@@ -52,6 +56,8 @@ export class ThreadsService {
     private customerModel: Model<CustomerDocument>,
     @InjectModel(Ticket.name)
     private ticketModel: Model<TicketDocument>,
+    @InjectModel(Attachment.name)
+    private attachmentModel: Model<AttachmentDocument>,
     @Inject(forwardRef(() => TicketsService))
     private ticketsService: TicketsService,
     @Inject(forwardRef(() => CustomersService))
@@ -267,12 +273,18 @@ export class ThreadsService {
 
     const savedMessage = await message.save();
 
+    // Attach URLs for response/WebSocket
+    const processedMessage = this.mapMessageAttachments(
+      savedMessage.toObject(),
+    );
+
     // Notify agents via WebSocket
     this.agentGateway.emitToTicket(
       thread.ticketId.toString(),
       'new_message',
-      savedMessage,
+      processedMessage,
     );
+
     this.agentGateway.emitToOrg(organizationId, 'ticket_updated', {
       ticketId: thread.ticketId,
     });
@@ -664,7 +676,7 @@ export class ThreadsService {
       console.error('Failed to create notifications for message:', error);
     }
 
-    return savedMessage;
+    return processedMessage;
   }
 
   async createSystemMessage(
@@ -715,14 +727,30 @@ export class ThreadsService {
 
     const savedMessage = await message.save();
 
+    const processedMessage = this.mapMessageAttachments(
+      savedMessage.toObject(),
+    );
+
     // Notify agents via WebSocket
     this.agentGateway.emitToTicket(
       thread.ticketId.toString(),
       'new_message',
-      savedMessage,
+      processedMessage,
     );
 
-    return savedMessage;
+    return processedMessage;
+  }
+
+  private mapMessageAttachments(msg: any): any {
+    if (msg.attachments && Array.isArray(msg.attachments)) {
+      msg.attachments = msg.attachments.map((att: any) => ({
+        ...att,
+        url: att.path?.startsWith('http')
+          ? att.path
+          : `http://localhost:3005${att.path?.startsWith('/') ? '' : '/'}${att.path}`,
+      }));
+    }
+    return msg;
   }
 
   async getMessages(
@@ -793,8 +821,45 @@ export class ThreadsService {
     const userMap = new Map(users.map((u) => [u._id.toString(), u]));
     const customerMap = new Map(customers.map((c) => [c._id.toString(), c]));
 
-    // Attach authors
-    return messages.map((msg: any) => {
+    // Fetch ANY "loose" attachments linked to the ticket but not to a message
+    // and attempt to merge them into the first message
+    let extraTicketAttachments: any[] = [];
+    if (!skip || skip === 0) {
+      try {
+        const threadDoc = await this.threadModel.findById(threadId).exec();
+        if (threadDoc?.ticketId) {
+          const looseAttachments = await this.attachmentModel
+            .find({
+              ticketId: threadDoc.ticketId,
+              messageId: { $exists: false },
+              commentId: { $exists: false },
+            })
+            .lean()
+            .exec();
+          extraTicketAttachments = looseAttachments;
+        }
+      } catch (err) {
+        console.warn('Failed to fetch loose ticket attachments:', err);
+      }
+    }
+
+    // Attach authors and generate URLs
+    const processedMessages = messages.map((msg: any) => {
+      // Inject loose attachments onto the first message (index 0 because messages are now Chronological after reverse())
+      if (
+        extraTicketAttachments.length > 0 &&
+        messages.indexOf(msg) === 0 &&
+        (!messageType || messageType === MessageType.EXTERNAL)
+      ) {
+        msg.attachments = [
+          ...(msg.attachments || []),
+          ...extraTicketAttachments.map((att) => ({
+            ...att,
+            originalName: att.originalName || att.filename,
+          })),
+        ];
+      }
+
       if (
         msg.authorType === MessageAuthorType.USER ||
         msg.authorType === MessageAuthorType.SYSTEM
@@ -812,8 +877,21 @@ export class ThreadsService {
           role: 'ai',
         };
       }
+
+      // Generate accessible URLs for all attachments
+      if (msg.attachments && Array.isArray(msg.attachments)) {
+        msg.attachments = msg.attachments.map((att: any) => ({
+          ...att,
+          url: att.path?.startsWith('http')
+            ? att.path
+            : `http://localhost:3005${att.path?.startsWith('/') ? '' : '/'}${att.path}`,
+        }));
+      }
+
       return msg;
     });
+
+    return processedMessages;
   }
 
   async markAsRead(

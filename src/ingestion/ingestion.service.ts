@@ -34,6 +34,10 @@ import {
   TicketPriority,
 } from '../tickets/entities/ticket.entity';
 import { NotificationsService } from '../notifications/notifications.service';
+import {
+  Attachment,
+  AttachmentDocument,
+} from '../attachments/entities/attachment.entity';
 import { NotificationType } from '../notifications/entities/notification.entity';
 import { runWithTelemetryContext } from '../ai/telemetry/telemetry.context';
 
@@ -46,6 +50,8 @@ export class IngestionService {
     private messageModel: Model<MessageDocument>,
     @InjectModel(Thread.name)
     private threadModel: Model<ThreadDocument>,
+    @InjectModel(Attachment.name)
+    private attachmentModel: Model<AttachmentDocument>,
     private emailParser: EmailParser,
     private smsParser: SmsParser,
     private whatsappParser: WhatsAppParser,
@@ -710,6 +716,7 @@ export class IngestionService {
       organizationId,
       channelName, // Pass channel for correct auto-reply routing
       message.integrationId, // Pass integrationId for default agent assignment
+      false, // skipInitialMessage: Ingestion handles this separately below
     )) as TicketDocument;
 
     this.logger.debug(
@@ -877,9 +884,42 @@ export class IngestionService {
       .lean() // Use lean() to get plain objects
       .exec();
 
+    // Fetch ANY "loose" attachments linked to the ticket but not to a message
+    // and attempt to merge them into the first message
+    let extraTicketAttachments: any[] = [];
+    try {
+      const threadDoc = await this.threadModel.findById(threadId).exec();
+      if (threadDoc?.ticketId) {
+        const looseAttachments = await this.attachmentModel
+          .find({
+            ticketId: threadDoc.ticketId,
+            messageId: { $exists: false },
+            commentId: { $exists: false },
+          })
+          .lean()
+          .exec();
+        extraTicketAttachments = looseAttachments;
+      }
+    } catch (err) {
+      this.logger.warn(
+        `Failed to fetch loose ticket attachments: ${err.message}`,
+      );
+    }
+
     // Manually populate authorId based on authorType
     const populatedMessages = await Promise.all(
       messages.map(async (msg: any) => {
+        // Inject loose attachments onto the first message
+        if (extraTicketAttachments.length > 0 && messages.indexOf(msg) === 0) {
+          msg.attachments = [
+            ...(msg.attachments || []),
+            ...extraTicketAttachments.map((att) => ({
+              ...att,
+              originalName: att.originalName || att.filename,
+            })),
+          ];
+        }
+
         this.logger.debug(
           `Processing message ${msg._id}: authorType=${msg.authorType}, authorId=${msg.authorId}`,
         );
