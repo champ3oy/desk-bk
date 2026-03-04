@@ -25,12 +25,16 @@ const REACT_SYSTEM_PROMPT = `You are an expert customer support agent. Your goal
 
 # HOW TO RESPOND — FOLLOW THIS EXACT DECISION TREE
 1. Read the customer's latest message and the conversation history.
-2. Check the KNOWLEDGE BASE CONTEXT provided below (if any). Use it to answer technical questions. Do NOT hallucinate information not in the KB.
-3. Decide your action:
-   - If you CAN answer confidently → call 'send_final_reply' with your response.
-   - If you need more info from the customer → call 'ask_customer_for_clarification'.
-   - If the issue is too complex, sensitive, or you cannot find the answer → call 'escalate_ticket'.
-   - If the customer says "thanks", "bye", or indicates resolution → STOP. Return empty string "". Do NOT respond.
+2. Determine if the issue is user-specific (account status, specific order, KYC rejection, etc.) or a general policy question.
+3. If it is USER-SPECIFIC: Prioritize using specialized investigation tools (like 'get_customer_context', 'check_kyc_status', etc.) to find the EXACT reason before looking at the Knowledge Base.
+4. If it is GENERAL: Check the KNOWLEDGE BASE CONTEXT provided below.
+5. Combine your findings. Do NOT hallucinate information not provided by tools or KB.
+6. Decide your action:
+   - If you have investigated and CAN answer accurately → call 'send_final_reply'.
+   - If you are missing user-specific data needed for tools (like an email) → call 'ask_customer_for_clarification'.
+   - If you need more info from the customer about their problem → call 'ask_customer_for_clarification'.
+   - If the issue is too complex or you cannot find the answer after using ALL relevant tools → call 'escalate_ticket'.
+   - If the customer says "thanks", "bye", or indicates resolution → STOP. Return empty string "".
 4. Optionally: call 'update_ticket_attributes' to set priority/tags if relevant.
 
 # TOOL RULES
@@ -60,38 +64,56 @@ export function buildSystemPrompt(
   org: Organization,
   channel?: string,
   customerName?: string,
+  allowedTools: any[] = [],
 ): string {
-  const basePrompt = org.aiPersonalityPrompt || REACT_SYSTEM_PROMPT;
+  let basePrompt = org.aiPersonalityPrompt || REACT_SYSTEM_PROMPT;
 
-  const instructions: string[] = [];
+  // If there's a custom personality prompt, we still need to ensure the ReAct rules are present
+  // unless the custom prompt already seems to have them.
+  if (
+    org.aiPersonalityPrompt &&
+    !org.aiPersonalityPrompt.includes('HOW TO RESPOND')
+  ) {
+    basePrompt = `${org.aiPersonalityPrompt}\n\n${REACT_SYSTEM_PROMPT}`;
+  }
+
+  const toolInstructions: string[] = [];
+  const toneInstructions: string[] = [];
+
+  // Add specific tool rules for allowed tools
+  if (allowedTools.some((t) => t.name === 'check_kyc_status')) {
+    toolInstructions.push(
+      "- 'check_kyc_status': MANDATORY for KYC/verification issues. Use this ALWAYS if the customer is complaining about account creation, KYC rejection, or verification failures. You MUST have the user's email. If missing, use 'get_customer_context' or 'ask_customer_for_clarification'. Do NOT say you cannot see the reason for rejection; use this tool to see it.",
+    );
+  }
 
   // Formality
   if (org.aiFormality !== undefined) {
     if (org.aiFormality < 30)
-      instructions.push('- Use casual, conversational language.');
+      toneInstructions.push('- Use casual, conversational language.');
     else if (org.aiFormality > 70)
-      instructions.push('- Maintain a formal, professional tone.');
+      toneInstructions.push('- Maintain a formal, professional tone.');
   }
 
   // Empathy
   if (org.aiEmpathy !== undefined && org.aiEmpathy > 70) {
-    instructions.push('- Show high empathy. Acknowledge feelings first.');
+    toneInstructions.push('- Show high empathy. Acknowledge feelings first.');
   }
 
   // Length
   if (org.aiResponseLength !== undefined) {
     if (org.aiResponseLength < 30)
-      instructions.push('- Keep responses extremely brief.');
+      toneInstructions.push('- Keep responses extremely brief.');
     else if (org.aiResponseLength > 70)
-      instructions.push('- Provide detailed, comprehensive explanations.');
+      toneInstructions.push('- Provide detailed, comprehensive explanations.');
   }
 
   // Channel specifics
   if (channel !== 'email') {
-    instructions.push(
+    toneInstructions.push(
       '- This is a chat/messaging channel. Keep it short and conversational.',
     );
-    instructions.push('- Do NOT use complex markdown headers.');
+    toneInstructions.push('- Do NOT use complex markdown headers.');
 
     // WhatsApp Name Verification
     if (channel === 'whatsapp' && customerName) {
@@ -101,20 +123,26 @@ export function buildSystemPrompt(
         ) || customerName.includes('+');
 
       if (isGenericName) {
-        instructions.push(
+        toneInstructions.push(
           "- The customer's name appears to be a placeholder or phone number. Politely ask for their actual name and email early in the conversation to better assist them.",
         );
       }
     }
   } else {
-    instructions.push('- This is an email. Use standard email formatting.');
+    toneInstructions.push('- This is an email. Use standard email formatting.');
   }
 
-  if (instructions.length > 0) {
-    return `${basePrompt}\n\n# TONE GUIDELINES\n${instructions.join('\n')}`;
+  let finalPrompt = basePrompt;
+
+  if (toolInstructions.length > 0) {
+    finalPrompt += `\n\n# ADDITIONAL TOOL RULES\n${toolInstructions.join('\n')}`;
   }
 
-  return basePrompt;
+  if (toneInstructions.length > 0) {
+    finalPrompt += `\n\n# TONE GUIDELINES\n${toneInstructions.join('\n')}`;
+  }
+
+  return finalPrompt;
 }
 
 export type AgentResponse = {
@@ -381,7 +409,47 @@ export const draftResponse = async (
         return { __action: 'REPLY', message: question };
       },
     },
+    {
+      name: 'check_kyc_status',
+      description:
+        'Check the KYC (Know Your Customer) and account creation status for a user by their email address.',
+      enabledForOrgs: ['69728f2ac84f3520beda91c3'],
+      schema: z.object({
+        email: z
+          .string()
+          .email()
+          .describe('The email address of the user to check.'),
+      }),
+      func: async ({ email }: { email: string }) => {
+        try {
+          console.log(`[Tool] Checking KYC for: ${email}`);
+          const response = await fetch(
+            `https://kyc-pipeline.blackstargroup.ai/api/v1/kyc/result?email=${encodeURIComponent(
+              email,
+            )}`,
+          );
+          if (!response.ok) {
+            return `Failed to fetch KYC status for ${email}. Status: ${response.status}`;
+          }
+          const data = await response.json();
+          // Return the full JSON for the AI to reason about (Approved vs Rejected details)
+          return JSON.stringify(data);
+        } catch (error) {
+          console.error(`[Tool] Error checking KYC:`, error);
+          return `Error checking KYC status: ${error.message}`;
+        }
+      },
+    },
   ];
+
+  // 2b. Filter Tools based on Organization
+  const allowedTools = tools.filter(
+    (t: any) => !t.enabledForOrgs || t.enabledForOrgs.includes(organizationId),
+  );
+
+  console.log(
+    `[ReAct Agent] Organization: ${organizationId}. Allowed Tools: ${allowedTools.map((t) => t.name).join(', ')}`,
+  );
 
   // 3. Initialize Model and Messages
   // Using Flash for everything — the upgraded prompt compensates for the model difference
@@ -406,7 +474,7 @@ export const draftResponse = async (
   const bindToolsToModel = (model: any) => {
     return (model as any).bindTools
       ? (model as any).bindTools(
-          tools.map((t) => ({
+          allowedTools.map((t) => ({
             name: t.name,
             description: t.description,
             schema: t.schema,
@@ -422,6 +490,7 @@ export const draftResponse = async (
     org,
     channel,
     (ticket.customerId as any).firstName,
+    allowedTools,
   );
 
   // 4. SMART CACHE CHECK (Literal & Semantic Cache) - SUPER FAST PATH

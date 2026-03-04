@@ -30,13 +30,13 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Attachment } from './entities/attachment.entity';
 
 @ApiTags('Attachments')
-@ApiBearerAuth('JWT-auth')
 @Controller('attachments')
-@UseGuards(JwtAuthGuard)
 export class AttachmentsController {
   constructor(private readonly attachmentsService: AttachmentsService) {}
 
   @Post()
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Create a new attachment' })
   @ApiBody({ type: CreateAttachmentDto })
   @ApiCreatedResponse({
@@ -53,6 +53,8 @@ export class AttachmentsController {
   }
 
   @Post('upload')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
   @UseInterceptors(FileInterceptor('file'))
   @ApiOperation({ summary: 'Upload a file' })
   @ApiResponse({
@@ -87,14 +89,17 @@ export class AttachmentsController {
     @Body('ticketId') ticketId?: string,
   ) {
     console.log('[AttachmentsController] uploadMultiple req.user:', req.user);
+    // organizationId will be resolved from the ticketId in the service if req.user is missing
     return this.attachmentsService.uploadFiles(
       files,
-      req.user.organizationId,
+      req.user?.organizationId,
       ticketId,
     );
   }
 
   @Get()
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Get all attachments' })
   @ApiQuery({
     name: 'ticketId',
@@ -119,6 +124,8 @@ export class AttachmentsController {
   }
 
   @Get(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Get an attachment by ID' })
   @ApiParam({ name: 'id', description: 'Attachment ID' })
   @ApiResponse({
@@ -132,6 +139,8 @@ export class AttachmentsController {
   }
 
   @Delete(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Delete an attachment' })
   @ApiParam({ name: 'id', description: 'Attachment ID' })
   @ApiResponse({ status: 200, description: 'Attachment successfully deleted' })

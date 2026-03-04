@@ -22,12 +22,25 @@ export class AttachmentsService {
 
   async uploadFile(
     file: Express.Multer.File,
-    organizationId: string,
+    organizationId?: string,
     ticketId?: string,
   ): Promise<Attachment> {
-    if (!organizationId || !Types.ObjectId.isValid(organizationId)) {
+    let finalOrgId = organizationId;
+
+    // If organizationId is missing, try to find it from the ticketId
+    if (!finalOrgId && ticketId && Types.ObjectId.isValid(ticketId)) {
+      const ticket = await this.ticketModel.findById(ticketId).exec();
+      if (ticket) {
+        finalOrgId = ticket.organizationId.toString();
+        console.log(
+          `[AttachmentsService] Resolved organizationId ${finalOrgId} from ticketId ${ticketId}`,
+        );
+      }
+    }
+
+    if (!finalOrgId || !Types.ObjectId.isValid(finalOrgId)) {
       throw new Error(
-        `Invalid Organization ID provided: "${organizationId}". It must be a 24-character hex string.`,
+        `Invalid or missing Organization ID. Provided: "${finalOrgId}". It must be a 24-character hex string.`,
       );
     }
     const uploadedFile = await this.storageService.saveFile(
@@ -42,7 +55,7 @@ export class AttachmentsService {
       mimeType: file.mimetype,
       size: uploadedFile.size,
       path: uploadedFile.path,
-      organizationId: new Types.ObjectId(organizationId),
+      organizationId: new Types.ObjectId(finalOrgId),
     };
 
     if (ticketId) {
@@ -60,7 +73,7 @@ export class AttachmentsService {
 
   async uploadFiles(
     files: Array<Express.Multer.File>,
-    organizationId: string,
+    organizationId?: string,
     ticketId?: string,
   ): Promise<Attachment[]> {
     if (!files || files.length === 0) {
