@@ -80,7 +80,7 @@ export const analyzeSentiment = async (
   // ========== MODEL INITIALIZATION ==========
   const modelStart = Date.now();
   const model = AIModelFactory.create(configService, {
-    model: 'gemini-1.5-flash',
+    model: 'gemini-3-flash-preview',
   });
   console.log(`[PERF] Model initialization: ${Date.now() - modelStart}ms`);
 

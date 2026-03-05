@@ -266,7 +266,7 @@ export const draftHumanResponse = async (
   // ========== MODEL INITIALIZATION ==========
   const model = AIModelFactory.create(configService, {
     provider: 'vertex',
-    model: 'gemini-1.5-flash',
+    model: 'gemini-3-flash-preview',
   });
 
   // ========== BUILD CONTEXT ==========

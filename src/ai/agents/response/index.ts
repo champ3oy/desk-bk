@@ -189,7 +189,7 @@ export const draftResponse = async (
     // Simplified intent check for internal draft logic
     const flashModel = AIModelFactory.create(configService, {
       provider: 'vertex',
-      model: 'gemini-1.5-flash',
+      model: 'gemini-3-flash-preview',
     });
 
     try {
@@ -316,11 +316,11 @@ ${additionalContext ? `Note: ${additionalContext}` : ''}
     tools: allowedTools,
     mainModel: AIModelFactory.create(configService, {
       provider: 'vertex',
-      model: 'gemini-1.5-flash',
+      model: 'gemini-3-flash-preview',
     }), // Using flash as default per original logic
     fastModel: AIModelFactory.create(configService, {
       provider: 'vertex',
-      model: 'gemini-1.5-flash',
+      model: 'gemini-3-flash-preview',
     }),
     requestComplexity,
     totalStart,

@@ -206,7 +206,7 @@ export class SmartCacheService {
 
     const transformer = AIModelFactory.create(this.configService, {
       provider: 'google',
-      model: 'gemini-1.5-flash', // Cheap and fast
+      model: 'gemini-3-flash-preview', // Cheap and fast
     });
 
     const systemPrompt = `You are a text transformer. Below is a high-quality answer (The Source) to a similar question. Rewrite it for the New User (Target) by swapping personal details. Maintain the same factual accuracy, tone, and formatting. Output ONLY the final message.`;
@@ -233,7 +233,7 @@ export class SmartCacheService {
       // Log usage for transformation
       AiUsageService.logUsageAndDeduct({
         provider: 'google',
-        modelName: 'gemini-1.5-flash',
+        modelName: 'gemini-3-flash-preview',
         inputTokens: AiUsageService.estimateTokens(systemPrompt + userPrompt),
         outputTokens: AiUsageService.estimateTokens(content),
         performanceMs: Date.now() - transformerStart,

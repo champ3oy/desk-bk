@@ -60,7 +60,7 @@ export class PlaygroundChatDto {
 
   @ApiProperty({
     description: 'The specific model of the provider',
-    example: 'gemini-1.5-flash',
+    example: 'gemini-3-flash-preview',
     required: false,
   })
   @IsString()
