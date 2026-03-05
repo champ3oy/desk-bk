@@ -17,8 +17,6 @@ export class AiUsageService implements OnModuleInit {
     { input: number; output: number }
   > = {
     'gemini-3-flash-preview': { input: 1.25, output: 3.75 },
-    'gemini-3-flash-preview': { input: 0.1, output: 0.3 },
-    'gemini-2.0-flash-exp': { input: 0.1, output: 0.3 },
     'gpt-4o': { input: 2.5, output: 10.0 },
     'gpt-4o-mini': { input: 0.15, output: 0.6 },
     'gemini-embedding-001': { input: 0.15, output: 0 },
