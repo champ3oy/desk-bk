@@ -26,7 +26,7 @@ export class AIModelFactory {
 
     // If not specified via options, infer from env/config
     if (!provider || !modelName) {
-      const defaultModel = envModel || configModel || 'gemini-1.5-flash';
+      const defaultModel = envModel || configModel || 'gemini-3-flash-preview';
       if (defaultModel.toLowerCase() === 'custom') {
         provider = 'custom';
         modelName =
@@ -212,18 +212,13 @@ export class AIModelFactory {
       models.push(
         {
           provider: 'google',
-          model: 'gemini-1.5-pro',
-          label: 'Gemini 1.5 Pro',
+          model: 'gemini-3-pro-preview',
+          label: 'Gemini 3.0 Pro (Preview)',
         },
         {
           provider: 'google',
-          model: 'gemini-1.5-flash',
-          label: 'Gemini 1.5 Flash',
-        },
-        {
-          provider: 'google',
-          model: 'gemini-2.0-flash-exp',
-          label: 'Gemini 2.0 Flash (Experimental)',
+          model: 'gemini-3-flash-preview',
+          label: 'Gemini 3.0 Flash (Preview)',
         },
       );
     }
@@ -235,13 +230,13 @@ export class AIModelFactory {
       models.push(
         {
           provider: 'vertex',
-          model: 'gemini-1.5-pro',
-          label: 'Vertex Gemini 1.5 Pro',
+          model: 'gemini-3-pro-preview',
+          label: 'Vertex Gemini 3.0 Pro (Preview)',
         },
         {
           provider: 'vertex',
-          model: 'gemini-1.5-flash',
-          label: 'Vertex Gemini 1.5 Flash',
+          model: 'gemini-3-flash-preview',
+          label: 'Vertex Gemini 3.0 Flash (Preview)',
         },
       );
     }
@@ -403,10 +398,10 @@ export class AIModelFactory {
     const fallbackModelNames: string[] = [];
 
     // 1. Check for specific smart fallbacks
-    if (modelName === 'gemini-1.5-pro') {
-      fallbackModelNames.push('gemini-1.5-flash');
-    } else if (modelName === 'gemini-2.0-flash-exp') {
-      fallbackModelNames.push('gemini-1.5-flash');
+    if (modelName === 'gemini-3-pro-preview') {
+      fallbackModelNames.push('gemini-2.5-flash');
+    } else if (modelName === 'gemini-3-flash-preview') {
+      fallbackModelNames.push('gemini-2.5-flash');
     }
 
     // Remove duplicates and self
