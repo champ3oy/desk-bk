@@ -1,8 +1,21 @@
-import { OnModuleInit, Injectable, Logger } from '@nestjs/common';
+import {
+  OnModuleInit,
+  Injectable,
+  Logger,
+  Inject,
+  forwardRef,
+} from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
 import { WebSocketServer, WebSocket } from 'ws';
 import { IncomingMessage } from 'http';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
+import { OrganizationsService } from '../organizations/organizations.service';
+import { KnowledgeBaseService } from '../ai/knowledge-base.service';
+import { CustomersService } from '../customers/customers.service';
+import { TicketsService } from '../tickets/tickets.service';
+import { ThreadsService } from '../threads/threads.service';
+import { playgroundChat } from '../ai/agents/playground';
 
 @Injectable()
 export class AgentGateway implements OnModuleInit {
@@ -14,6 +27,15 @@ export class AgentGateway implements OnModuleInit {
   constructor(
     private readonly jwtService: JwtService,
     private readonly httpAdapterHost: HttpAdapterHost,
+    private readonly configService: ConfigService,
+    private readonly organizationsService: OrganizationsService,
+    private readonly knowledgeBaseService: KnowledgeBaseService,
+    @Inject(forwardRef(() => CustomersService))
+    private readonly customersService: CustomersService,
+    @Inject(forwardRef(() => TicketsService))
+    private readonly ticketsService: TicketsService,
+    @Inject(forwardRef(() => ThreadsService))
+    private readonly threadsService: ThreadsService,
   ) {}
 
   onModuleInit() {
@@ -95,6 +117,9 @@ export class AgentGateway implements OnModuleInit {
           if (parsed.event === 'leave_ticket' && parsed.ticketId) {
             this.leaveRoom(ws, `ticket:${parsed.ticketId}`);
           }
+          if (parsed.event === 'playground_chat' && parsed.data) {
+            this.handlePlaygroundChat(ws, parsed.data, userId, organizationId);
+          }
         } catch (e) {
           this.logger.warn(
             `Failed to parse WS message from user ${userId}: ${e.message}`,
@@ -119,6 +144,49 @@ export class AgentGateway implements OnModuleInit {
     } catch (e) {
       this.logger.error(`Authentication failed for agent WS: ${e.message}`);
       ws.close(1008, 'Invalid authentication');
+    }
+  }
+
+  private async handlePlaygroundChat(
+    ws: WebSocket,
+    data: any,
+    userId: string,
+    organizationId: string,
+  ) {
+    const { message, history, provider, model, customerEmail, role } = data;
+
+    try {
+      this.logger.log(`[PlaygroundWS] Chat attempt for org ${organizationId}`);
+      ws.send(JSON.stringify({ event: 'playground_chat_started', data: {} }));
+
+      const response = await playgroundChat(
+        message,
+        this.configService,
+        this.organizationsService,
+        this.knowledgeBaseService,
+        this.customersService,
+        this.ticketsService,
+        this.threadsService,
+        organizationId,
+        history,
+        provider,
+        model,
+        customerEmail,
+        userId,
+        role || 'admin',
+      );
+
+      ws.send(
+        JSON.stringify({ event: 'playground_chat_response', data: response }),
+      );
+    } catch (e) {
+      this.logger.error(`Playground chat error: ${e.message}`);
+      ws.send(
+        JSON.stringify({
+          event: 'playground_chat_error',
+          data: { message: e.message },
+        }),
+      );
     }
   }
 

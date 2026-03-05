@@ -22,7 +22,8 @@ import { DispatcherModule } from '../dispatcher/dispatcher.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { IngestionModule } from '../ingestion/ingestion.module';
 import { UsersModule } from '../users/users.module';
-
+import { OrganizationsModule } from '../organizations/organizations.module';
+import { AiModule } from '../ai/ai.module';
 import { AgentGateway } from '../gateways/agent.gateway';
 import { AuthModule } from '../auth/auth.module';
 
@@ -38,6 +39,8 @@ import { AuthModule } from '../auth/auth.module';
     ]),
     forwardRef(() => TicketsModule),
     forwardRef(() => CustomersModule),
+    OrganizationsModule,
+    forwardRef(() => AiModule),
     GroupsModule,
     DispatcherModule,
     AuthModule,
