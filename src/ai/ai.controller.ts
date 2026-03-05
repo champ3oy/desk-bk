@@ -375,11 +375,15 @@ export class AiController {
       this.organizationsService,
       this.knowledgeBaseService,
       this.customersService,
+      this.ticketsService,
+      this.threadsService,
       req.user.organizationId,
       body.history,
       body.provider,
       body.model,
       body.customerEmail,
+      req.user.userId,
+      req.user.role,
     );
   }
 }

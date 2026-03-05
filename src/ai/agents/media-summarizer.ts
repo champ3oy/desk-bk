@@ -9,7 +9,7 @@ export const summarizeMedia = async (
 ): Promise<string> => {
   const model = AIModelFactory.create(configService, {
     provider: 'vertex',
-    model: 'gemini-3-flash-preview',
+    model: 'gemini-1.5-flash',
   });
 
   try {

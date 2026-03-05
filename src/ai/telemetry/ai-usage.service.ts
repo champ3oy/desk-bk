@@ -16,8 +16,9 @@ export class AiUsageService implements OnModuleInit {
     string,
     { input: number; output: number }
   > = {
-    'gemini-3-pro-preview': { input: 2.25, output: 14.0 },
-    'gemini-3-flash-preview': { input: 0.5, output: 3.0 },
+    'gemini-1.5-pro': { input: 1.25, output: 3.75 },
+    'gemini-1.5-flash': { input: 0.1, output: 0.3 },
+    'gemini-2.0-flash-exp': { input: 0.1, output: 0.3 },
     'gpt-4o': { input: 2.5, output: 10.0 },
     'gpt-4o-mini': { input: 0.15, output: 0.6 },
     'gemini-embedding-001': { input: 0.15, output: 0 },
@@ -365,7 +366,7 @@ export class AiUsageService implements OnModuleInit {
     return rawResults.map((org) => ({
       ...org,
       estimatedCost: AiUsageService.calculateEstimatedCost(
-        'gemini-3-pro-preview',
+        'gemini-1.5-pro',
         org.totalInputTokens,
         org.totalOutputTokens,
       ),
