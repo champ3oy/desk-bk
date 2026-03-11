@@ -23,6 +23,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { UsersModule } from '../users/users.module';
 import { EmailIntegrationModule } from '../integrations/email/email-integration.module';
 import { SocialIntegrationModule } from '../integrations/social/social-integration.module';
+import { DispatcherModule } from '../dispatcher/dispatcher.module';
 
 import { TicketCronService } from './ticket-cron.service';
 
@@ -44,6 +45,7 @@ import { TicketCronService } from './ticket-cron.service';
     forwardRef(() => EmailIntegrationModule),
     forwardRef(() => SocialIntegrationModule),
     forwardRef(() => AiModule), // Add AiModule for KnowledgeBaseService
+    forwardRef(() => DispatcherModule),
     BullModule.registerQueue({
       name: 'ai-reply',
     }),

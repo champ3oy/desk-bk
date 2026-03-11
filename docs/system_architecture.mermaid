@@ -75,7 +75,24 @@ flowchart TB
         FastTrack --> Intent
         ComplexTrack --> Intent
   end
-  subgraph Background_Jobs["Background System Jobs"]
+    subgraph Proactive_KYC_Recovery["Proactive KYC Recovery (Outbound)"]
+      direction TB
+        KycTrigger["KYC Event Trigger (Push/Poll)"]
+        CreateKycTicket["TicketService: Create 'KYC Support' Ticket"]
+        KycOutboundAgent["AI: KYC Outbound Agent"]
+        CheckKycTool["Tool: check_kyc_status"]
+        KycPipelineAPI["Ext: KYC Pipeline API"]
+        SendOutbound["Send Outbound (WhatsApp/SMS)"]
+
+        KycTrigger --> CreateKycTicket
+        CreateKycTicket --> KycOutboundAgent
+        KycOutboundAgent --> CheckKycTool
+        CheckKycTool --> KycPipelineAPI
+        KycPipelineAPI --> KycOutboundAgent
+        KycOutboundAgent --> SendOutbound
+    end
+
+    subgraph Background_Jobs["Background System Jobs"]
     direction TB
         Cron["TicketCronService: Hourly"]
         ActiveOrgs["Fetch Orgs with autoCloseEnabled"]
@@ -84,8 +101,8 @@ flowchart TB
         SendClosureMsg@{ label: "Send EXTERNAL Message" }
         CloseTicket["Status -> CLOSED"]
         AddNote@{ label: "Add INTERNAL Note: 'Auto-closed'" }
-  end
-  subgraph Ingestion_Reopening["Intelligent Ingestion (Context Reopening)"]
+    end
+    subgraph Ingestion_Reopening["Intelligent Ingestion (Context Reopening)"]
     direction TB
         InMsg["Incoming Message"]
         ActiveCheck{"Active Ticket Exists?"}
@@ -100,7 +117,7 @@ flowchart TB
         MatcherAgent -- FOLLOW_UP --> ReopenAction
         MatcherAgent -- NEW_ISSUE --> NewTicketAction
         ActiveCheck -- Yes --> ReopenAction
-  end
+    end
     Client["Web / Mobile Client"] --> AuthController & TicketController
     Widget["Chat Widget"] --> WebhookController
     ExtSources["Email / SMS / WhatsApp"] --> WebhookController
@@ -124,6 +141,13 @@ flowchart TB
     AgentFactory -- RAG Context --> KBService
     AuthService --> MongoDB
     IngestService --> Redis & EmailPro & Twilio
+
+    %% KYC Proactive Connections
+    KYC_System["External KYC System"] -- Webhook --> WebhookController
+    WebhookController -- "Trigger KYC Engage" --> Proactive_KYC_Recovery
+    SendOutbound --> Twilio
+    InMsg -- "Reply to KYC SMS" --> ActiveCheck
+
     TicketService --> NotifService
     NotifService --> Client
     AgentFactory --> Job

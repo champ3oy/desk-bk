@@ -92,9 +92,24 @@ export const draftResponse = async (
     knowledgeBaseService,
     customersService,
     channel,
-  }).filter(
-    (t: any) => !t.enabledForOrgs || t.enabledForOrgs.includes(organizationId),
-  );
+  }).filter((t: any) => {
+    // 1. Check organization restriction
+    if (t.enabledForOrgs && !t.enabledForOrgs.includes(organizationId)) {
+      return false;
+    }
+
+    // 2. Check keyword restriction (e.g. KYC tools only for KYC tickets)
+    if (t.requiredKeywords && t.requiredKeywords.length > 0) {
+      const allText =
+        `${ticket.subject} ${ticket.description} ${recentMessages.map((m) => m.content).join(' ')}`.toLowerCase();
+      const hasMatch = t.requiredKeywords.some((kw: string) =>
+        allText.includes(kw.toLowerCase()),
+      );
+      if (!hasMatch) return false;
+    }
+
+    return true;
+  });
 
   const systemPrompt = buildSystemPrompt(
     org,

@@ -42,17 +42,36 @@ export const playgroundChat = async (
       : Promise.resolve(null),
   ]);
 
-  // 2. Resolve Tools
+  // Resolve all tools and filter based on org and keyword restrictions
+  const allHistoryText =
+    (history || []).map((h) => h.content).join(' ') + ' ' + message;
+  const normalizedText = allHistoryText.toLowerCase();
+
   const allowedTools = getAgentTools({
     organizationId,
-    userId: userId || organizationId, // Fallback to orgId for system actions
+    userId: userId || organizationId,
     userRole: userRole || 'admin',
-    ticket: null, // No real ticket in playground
+    ticket: null,
     customerId: (customer as any)?._id?.toString(),
     ticketsService,
     threadsService,
     knowledgeBaseService,
     customersService,
+  }).filter((t: any) => {
+    // 1. Check organization restriction
+    if (t.enabledForOrgs && !t.enabledForOrgs.includes(organizationId)) {
+      return false;
+    }
+
+    // 2. Check keyword restriction (e.g. KYC tools only for KYC tickets)
+    if (t.requiredKeywords && t.requiredKeywords.length > 0) {
+      const hasMatch = t.requiredKeywords.some((kw: string) =>
+        normalizedText.includes(kw.toLowerCase()),
+      );
+      if (!hasMatch) return false;
+    }
+
+    return true;
   });
 
   const systemPrompt = buildSystemPrompt(

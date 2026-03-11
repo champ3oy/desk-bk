@@ -717,6 +717,7 @@ export class IngestionService {
       channelName, // Pass channel for correct auto-reply routing
       message.integrationId, // Pass integrationId for default agent assignment
       false, // skipInitialMessage: Ingestion handles this separately below
+      message.metadata,
     )) as TicketDocument;
 
     this.logger.debug(

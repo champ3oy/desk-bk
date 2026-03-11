@@ -45,6 +45,7 @@ import { RedisLockService } from '../common/services/redis-lock.service';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { AgentGateway } from '../gateways/agent.gateway';
+import { DispatcherService } from '../dispatcher/dispatcher.service';
 
 @Injectable()
 export class TicketsService {
@@ -75,6 +76,8 @@ export class TicketsService {
     @Inject(forwardRef(() => SocialIntegrationService))
     private socialIntegrationService: SocialIntegrationService,
     private agentGateway: AgentGateway,
+    @Inject(forwardRef(() => DispatcherService))
+    private dispatcherService: DispatcherService,
   ) {}
 
   /**
@@ -703,12 +706,88 @@ ${messageContent}`;
       );
     }
   }
+
+  /**
+   * Send a confirmation message to the customer with the ticket number
+   */
+  private async sendTicketCreationConfirmation(
+    ticket: TicketDocument,
+    channel: string,
+  ): Promise<void> {
+    try {
+      const organizationId = ticket.organizationId.toString();
+
+      // Find the customer to get contact info
+      const customer = await this.customersService.findOne(
+        ticket.customerId.toString(),
+        organizationId,
+      );
+
+      if (!customer) {
+        console.warn(
+          `[TicketsService] Skipping confirmation: Customer ${ticket.customerId} not found`,
+        );
+        return;
+      }
+
+      const ticketNumber = ticket.displayId || `#${ticket.ticketNumber}`;
+      const subject = `Received: ${ticket.subject}`;
+      const body = `<p>Hello ${customer.firstName || 'there'},</p>
+        <p>We've received your request and a ticket has been created for you.</p>
+        <p><strong>Ticket Number: ${ticketNumber}</strong></p>
+        <p>Subject: ${ticket.subject}</p>`;
+
+      // Create a SYSTEM message for the thread so it's recorded
+      const thread = await this.threadsService.findByTicket(
+        ticket._id.toString(),
+        organizationId,
+        organizationId,
+        UserRole.ADMIN,
+      );
+
+      if (!thread) return;
+
+      const message = await this.messageModel.create({
+        threadId: thread._id,
+        organizationId: new Types.ObjectId(organizationId),
+        messageType: MessageType.EXTERNAL,
+        authorType: MessageAuthorType.SYSTEM,
+        authorId: ticket.organizationId, // Acting as organization
+        content: body,
+        channel:
+          channel === 'whatsapp'
+            ? MessageChannel.WHATSAPP
+            : channel === 'sms'
+              ? MessageChannel.SMS
+              : channel === 'widget' || channel === 'chat'
+                ? MessageChannel.WIDGET
+                : MessageChannel.EMAIL,
+        isRead: true,
+        readBy: [],
+      });
+
+      // Dispatch the message via DispatcherService
+      await this.dispatcherService.dispatch(
+        message,
+        ticket,
+        customer.email || '',
+      );
+
+      console.log(
+        `[TicketsService] Confirmation sent for ticket ${ticketNumber} via ${channel}`,
+      );
+    } catch (error) {
+      console.error('Failed to send ticket creation confirmation:', error);
+    }
+  }
+
   async create(
     createTicketDto: CreateTicketDto,
     organizationId: string,
     channel?: string, // Optional: 'email' | 'widget' | 'whatsapp' | 'sms' - defaults to 'email'
     integrationId?: string,
     createInitialMessage = true,
+    metadata?: Record<string, any>,
   ): Promise<Ticket> {
     const ticketData: any = {
       ...createTicketDto,
@@ -845,6 +924,7 @@ ${messageContent}`;
         savedTicket._id.toString(),
         createTicketDto.customerId,
         organizationId,
+        metadata,
       );
 
       // Create initial message from ticket description so it appears in history
@@ -914,6 +994,15 @@ ${messageContent}`;
         });
       }
     }
+    // Send confirmation message to the customer
+    this.sendTicketCreationConfirmation(savedTicket, channel || 'email').catch(
+      (err) => {
+        console.error(
+          `[TicketsService] Failed to send ticket confirmation for ${savedTicket._id}:`,
+          err,
+        );
+      },
+    );
 
     // Notify agents via WebSocket
     this.agentGateway.emitToOrg(organizationId, 'ticket_updated', {

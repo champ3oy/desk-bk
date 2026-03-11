@@ -14,6 +14,7 @@ export interface ToolDefinition {
   schema: any;
   func: (args: any) => Promise<any>;
   enabledForOrgs?: string[];
+  requiredKeywords?: string[];
 }
 
 export function getAgentTools(params: {
@@ -241,6 +242,7 @@ export function getAgentTools(params: {
       description:
         'Check the KYC (Know Your Customer) and account creation status for a user by their email address.',
       enabledForOrgs: ['69728f2ac84f3520beda91c3'],
+      requiredKeywords: ['kyc', 'verification', 'id check'],
       schema: z.object({
         email: z
           .string()
