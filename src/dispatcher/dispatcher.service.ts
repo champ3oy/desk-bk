@@ -24,6 +24,7 @@ import { CustomersService } from '../customers/customers.service';
 import { OrganizationsService } from '../organizations/organizations.service';
 import { UsersService } from '../users/users.service';
 import * as marked from 'marked';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class DispatcherService {
@@ -42,6 +43,7 @@ export class DispatcherService {
     private threadModel: Model<ThreadDocument>,
     private organizationsService: OrganizationsService,
     private usersService: UsersService,
+    private configService: ConfigService,
   ) {}
 
   /**
@@ -128,20 +130,29 @@ export class DispatcherService {
         message.attachments.forEach((att) => {
           if (!att.path || att.path === 'undefined') return;
 
+          const baseUrl = this.configService.get<string>('BASE_URL') || '';
+          const absoluteUrl = att.path.startsWith('http')
+            ? att.path
+            : `${baseUrl}${att.path.startsWith('/') ? '' : '/'}${att.path}`;
+
           // Check if this attachment is already embedded in the HTML body
-          if (htmlContent.includes(att.path)) return;
+          if (
+            htmlContent.includes(absoluteUrl) ||
+            htmlContent.includes(att.path)
+          )
+            return;
 
           if (att.mimeType?.startsWith('image/')) {
             hasImages = true;
             attachmentsHtml += `<div style="margin-bottom: 15px;">
               <p style="font-size: 12px; color: #666; margin-bottom: 5px;">${att.originalName}</p>
-              <img src="${att.path}" alt="${att.originalName}" style="max-width: 100%; border-radius: 8px; border: 1px solid #ddd;" />
+              <img src="${absoluteUrl}" alt="${att.originalName}" style="max-width: 100%; border-radius: 8px; border: 1px solid #ddd;" />
             </div>`;
           } else {
             // For non-image files, just add a link
             attachmentsHtml += `<div style="margin-bottom: 5px;">
               <p style="font-size: 12px; color: #666;">
-                📎 <a href="${att.path}" target="_blank" style="color: #06b6d4; text-decoration: none;">${att.originalName}</a> (${(att.size / 1024).toFixed(1)} KB)
+                📎 <a href="${absoluteUrl}" target="_blank" style="color: #06b6d4; text-decoration: none;">${att.originalName}</a> (${(att.size / 1024).toFixed(1)} KB)
               </p>
             </div>`;
           }
@@ -301,8 +312,13 @@ export class DispatcherService {
           else if (att.mimeType?.startsWith('video/')) type = 'video';
           else if (att.mimeType?.startsWith('audio/')) type = 'audio';
 
+          const baseUrl = this.configService.get<string>('BASE_URL') || '';
+          const absoluteUrl = att.path.startsWith('http')
+            ? att.path
+            : `${baseUrl}${att.path.startsWith('/') ? '' : '/'}${att.path}`;
+
           attachment = {
-            url: att.path,
+            url: absoluteUrl,
             type,
             filename: att.originalName,
           };

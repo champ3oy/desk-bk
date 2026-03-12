@@ -41,7 +41,7 @@ export class EmailParser {
   /**
    * Replace cid:ID identifiers in HTML with attachment URLs
    */
-  private replaceCidImages(html: string, attachments: any[]): string {
+  public replaceCidImages(html: string, attachments: any[]): string {
     let processedHtml = html;
 
     attachments.forEach((att) => {
@@ -303,6 +303,28 @@ export class EmailParser {
           });
         }
       }
+    }
+
+    // 3. Handle Multipart Files (Multer) transferred via _files
+    if (payload._files && Array.isArray(payload._files)) {
+      payload._files.forEach((file: Express.Multer.File) => {
+        // Check if we already have this file in the attachments list (to avoid duplicates)
+        const exists = attachments.some(
+          (a) =>
+            a.originalName === file.originalname ||
+            a.filename === file.fieldname,
+        );
+
+        if (!exists) {
+          attachments.push({
+            filename: file.fieldname || file.originalname,
+            originalName: file.originalname,
+            mimeType: file.mimetype,
+            size: file.size,
+            path: '', // Will be hydrated in IngestionService
+          });
+        }
+      });
     }
 
     return attachments;

@@ -10,6 +10,7 @@ import {
   Logger,
   BadRequestException,
   OnModuleInit,
+  UploadedFiles,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
@@ -40,6 +41,7 @@ import {
   QueuedMessage,
 } from './services/message-queue.service';
 import { WidgetGateway } from '../gateways/widget.gateway';
+import { AnyFilesInterceptor } from '@nestjs/platform-express';
 
 @ApiTags('Webhooks')
 @Controller('webhooks')
@@ -108,6 +110,7 @@ export class WebhooksController implements OnModuleInit {
   }
 
   @Post('email')
+  @UseInterceptors(AnyFilesInterceptor())
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Email webhook endpoint',
@@ -120,8 +123,18 @@ export class WebhooksController implements OnModuleInit {
   async handleEmail(
     @Body() payload: Record<string, any>,
     @Headers() headers: Record<string, string>,
+    @UploadedFiles() files?: Express.Multer.File[],
   ) {
-    this.logger.debug('Received email webhook');
+    this.logger.debug(
+      `Received email webhook with ${files?.length || 0} files`,
+    );
+
+    // Merge files into payload for ingestion service processing if needed,
+    // but better to pass them explicitly to ingestion service.
+    const messagePayload = { ...payload };
+    if (files && files.length > 0) {
+      (messagePayload as any)._files = files;
+    }
 
     // Extract provider from headers or payload
     const provider = this.extractProvider(headers, payload, 'email');
@@ -139,7 +152,7 @@ export class WebhooksController implements OnModuleInit {
     }
 
     const result = await this.ingestionService.ingest(
-      payload,
+      messagePayload,
       provider,
       MessageChannel.EMAIL,
     );
@@ -411,6 +424,8 @@ export class WebhooksController implements OnModuleInit {
 
     try {
       const attachment = await this.attachmentsService.uploadFile(file, orgId);
+      const baseUrl = this.configService.get<string>('BASE_URL') || '';
+
       return {
         success: true,
         attachment: {
@@ -422,7 +437,7 @@ export class WebhooksController implements OnModuleInit {
           path: attachment.path,
           url: attachment.path?.startsWith('http')
             ? attachment.path
-            : `http://localhost:3005${attachment.path?.startsWith('/') ? '' : '/'}${attachment.path}`,
+            : `${baseUrl}${attachment.path?.startsWith('/') ? '' : '/'}${attachment.path}`,
         },
       };
     } catch (error) {
@@ -519,7 +534,7 @@ export class WebhooksController implements OnModuleInit {
             ...att,
             url: att.path?.startsWith('http')
               ? att.path
-              : `http://localhost:3005${att.path?.startsWith('/') ? '' : '/'}${att.path}`,
+              : `${this.configService.get('BASE_URL') || ''}${att.path?.startsWith('/') ? '' : '/'}${att.path}`,
           })),
         };
       }),

@@ -283,18 +283,31 @@ export class IngestionService {
     provider: string,
     channel: MessageChannel,
   ): Promise<IncomingMessageDto> {
+    let message: IncomingMessageDto;
     switch (channel) {
       case MessageChannel.EMAIL:
-        return this.emailParser.parse(payload, provider);
+        message = await this.emailParser.parse(payload, provider);
+        break;
       case MessageChannel.SMS:
-        return this.smsParser.parse(payload, provider);
+        message = await this.smsParser.parse(payload, provider);
+        break;
       case MessageChannel.WHATSAPP:
-        return this.whatsappParser.parse(payload, provider);
+        message = await this.whatsappParser.parse(payload, provider);
+        break;
       case MessageChannel.WIDGET:
-        return this.widgetParser.parse(payload);
+        message = await this.widgetParser.parse(payload);
+        break;
       default:
         throw new Error(`Unsupported channel: ${channel}`);
     }
+
+    // Preserve uploaded files in metadata if present
+    if (payload._files) {
+      if (!message.metadata) message.metadata = {};
+      message.metadata._files = payload._files;
+    }
+
+    return message;
   }
 
   /**
@@ -975,6 +988,9 @@ export class IngestionService {
   ): Promise<void> {
     if (!message.attachments || message.attachments.length === 0) return;
 
+    // Track path changes for post-processing rawBody
+    const pathReplacementMap = new Map<string, string>();
+
     // 1. Normalize attachments for ALL channels
     // Ensure 'path' is populated (some uploders return 'url') and sanitize fields
     message.attachments = message.attachments
@@ -1025,9 +1041,15 @@ export class IngestionService {
         // Process each attachment
         for (const attachment of message.attachments) {
           // Skip if already hydrated or no info to hydrate
-          if (attachment.path?.includes('public.blob.vercel-storage.com')) {
+          // Skip if already on a permanent host (not a Meta/Facebook temp CDN URL)
+          if (
+            attachment.path &&
+            !attachment.path.includes('graph.facebook.com') &&
+            !attachment.path.includes('fbcdn.net') &&
+            attachment.path.startsWith('http')
+          ) {
             this.logger.debug(
-              `Attachment ${attachment.filename} already hydrated.`,
+              `Attachment ${attachment.filename} already hydrated (permanent URL).`,
             );
             continue;
           }
@@ -1112,7 +1134,12 @@ export class IngestionService {
               this.logger.log(
                 `Successfully hydrated attachment: ${attachment.filename} -> ${uploadResult.path}`,
               );
+              const oldPath = attachment.path;
               attachment.path = uploadResult.path;
+
+              if (oldPath && oldPath !== attachment.path) {
+                pathReplacementMap.set(oldPath, attachment.path);
+              }
             } catch (err) {
               this.logger.error(
                 `Failed to download/upload attachment ${attachment.filename}: ${err.message}`,
@@ -1129,6 +1156,72 @@ export class IngestionService {
           `Error in hydrateAttachments pipeline: ${error.message}`,
           error.stack,
         );
+      }
+    }
+
+    // 2. Hydrate Email attachments from uploaded files if available
+    if (
+      message.channel === MessageChannel.EMAIL &&
+      message.metadata?._files &&
+      Array.isArray(message.metadata._files)
+    ) {
+      const files = message.metadata._files as Express.Multer.File[];
+      this.logger.debug(
+        `Hydrating ${message.attachments.length} Email attachments from ${files.length} uploaded files...`,
+      );
+
+      for (const attachment of message.attachments) {
+        // Find matching file by filename or originalname
+        const matchedFile = files.find(
+          (f) =>
+            f.originalname === attachment.filename ||
+            f.originalname === attachment.originalName,
+        );
+
+        if (matchedFile) {
+          try {
+            this.logger.debug(
+              `Uploading email attachment: ${matchedFile.originalname}`,
+            );
+            const uploadResult = await this.storageService.saveFile(
+              matchedFile.originalname,
+              matchedFile.buffer,
+              matchedFile.mimetype || attachment.mimeType,
+            );
+            const oldPath = attachment.path;
+            attachment.path = uploadResult.path;
+            attachment.size = uploadResult.size;
+
+            if (oldPath && oldPath !== attachment.path) {
+              pathReplacementMap.set(oldPath, attachment.path);
+            }
+
+            this.logger.log(
+              `Successfully hydrated email attachment: ${attachment.filename} -> ${attachment.path}`,
+            );
+          } catch (err) {
+            this.logger.error(
+              `Failed to upload email attachment ${attachment.filename}: ${err.message}`,
+            );
+          }
+        }
+      }
+    }
+
+    // Post-process rawBody for Email to update CID images and paths
+    if (message.channel === MessageChannel.EMAIL && message.rawBody) {
+      // 1. Replace CID images with final paths
+      message.rawBody = this.emailParser.replaceCidImages(
+        message.rawBody,
+        message.attachments,
+      );
+
+      // 2. Replace old temporary paths with final paths
+      for (const [oldPath, newPath] of pathReplacementMap.entries()) {
+        if (oldPath && newPath && oldPath !== newPath) {
+          // Use split/join for global replacement
+          message.rawBody = message.rawBody.split(oldPath).join(newPath);
+        }
       }
     }
 

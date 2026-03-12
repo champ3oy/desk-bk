@@ -6,6 +6,7 @@ import {
   Inject,
   forwardRef,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Thread, ThreadDocument } from './entities/thread.entity';
@@ -69,6 +70,7 @@ export class ThreadsService {
     private widgetGateway: WidgetGateway,
     private agentGateway: AgentGateway,
     private usersService: UsersService,
+    private configService: ConfigService,
   ) {}
 
   /**
@@ -743,11 +745,12 @@ export class ThreadsService {
 
   private mapMessageAttachments(msg: any): any {
     if (msg.attachments && Array.isArray(msg.attachments)) {
+      const baseUrl = this.configService.get<string>('BASE_URL') || '';
       msg.attachments = msg.attachments.map((att: any) => ({
         ...att,
         url: att.path?.startsWith('http')
           ? att.path
-          : `http://localhost:3005${att.path?.startsWith('/') ? '' : '/'}${att.path}`,
+          : `${baseUrl}${att.path?.startsWith('/') ? '' : '/'}${att.path}`,
       }));
     }
     return msg;
@@ -880,11 +883,12 @@ export class ThreadsService {
 
       // Generate accessible URLs for all attachments
       if (msg.attachments && Array.isArray(msg.attachments)) {
+        const baseUrl = this.configService.get<string>('BASE_URL') || '';
         msg.attachments = msg.attachments.map((att: any) => ({
           ...att,
           url: att.path?.startsWith('http')
             ? att.path
-            : `http://localhost:3005${att.path?.startsWith('/') ? '' : '/'}${att.path}`,
+            : `${baseUrl}${att.path?.startsWith('/') ? '' : '/'}${att.path}`,
         }));
       }
 

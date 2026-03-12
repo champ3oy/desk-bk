@@ -12,6 +12,7 @@ import { CustomersService } from '../customers/customers.service';
 import { IngestionService } from '../ingestion/ingestion.service';
 import { MessageChannel } from '../threads/entities/message.entity';
 import { convert } from 'html-to-text';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class WidgetGateway implements OnModuleInit {
@@ -26,6 +27,7 @@ export class WidgetGateway implements OnModuleInit {
     @Inject(forwardRef(() => IngestionService))
     private ingestionService: IngestionService,
     private readonly httpAdapterHost: HttpAdapterHost,
+    private configService: ConfigService,
   ) {}
 
   onModuleInit() {
@@ -243,7 +245,7 @@ export class WidgetGateway implements OnModuleInit {
           ...att,
           url: att.path?.startsWith('http')
             ? att.path
-            : `http://localhost:3005${att.path?.startsWith('/') ? '' : '/'}${att.path}`,
+            : `${this.configService.get('BASE_URL') || ''}${att.path?.startsWith('/') ? '' : '/'}${att.path}`,
         })),
       };
 
