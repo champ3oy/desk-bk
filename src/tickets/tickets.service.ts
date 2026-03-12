@@ -732,10 +732,7 @@ ${messageContent}`;
 
       const ticketNumber = ticket.displayId || `#${ticket.ticketNumber}`;
       const subject = `Received: ${ticket.subject}`;
-      const body = `<p>Hello ${customer.firstName || 'there'},</p>
-        <p>We've received your request and a ticket has been created for you.</p>
-        <p><strong>Ticket Number: ${ticketNumber}</strong></p>
-        <p>Subject: ${ticket.subject}</p>`;
+      const body = `Ticket Created: ${ticketNumber}\n\nHello ${customer.firstName || 'there'}, we've received your request and a ticket has been created for you.\nSubject: ${ticket.subject}`;
 
       // Create a SYSTEM message for the thread so it's recorded
       const thread = await this.threadsService.findByTicket(

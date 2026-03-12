@@ -592,7 +592,10 @@ export class TrainingService {
       return this.embeddingsInstance;
     }
 
-    const apiKey = this.configService.get<string>('ai.geminiApiKey');
+    const apiKey = this.configService
+      .get<string>('ai.geminiApiKey')
+      ?.split(',')[0]
+      .trim();
     if (!apiKey) {
       console.warn('Gemini API key not found, skipping embedding generation');
       return null;
