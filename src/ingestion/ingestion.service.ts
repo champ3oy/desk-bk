@@ -1046,6 +1046,7 @@ export class IngestionService {
             attachment.path &&
             !attachment.path.includes('graph.facebook.com') &&
             !attachment.path.includes('fbcdn.net') &&
+            !attachment.path.includes('lookaside.fbsbx.com') &&
             attachment.path.startsWith('http')
           ) {
             this.logger.debug(
