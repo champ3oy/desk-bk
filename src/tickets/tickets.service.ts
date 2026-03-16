@@ -1089,6 +1089,9 @@ ${messageContent}`;
         case 'recently_updated':
           // All tickets, let sorting handle "recent"
           break;
+        case 'mentions':
+          query.followers = new Types.ObjectId(userId);
+          break;
       }
     } else {
       // Scope tickets based on user role
@@ -1335,6 +1338,10 @@ ${messageContent}`;
         ...baseQuery,
         assignedToGroupId: { $in: userGroupIds },
         status: { $in: unsolvedStatuses },
+      },
+      mentions: {
+        ...baseQuery,
+        followers: new Types.ObjectId(userId),
       },
     };
 

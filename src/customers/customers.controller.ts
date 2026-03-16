@@ -40,7 +40,7 @@ export class CustomersController {
   constructor(private readonly customersService: CustomersService) {}
 
   @Post()
-  @Roles(UserRole.ADMIN, UserRole.AGENT)
+  @Roles(UserRole.ADMIN, UserRole.AGENT, UserRole.LIGHT_AGENT)
   @ApiOperation({
     summary: 'Create a new customer (Admin/Agent only)',
     description: 'Customers are external parties, not platform users',

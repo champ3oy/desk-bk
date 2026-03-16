@@ -50,7 +50,7 @@ export class UsersController {
   }
 
   @Get()
-  @Roles(UserRole.ADMIN, UserRole.AGENT)
+  @Roles(UserRole.ADMIN, UserRole.AGENT, UserRole.LIGHT_AGENT)
   @ApiOperation({ summary: 'Get all users (Admin/Agent only)' })
   @ApiResponse({
     status: 200,
@@ -74,7 +74,7 @@ export class UsersController {
   }
 
   @Get(':id')
-  @Roles(UserRole.ADMIN, UserRole.AGENT)
+  @Roles(UserRole.ADMIN, UserRole.AGENT, UserRole.LIGHT_AGENT)
   @ApiOperation({ summary: 'Get a user by ID (Admin/Agent only)' })
   @ApiParam({ name: 'id', description: 'User ID' })
   @ApiResponse({
