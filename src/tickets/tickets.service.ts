@@ -785,6 +785,7 @@ ${messageContent}`;
     integrationId?: string,
     createInitialMessage = true,
     metadata?: Record<string, any>,
+    creatorContext?: { userId: string; role: UserRole },
   ): Promise<Ticket> {
     const ticketData: any = {
       ...createTicketDto,
@@ -868,20 +869,29 @@ ${messageContent}`;
       }
     }
 
+    const assignedGroupIds = new Set<string>();
+    if (createTicketDto.assignedGroupIds && createTicketDto.assignedGroupIds.length > 0) {
+      createTicketDto.assignedGroupIds.forEach((id) => assignedGroupIds.add(id));
+    }
     if (createTicketDto.assignedToGroupId) {
-      ticketData.assignedToGroupId = new Types.ObjectId(
-        createTicketDto.assignedToGroupId,
-      );
+      assignedGroupIds.add(createTicketDto.assignedToGroupId);
+    }
+
+    if (assignedGroupIds.size > 0) {
+      const idsArray = Array.from(assignedGroupIds);
+      ticketData.assignedGroupIds = idsArray.map((id) => new Types.ObjectId(id));
+      // For backward compatibility, keep the first group in assignedToGroupId
+      ticketData.assignedToGroupId = new Types.ObjectId(idsArray[0]);
     } else {
       // Auto-assign to the org's default group if none specified
       const orgForGroup =
         await this.organizationsService.findOne(organizationId);
       if (orgForGroup?.defaultGroupId) {
-        ticketData.assignedToGroupId = new Types.ObjectId(
-          orgForGroup.defaultGroupId,
-        );
+        const defaultGroupId = orgForGroup.defaultGroupId.toString();
+        ticketData.assignedGroupIds = [new Types.ObjectId(defaultGroupId)];
+        ticketData.assignedToGroupId = new Types.ObjectId(defaultGroupId);
         console.log(
-          `[TicketsService] Auto-assigned ticket to default group: ${orgForGroup.defaultGroupId}`,
+          `[TicketsService] Auto-assigned ticket to default group: ${defaultGroupId}`,
         );
       }
     }
@@ -911,7 +921,7 @@ ${messageContent}`;
       ticketNumber,
       displayId,
       latestMessageContent: createTicketDto.description,
-      latestMessageAuthorType: 'customer',
+      latestMessageAuthorType: creatorContext?.role === UserRole.CUSTOMER ? 'customer' : 'agent',
     });
     const savedTicket = await ticket.save();
 
@@ -926,39 +936,65 @@ ${messageContent}`;
 
       // Create initial message from ticket description so it appears in history
       if (createInitialMessage) {
-        await this.messageModel.create({
+        const isAgent = creatorContext && creatorContext.role !== UserRole.CUSTOMER;
+        const messageType = createTicketDto.messageType || MessageType.EXTERNAL;
+
+        const initialMessage = await this.messageModel.create({
           threadId: thread._id,
           organizationId: new Types.ObjectId(organizationId),
-          messageType: MessageType.EXTERNAL,
-          authorType: MessageAuthorType.CUSTOMER,
-          authorId: new Types.ObjectId(createTicketDto.customerId),
+          messageType,
+          authorType: isAgent ? MessageAuthorType.USER : MessageAuthorType.CUSTOMER,
+          authorId: isAgent 
+            ? new Types.ObjectId(creatorContext.userId) 
+            : new Types.ObjectId(createTicketDto.customerId),
           content: createTicketDto.description,
           channel: channel || MessageChannel.EMAIL,
           attachments: [], // Manual ticket creation usually doesn't have attachments in the same DTO yet
-          readBy: [],
-          isRead: false,
+          readBy: isAgent ? [new Types.ObjectId(creatorContext.userId)] : [],
+          isRead: isAgent,
         });
+
+        // If an agent is starting the conversation with an external message, dispatch it
+        if (isAgent && messageType === MessageType.EXTERNAL) {
+          const customer = await this.customersService.findOne(
+            createTicketDto.customerId,
+            organizationId,
+          );
+          if (customer) {
+            await this.dispatcherService.dispatch(
+              initialMessage,
+              savedTicket,
+              customer.email || '',
+            ).catch(err => {
+              console.error('[TicketsService.create] Failed to dispatch initial agent message:', err);
+            });
+          }
+        }
       }
     } catch (error) {
       console.error('Failed to auto-create thread or initial message:', error);
     }
 
-    // Call shared Auto-reply logic using the provided channel or defaulting to 'email'
-    console.log(
-      `[TicketsService.create] Calling handleAutoReply for ticket ${savedTicket._id}, channel: ${channel || 'email'}`,
-    );
-    this.handleAutoReply(
-      savedTicket._id.toString(),
-      savedTicket.description,
-      organizationId,
-      createTicketDto.customerId,
-      channel || 'email',
-    ).catch((err) => {
-      console.error(
-        `[TicketsService.create] handleAutoReply failed for ticket ${savedTicket._id}:`,
-        err,
+    const isAgentCreator = creatorContext && creatorContext.role !== UserRole.CUSTOMER;
+
+    // Call shared Auto-reply logic only if it's a CUSTOMER creating the ticket
+    if (!isAgentCreator) {
+      console.log(
+        `[TicketsService.create] Calling handleAutoReply for ticket ${savedTicket._id}, channel: ${channel || 'email'}`,
       );
-    });
+      this.handleAutoReply(
+        savedTicket._id.toString(),
+        savedTicket.description,
+        organizationId,
+        createTicketDto.customerId,
+        channel || 'email',
+      ).catch((err) => {
+        console.error(
+          `[TicketsService.create] handleAutoReply failed for ticket ${savedTicket._id}:`,
+          err,
+        );
+      });
+    }
 
     // Notify assigned agent
     console.log(
@@ -1068,12 +1104,22 @@ ${messageContent}`;
               { assignedToGroupId: { $exists: false } },
             ],
           });
+          query.$and.push({
+            $or: [
+              { assignedGroupIds: { $size: 0 } },
+              { assignedGroupIds: { $exists: false } },
+              { assignedGroupIds: null },
+            ],
+          });
           break;
         case 'all_unsolved':
           query.status = { $in: unsolvedStatuses };
           break;
         case 'new_in_your_groups':
-          query.assignedToGroupId = { $in: userGroupIds };
+          query.$or = [
+            { assignedToGroupId: { $in: userGroupIds } },
+            { assignedGroupIds: { $in: userGroupIds } },
+          ];
           query.status = TicketStatus.OPEN;
           break;
         case 'pending':
@@ -1083,7 +1129,10 @@ ${messageContent}`;
           query.status = { $in: solvedStatuses };
           break;
         case 'unsolved_in_your_groups':
-          query.assignedToGroupId = { $in: userGroupIds };
+          query.$or = [
+            { assignedToGroupId: { $in: userGroupIds } },
+            { assignedGroupIds: { $in: userGroupIds } },
+          ];
           query.status = { $in: unsolvedStatuses };
           break;
         case 'recently_updated':
@@ -1113,7 +1162,14 @@ ${messageContent}`;
           { assignedToId: new Types.ObjectId(userId) },
           // Assigned to a group the user belongs to
           ...(userGroupIds.length > 0
-            ? [{ assignedToGroupId: { $in: userGroupIds } }]
+            ? [
+                {
+                  $or: [
+                    { assignedToGroupId: { $in: userGroupIds } },
+                    { assignedGroupIds: { $in: userGroupIds } },
+                  ],
+                },
+              ]
             : []),
           // Following this ticket
           { followers: new Types.ObjectId(userId) },
@@ -1133,6 +1189,13 @@ ${messageContent}`;
                 $or: [
                   { assignedToGroupId: null },
                   { assignedToGroupId: { $exists: false } },
+                ],
+              },
+              {
+                $or: [
+                  { assignedGroupIds: { $size: 0 } },
+                  { assignedGroupIds: { $exists: false } },
+                  { assignedGroupIds: null },
                 ],
               },
             ],
@@ -1251,6 +1314,7 @@ ${messageContent}`;
         .populate('organizationId', 'name')
         .populate('assignedToId', 'email firstName lastName')
         .populate('assignedToGroupId', 'name description')
+        .populate('assignedGroupIds', 'name description')
         .populate('categoryId', 'name description')
 
         .populate('tagIds', 'name color')
@@ -1372,6 +1436,7 @@ ${messageContent}`;
       .populate('organizationId', 'name')
       .populate('assignedToId', 'email firstName lastName')
       .populate('assignedToGroupId', 'name description')
+      .populate('assignedGroupIds', 'name description')
       .populate('categoryId', 'name description')
 
       .populate('tagIds', 'name color')
@@ -1384,18 +1449,25 @@ ${messageContent}`;
 
     const ticketAssignedToId = ticket.assignedToId?.toString();
     const ticketAssignedToGroupId = ticket.assignedToGroupId?.toString();
+    const ticketAssignedGroupIds = ticket.assignedGroupIds?.map((g) =>
+      (g as any)._id ? (g as any)._id.toString() : g.toString(),
+    );
 
     // Agents can see tickets assigned to them or their groups
-    // Agents can see tickets assigned to them or their groups
+    if (userRole === UserRole.AGENT && userId !== organizationId) {
+      const userGroups = await this.groupsService.findByMember(
+        userId,
+        organizationId,
+      );
+      const userGroupIds = userGroups.map((g) => g._id.toString());
 
-    // Customers can only see their own tickets
-    if (userRole === UserRole.CUSTOMER) {
-      const ticketCustomerId =
-        typeof ticket.customerId === 'object' && ticket.customerId
-          ? (ticket.customerId as any)._id.toString()
-          : String(ticket.customerId);
+      const isAssignedToUser = ticketAssignedToId === userId;
+      const isAssignedToUserGroup =
+        (ticketAssignedToGroupId && userGroupIds.includes(ticketAssignedToGroupId)) ||
+        (ticketAssignedGroupIds &&
+          ticketAssignedGroupIds.some((gid) => userGroupIds.includes(gid)));
 
-      if (ticketCustomerId !== userId) {
+      if (!isAssignedToUser && !isAssignedToUserGroup) {
         throw new ForbiddenException(
           'You do not have permission to view this ticket',
         );
@@ -1493,11 +1565,29 @@ ${messageContent}`;
       if (updateTicketDto.assignedToGroupId === null) {
         updateData.assignedToGroupId = null;
       } else {
-        updateData.assignedToGroupId = new Types.ObjectId(
-          updateTicketDto.assignedToGroupId,
-        );
+        const groupId = new Types.ObjectId(updateTicketDto.assignedToGroupId);
+        updateData.assignedToGroupId = groupId;
+        // Also ensure it's in the assignedGroupIds array
+        if (!existingTicket.assignedGroupIds?.some((g) => g.equals(groupId))) {
+          updateData.$addToSet = updateData.$addToSet || {};
+          updateData.$addToSet.assignedGroupIds = groupId;
+        }
         // Clear individual assignment if assigning to group
         updateData.assignedToId = null;
+      }
+    }
+
+    if (updateTicketDto.assignedGroupIds !== undefined) {
+      if (updateTicketDto.assignedGroupIds === null) {
+        updateData.assignedGroupIds = [];
+      } else {
+        updateData.assignedGroupIds = updateTicketDto.assignedGroupIds.map(
+          (id) => new Types.ObjectId(id),
+        );
+        // For backward compatibility, update assignedToGroupId to the first group
+        if (updateData.assignedGroupIds.length > 0) {
+          updateData.assignedToGroupId = updateData.assignedGroupIds[0];
+        }
       }
     }
 

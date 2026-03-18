@@ -172,11 +172,19 @@ export class Ticket {
   assignedToId?: Types.ObjectId;
 
   @ApiPropertyOptional({
-    description: 'Assigned group ID',
+    description: 'Assigned group ID (Deprecated: use assignedGroupIds)',
     example: '507f1f77bcf86cd799439011',
   })
   @Prop({ type: Types.ObjectId, ref: 'Group', required: false })
   assignedToGroupId?: Types.ObjectId;
+
+  @ApiPropertyOptional({
+    description: 'Assigned group IDs',
+    type: [String],
+    example: ['507f1f77bcf86cd799439011'],
+  })
+  @Prop({ type: [{ type: Types.ObjectId, ref: 'Group' }], default: [] })
+  assignedGroupIds: Types.ObjectId[];
 
   @ApiPropertyOptional({
     description: 'Category ID',

@@ -61,7 +61,15 @@ export class TicketsController {
   })
   @ApiResponse({ status: 400, description: 'Invalid input data' })
   create(@Body() createTicketDto: CreateTicketDto, @Request() req) {
-    return this.ticketsService.create(createTicketDto, req.user.organizationId);
+    return this.ticketsService.create(
+      createTicketDto,
+      req.user.organizationId,
+      createTicketDto.channel,
+      undefined,
+      true,
+      undefined,
+      { userId: req.user.userId, role: req.user.role },
+    );
   }
 
   @Get()

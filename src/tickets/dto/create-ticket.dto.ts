@@ -69,12 +69,22 @@ export class CreateTicketDto {
 
   @ApiPropertyOptional({
     description:
-      'ID of the group assigned to this ticket (all group members will see it)',
+      'ID of the group assigned to this ticket (Deprecated: use assignedGroupIds)',
     example: '507f1f77bcf86cd799439015',
   })
   @IsMongoId()
   @IsOptional()
   assignedToGroupId?: string;
+
+  @ApiPropertyOptional({
+    description: 'IDs of the groups assigned to this ticket',
+    type: [String],
+    example: ['507f1f77bcf86cd799439015', '507f1f77bcf86cd799439016'],
+  })
+  @IsArray()
+  @IsMongoId({ each: true })
+  @IsOptional()
+  assignedGroupIds?: string[];
 
   @ApiPropertyOptional({
     description: 'ID of the category this ticket belongs to',
@@ -95,16 +105,20 @@ export class CreateTicketDto {
   tagIds?: string[];
 
   @ApiPropertyOptional({
-    description: 'Latest message content for preview',
+    description: 'Initial message type',
+    enum: ['external', 'internal'],
+    example: 'external',
+    default: 'external',
   })
-  @IsString()
+  @IsEnum(['external', 'internal'])
   @IsOptional()
-  latestMessageContent?: string;
+  messageType?: 'external' | 'internal';
 
   @ApiPropertyOptional({
-    description: 'Latest message author type for preview',
+    description: 'Channel for the initial message',
+    example: 'email',
   })
   @IsString()
   @IsOptional()
-  latestMessageAuthorType?: string;
+  channel?: string;
 }

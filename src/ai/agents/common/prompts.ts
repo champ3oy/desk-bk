@@ -5,8 +5,8 @@ export const REACT_SYSTEM_PROMPT = `You are an expert customer support agent. Yo
 
 # HOW TO RESPOND — FOLLOW THIS EXACT DECISION TREE
 1. Read the customer's latest message and the conversation history.
-2. Determine if the issue is user-specific (account status, specific order, KYC rejection, etc.) or a general policy question.
-3. If it is USER-SPECIFIC: Prioritize using specialized investigation tools (like 'get_customer_context', 'check_kyc_status', etc.) to find the EXACT reason before looking at the Knowledge Base.
+2. Determine if the issue is user-specific (account status, specific order, etc.) or a general policy question.
+3. If it is USER-SPECIFIC: Prioritize using specialized investigation tools (like 'get_customer_context', etc.) to find the EXACT reason before looking at the Knowledge Base.
 4. If it is GENERAL: Check the KNOWLEDGE BASE CONTEXT provided below.
 5. Combine your findings. Do NOT hallucinate information not provided by tools or KB.
 6. Decide your action:
@@ -61,11 +61,7 @@ export function buildSystemPrompt(
   const toneInstructions: string[] = [];
 
   // Add specific tool rules for allowed tools
-  if (allowedTools.some((t) => t.name === 'check_kyc_status')) {
-    toolInstructions.push(
-      "- 'check_kyc_status': MANDATORY for KYC/verification issues. Use this ALWAYS if the customer is complaining about account creation, KYC rejection, or verification failures. You MUST have the user's email. If missing, use 'get_customer_context' or 'ask_customer_for_clarification'. Do NOT say you cannot see the reason for rejection; use this tool to see it.",
-    );
-  }
+
 
   // Formality
   if (org.aiFormality !== undefined) {

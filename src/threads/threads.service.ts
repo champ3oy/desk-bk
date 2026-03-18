@@ -1224,35 +1224,75 @@ export class ThreadsService {
     authorId: string,
     ticketDisplayId?: string,
   ) {
-    // Extract user IDs from Tiptap mention format: <span data-type="mention" data-id="USER_ID">
+    // Extract IDs from Tiptap mention format: <span data-type="mention" data-id="ID">
     const mentionRegex =
       /<span[^>]*data-type="mention"[^>]*data-id="([^"]+)"[^>]*>/g;
-    const mentionedUserIds = new Set<string>();
+    const mentionedIds = new Set<string>();
     let match;
 
     while ((match = mentionRegex.exec(content)) !== null) {
       if (match[1] && match[1] !== authorId) {
-        mentionedUserIds.add(match[1]);
+        mentionedIds.add(match[1]);
       }
     }
 
-    if (mentionedUserIds.size === 0) return;
+    if (mentionedIds.size === 0) return;
 
-    const userIds = Array.from(mentionedUserIds);
+    const finalUserIdsToNotify = new Set<string>();
+    const groupIdsToAssign = new Set<string>();
 
-    // 1. Add mentioned users as followers to the ticket
-    await this.ticketModel.updateOne(
-      { _id: new Types.ObjectId(ticketId) },
-      {
-        $addToSet: {
-          followers: { $each: userIds.map((id) => new Types.ObjectId(id)) },
-        },
-      },
-    );
+    for (const id of mentionedIds) {
+      try {
+        // Check if it's a user
+        const user = await this.userModel.findById(id).lean().exec();
+        if (user) {
+          finalUserIdsToNotify.add(id);
+          continue;
+        }
 
-    // 2. Send notifications to each mentioned user
+        // Check if it's a group
+        const group = await this.groupsService.findOne(id, organizationId);
+        if (group) {
+          groupIdsToAssign.add(id);
+          // Add all members to notification list
+          if (group.memberIds && group.memberIds.length > 0) {
+            group.memberIds.forEach((m: any) => {
+              const mId = m._id ? m._id.toString() : m.toString();
+              if (mId !== authorId) {
+                finalUserIdsToNotify.add(mId);
+              }
+            });
+          }
+        }
+      } catch (err) {
+        // Ignore errors for individual IDs (might be invalid or deleted)
+        console.warn(`[ThreadsService] Failed to process mention ID ${id}:`, err);
+      }
+    }
+
+    if (finalUserIdsToNotify.size === 0 && groupIdsToAssign.size === 0) return;
+
+    const userIds = Array.from(finalUserIdsToNotify);
+    const groupIds = Array.from(groupIdsToAssign);
+
+    // 1. Update ticket: Add followers and assign groups
+    const updates: any = {};
+    if (userIds.length > 0) {
+      updates.$addToSet = {
+        followers: { $each: userIds.map((id) => new Types.ObjectId(id)) },
+      };
+    }
+    if (groupIds.length > 0) {
+      if (!updates.$addToSet) updates.$addToSet = {};
+      updates.$addToSet.assignedGroupIds = {
+        $each: groupIds.map((id) => new Types.ObjectId(id)),
+      };
+    }
+
+    await this.ticketModel.updateOne({ _id: new Types.ObjectId(ticketId) }, updates);
+
+    // 2. Send notifications to each mentioned user (including group members)
     const notificationPromises = userIds.map(async (recipientId) => {
-      // Strip HTML for notification body
       const plainText = content.replace(/<[^>]*>/g, '');
       return this.notificationsService.create({
         userId: recipientId,

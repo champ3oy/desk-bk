@@ -237,36 +237,6 @@ export function getAgentTools(params: {
         return { __action: 'REPLY', message: question };
       },
     },
-    {
-      name: 'check_kyc_status',
-      description:
-        'Check the KYC (Know Your Customer) and account creation status for a user by their email address.',
-      enabledForOrgs: ['69728f2ac84f3520beda91c3'],
-      requiredKeywords: ['kyc', 'verification', 'id check'],
-      schema: z.object({
-        email: z
-          .string()
-          .email()
-          .describe('The email address of the user to check.'),
-      }),
-      func: async ({ email }: { email: string }) => {
-        try {
-          console.log(`[Tool] Checking KYC for: ${email}`);
-          const response = await fetch(
-            `https://kyc-pipeline.blackstargroup.ai/api/v1/kyc/result?email=${encodeURIComponent(
-              email,
-            )}`,
-          );
-          if (!response.ok) {
-            return `Failed to fetch KYC status for ${email}. Status: ${response.status}`;
-          }
-          const data = await response.json();
-          return JSON.stringify(data);
-        } catch (error) {
-          console.error(`[Tool] Error checking KYC:`, error);
-          return `Error checking KYC status: ${error.message}`;
-        }
-      },
-    },
+
   ];
 }
