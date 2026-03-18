@@ -1143,68 +1143,8 @@ ${messageContent}`;
           break;
       }
     } else {
-      // Scope tickets based on user role
-      // Admins and Agents see: assigned to them, their groups, unassigned, or following
-      // Light Agents see: assigned to them, their groups, or following (no unassigned)
-      if (
-        userRole === UserRole.ADMIN ||
-        userRole === UserRole.AGENT ||
-        userRole === UserRole.LIGHT_AGENT
-      ) {
-        const userGroups = await this.groupsService.findByMember(
-          userId,
-          organizationId,
-        );
-        const userGroupIds = userGroups.map((g) => g._id as Types.ObjectId);
-
-        const accessConditions: any[] = [
-          // Directly assigned to this user
-          { assignedToId: new Types.ObjectId(userId) },
-          // Assigned to a group the user belongs to
-          ...(userGroupIds.length > 0
-            ? [
-                {
-                  $or: [
-                    { assignedToGroupId: { $in: userGroupIds } },
-                    { assignedGroupIds: { $in: userGroupIds } },
-                  ],
-                },
-              ]
-            : []),
-          // Following this ticket
-          { followers: new Types.ObjectId(userId) },
-        ];
-
-        // Admins and regular agents can see unassigned tickets
-        if (userRole === UserRole.ADMIN || userRole === UserRole.AGENT) {
-          accessConditions.push({
-            $and: [
-              {
-                $or: [
-                  { assignedToId: null },
-                  { assignedToId: { $exists: false } },
-                ],
-              },
-              {
-                $or: [
-                  { assignedToGroupId: null },
-                  { assignedToGroupId: { $exists: false } },
-                ],
-              },
-              {
-                $or: [
-                  { assignedGroupIds: { $size: 0 } },
-                  { assignedGroupIds: { $exists: false } },
-                  { assignedGroupIds: null },
-                ],
-              },
-            ],
-          });
-        }
-
-        query.$and = query.$and || [];
-        query.$and.push({ $or: accessConditions });
-      } else if (userRole === UserRole.CUSTOMER) {
+      // Admins, Agents, and Light Agents can see all tickets in the organization
+      if (userRole === UserRole.CUSTOMER) {
         query.customerId = new Types.ObjectId(userId);
       }
     }
@@ -1253,8 +1193,16 @@ ${messageContent}`;
     if (assignedToGroupId) {
       const groupList = assignedToGroupId.split(',');
       const groupIds = groupList.map((id) => new Types.ObjectId(id));
-      query.assignedToGroupId =
-        groupIds.length > 1 ? { $in: groupIds } : groupIds[0];
+      query.$and = query.$and || [];
+      query.$and.push({
+        $or: [
+          {
+            assignedToGroupId:
+              groupIds.length > 1 ? { $in: groupIds } : groupIds[0],
+          },
+          { assignedGroupIds: { $in: groupIds } },
+        ],
+      });
     }
     if (customerId) {
       query.customerId = new Types.ObjectId(customerId);
@@ -1373,6 +1321,13 @@ ${messageContent}`;
               { assignedToGroupId: { $exists: false } },
             ],
           },
+          {
+            $or: [
+              { assignedGroupIds: { $size: 0 } },
+              { assignedGroupIds: { $exists: false } },
+              { assignedGroupIds: null },
+            ],
+          },
         ],
       },
       all_unsolved: {
@@ -1387,7 +1342,10 @@ ${messageContent}`;
       },
       new_in_your_groups: {
         ...baseQuery,
-        assignedToGroupId: { $in: userGroupIds },
+        $or: [
+          { assignedToGroupId: { $in: userGroupIds } },
+          { assignedGroupIds: { $in: userGroupIds } },
+        ],
         status: TicketStatus.OPEN,
       },
       pending: {
@@ -1400,7 +1358,10 @@ ${messageContent}`;
       },
       unsolved_in_your_groups: {
         ...baseQuery,
-        assignedToGroupId: { $in: userGroupIds },
+        $or: [
+          { assignedToGroupId: { $in: userGroupIds } },
+          { assignedGroupIds: { $in: userGroupIds } },
+        ],
         status: { $in: unsolvedStatuses },
       },
       mentions: {
@@ -1457,49 +1418,17 @@ ${messageContent}`;
     // Permissions Check
     // -----------------------------------------------------------------
 
-    // Admins and system processes have full access to tickets within the organization
-    if (userRole === UserRole.ADMIN || userId === organizationId) {
+    // Admins, Agents, Light Agents, and system processes have full access to tickets within their organization
+    if (
+      userRole === UserRole.ADMIN ||
+      userRole === UserRole.AGENT ||
+      userRole === UserRole.LIGHT_AGENT ||
+      userId === organizationId
+    ) {
       return ticket;
     }
 
-    // Agent / Light Agent scoping
-    if (userRole === UserRole.AGENT || userRole === UserRole.LIGHT_AGENT) {
-      const userGroups = await this.groupsService.findByMember(
-        userId,
-        organizationId,
-      );
-      const userGroupIds = userGroups.map((g) => g._id.toString());
-
-      const isAssignedToUser = ticketAssignedToId === userId;
-      const isAssignedToUserGroup =
-        (ticketAssignedToGroupId &&
-          userGroupIds.includes(ticketAssignedToGroupId)) ||
-        (ticketAssignedGroupIds &&
-          ticketAssignedGroupIds.some((gid) => userGroupIds.includes(gid)));
-
-      const isFollower = ticket.followers?.some(
-        (f: any) => (f._id ? f._id.toString() : f.toString()) === userId,
-      );
-
-      const isUnassigned =
-        !ticketAssignedToId &&
-        !ticketAssignedToGroupId &&
-        (!ticketAssignedGroupIds || ticketAssignedGroupIds.length === 0);
-
-      // Regular agents can see unassigned tickets, light agents cannot
-      const canSeeUnassigned = userRole === UserRole.AGENT && isUnassigned;
-
-      if (
-        !isAssignedToUser &&
-        !isAssignedToUserGroup &&
-        !isFollower &&
-        !canSeeUnassigned
-      ) {
-        throw new ForbiddenException(
-          'You do not have permission to view this ticket',
-        );
-      }
-    } else if (userRole === UserRole.CUSTOMER) {
+    if (userRole === UserRole.CUSTOMER) {
       // Customers can only see their own tickets
       const ticketCustomerId =
         (ticket.customerId as any)?._id?.toString() ||
