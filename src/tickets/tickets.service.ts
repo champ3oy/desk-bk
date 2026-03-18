@@ -1453,8 +1453,17 @@ ${messageContent}`;
       (g as any)._id ? (g as any)._id.toString() : g.toString(),
     );
 
-    // Agents can see tickets assigned to them or their groups
-    if (userRole === UserRole.AGENT && userId !== organizationId) {
+    // -----------------------------------------------------------------
+    // Permissions Check
+    // -----------------------------------------------------------------
+
+    // Admins and system processes have full access to tickets within the organization
+    if (userRole === UserRole.ADMIN || userId === organizationId) {
+      return ticket;
+    }
+
+    // Agent / Light Agent scoping
+    if (userRole === UserRole.AGENT || userRole === UserRole.LIGHT_AGENT) {
       const userGroups = await this.groupsService.findByMember(
         userId,
         organizationId,
@@ -1463,11 +1472,39 @@ ${messageContent}`;
 
       const isAssignedToUser = ticketAssignedToId === userId;
       const isAssignedToUserGroup =
-        (ticketAssignedToGroupId && userGroupIds.includes(ticketAssignedToGroupId)) ||
+        (ticketAssignedToGroupId &&
+          userGroupIds.includes(ticketAssignedToGroupId)) ||
         (ticketAssignedGroupIds &&
           ticketAssignedGroupIds.some((gid) => userGroupIds.includes(gid)));
 
-      if (!isAssignedToUser && !isAssignedToUserGroup) {
+      const isFollower = ticket.followers?.some(
+        (f: any) => (f._id ? f._id.toString() : f.toString()) === userId,
+      );
+
+      const isUnassigned =
+        !ticketAssignedToId &&
+        !ticketAssignedToGroupId &&
+        (!ticketAssignedGroupIds || ticketAssignedGroupIds.length === 0);
+
+      // Regular agents can see unassigned tickets, light agents cannot
+      const canSeeUnassigned = userRole === UserRole.AGENT && isUnassigned;
+
+      if (
+        !isAssignedToUser &&
+        !isAssignedToUserGroup &&
+        !isFollower &&
+        !canSeeUnassigned
+      ) {
+        throw new ForbiddenException(
+          'You do not have permission to view this ticket',
+        );
+      }
+    } else if (userRole === UserRole.CUSTOMER) {
+      // Customers can only see their own tickets
+      const ticketCustomerId =
+        (ticket.customerId as any)?._id?.toString() ||
+        ticket.customerId?.toString();
+      if (ticketCustomerId !== userId) {
         throw new ForbiddenException(
           'You do not have permission to view this ticket',
         );
