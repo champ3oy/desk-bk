@@ -461,20 +461,26 @@ ${messageContent}`;
         }
       }
 
+      // Fetch ticket early so we can check playground flag before the channel gate
+      const ticket = await this.ticketModel.findById(ticketId);
+      if (!ticket) {
+        await this.redisLockService.releaseLock(lockKey); // Release lock
+        return;
+      }
+
+      // Always allow auto-reply for playground tickets regardless of org settings
+      if (ticket.isPlayground) {
+        shouldAutoReply = true;
+      }
+
       console.log(
-        `[AutoReply] Channel: ${channel}, ShouldReply: ${shouldAutoReply}, OrgSettings: Email=${org.aiAutoReplyEmail}, LiveChat=${org.aiAutoReplyLiveChat}, Social=${org.aiAutoReplySocialMedia}`,
+        `[AutoReply] Channel: ${channel}, ShouldReply: ${shouldAutoReply}, IsPlayground: ${!!ticket.isPlayground}, OrgSettings: Email=${org.aiAutoReplyEmail}, LiveChat=${org.aiAutoReplyLiveChat}, Social=${org.aiAutoReplySocialMedia}`,
       );
 
       if (!shouldAutoReply) {
         console.log(
           `[AutoReply] Skipping auto-reply for ticket ${ticketId}: Auto-reply not enabled for channel '${channel}'`,
         );
-        await this.redisLockService.releaseLock(lockKey); // Release lock
-        return;
-      }
-
-      const ticket = await this.ticketModel.findById(ticketId);
-      if (!ticket) {
         await this.redisLockService.releaseLock(lockKey); // Release lock
         return;
       }
@@ -996,46 +1002,51 @@ ${messageContent}`;
       });
     }
 
-    // Notify assigned agent
-    console.log(
-      `[TicketsService] Notification Check. TicketID: ${savedTicket._id}, AssignedTo: ${savedTicket.assignedToId}`,
-    );
-    if (savedTicket.assignedToId) {
-      await this.notificationsService.create({
-        userId: savedTicket.assignedToId.toString(),
-        type: NotificationType.NEW_TICKET,
-        title: 'New Ticket Assigned',
-        body: `You have been assigned to ticket #${savedTicket.displayId || savedTicket._id}: ${savedTicket.subject}`,
-        metadata: {
-          ticketId: savedTicket._id.toString(),
-          displayId: savedTicket.displayId,
-        },
-      });
-    } else {
-      // Notify all admins if ticket is unassigned
-      const admins = await this.usersService.findAdmins(organizationId);
-      for (const admin of admins) {
+    // Skip notifications and confirmation for playground tickets
+    if (!savedTicket.isPlayground) {
+      // Notify assigned agent
+      console.log(
+        `[TicketsService] Notification Check. TicketID: ${savedTicket._id}, AssignedTo: ${savedTicket.assignedToId}`,
+      );
+      if (savedTicket.assignedToId) {
         await this.notificationsService.create({
-          userId: admin._id.toString(),
+          userId: savedTicket.assignedToId.toString(),
           type: NotificationType.NEW_TICKET,
-          title: 'New Unassigned Ticket',
-          body: `New ticket #${savedTicket.displayId || savedTicket._id}: ${savedTicket.subject}`,
+          title: 'New Ticket Assigned',
+          body: `You have been assigned to ticket #${savedTicket.displayId || savedTicket._id}: ${savedTicket.subject}`,
           metadata: {
             ticketId: savedTicket._id.toString(),
             displayId: savedTicket.displayId,
           },
         });
+      } else {
+        // Notify all admins if ticket is unassigned
+        const admins = await this.usersService.findAdmins(organizationId);
+        for (const admin of admins) {
+          await this.notificationsService.create({
+            userId: admin._id.toString(),
+            type: NotificationType.NEW_TICKET,
+            title: 'New Unassigned Ticket',
+            body: `New ticket #${savedTicket.displayId || savedTicket._id}: ${savedTicket.subject}`,
+            metadata: {
+              ticketId: savedTicket._id.toString(),
+              displayId: savedTicket.displayId,
+            },
+          });
+        }
       }
     }
     // Send confirmation message to the customer
-    this.sendTicketCreationConfirmation(savedTicket, channel || 'email').catch(
-      (err) => {
-        console.error(
-          `[TicketsService] Failed to send ticket confirmation for ${savedTicket._id}:`,
-          err,
-        );
-      },
-    );
+    if (!savedTicket.isPlayground) {
+      this.sendTicketCreationConfirmation(savedTicket, channel || 'email').catch(
+        (err) => {
+          console.error(
+            `[TicketsService] Failed to send ticket confirmation for ${savedTicket._id}:`,
+            err,
+          );
+        },
+      );
+    }
 
     // Notify agents via WebSocket
     this.agentGateway.emitToOrg(organizationId, 'ticket_updated', {
@@ -1070,6 +1081,7 @@ ${messageContent}`;
 
     let query: any = {
       organizationId: new Types.ObjectId(organizationId),
+      isPlayground: { $ne: true },
     };
 
     const unsolvedStatuses = [

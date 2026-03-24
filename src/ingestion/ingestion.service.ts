@@ -523,8 +523,9 @@ export class IngestionService {
       );
     }
 
-    // Notify agents about the reply
-    if (!isAgent) {
+    // Notify agents about the reply (skip for playground sessions)
+    const isPlaygroundReply = message.threadId?.startsWith('pg_') || false;
+    if (!isAgent && !isPlaygroundReply) {
       this.notifyAgentsOfReply(ticketId, message.content, organizationId).catch(
         (e) =>
           this.logger.error(
@@ -714,8 +715,9 @@ export class IngestionService {
 
     // Create ticket with the correct channel for auto-reply
     const channelName = this.getChannelName(message.channel);
+    const isPlayground = message.threadId?.startsWith('pg_') || false;
     this.logger.debug(
-      `[handleNewTicket] Creating ticket with channel="${channelName}", customerId="${customerId}"...`,
+      `[handleNewTicket] Creating ticket with channel="${channelName}", customerId="${customerId}", isPlayground=${isPlayground}...`,
     );
     const ticket = (await this.ticketsService.create(
       {
@@ -725,6 +727,7 @@ export class IngestionService {
         status: TicketStatus.OPEN,
         sentiment,
         priority,
+        isPlayground,
       },
       organizationId,
       channelName, // Pass channel for correct auto-reply routing

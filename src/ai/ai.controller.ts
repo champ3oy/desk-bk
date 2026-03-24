@@ -45,11 +45,6 @@ import { UpdatePersonalityConfigDto } from './dto/update-personality-config.dto'
 import { UpdateResponseConfigDto } from './dto/update-response-config.dto';
 import { KnowledgeBaseService } from './knowledge-base.service';
 import {
-  PlaygroundChatDto,
-  PlaygroundChatResponseDto,
-} from './dto/playground-chat.dto';
-import { playgroundChat } from './agents/playground';
-import {
   GenerateInstructionsDto,
   GenerateInstructionsResponseDto,
 } from './dto/generate-instructions.dto';
@@ -354,36 +349,4 @@ export class AiController {
     return AIModelFactory.getAvailableModels(this.configService);
   }
 
-  @Post('playground-chat')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Chat with the AI in playground mode',
-    description:
-      'Simulates a chat conversation with the AI using the organization personality settings',
-  })
-  @ApiBody({ type: PlaygroundChatDto })
-  @ApiResponse({
-    status: 200,
-    description: 'AI response',
-    type: PlaygroundChatResponseDto,
-  })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async playgroundChat(@Body() body: PlaygroundChatDto, @Request() req) {
-    return await playgroundChat(
-      body.message,
-      this.configService,
-      this.organizationsService,
-      this.knowledgeBaseService,
-      this.customersService,
-      this.ticketsService,
-      this.threadsService,
-      req.user.organizationId,
-      body.history,
-      body.provider,
-      body.model,
-      body.customerEmail,
-      req.user.userId,
-      req.user.role,
-    );
-  }
 }

@@ -273,6 +273,13 @@ export class Ticket {
   latestMessageAuthorType?: string;
 
   @ApiPropertyOptional({
+    description: 'Whether this ticket was created from the playground',
+    example: false,
+  })
+  @Prop({ default: false })
+  isPlayground?: boolean;
+
+  @ApiPropertyOptional({
     description: 'Creation timestamp',
     example: '2024-01-01T00:00:00.000Z',
   })

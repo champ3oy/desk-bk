@@ -32,7 +32,6 @@ import { convert } from 'html-to-text';
 import { OrganizationsService } from '../organizations/organizations.service';
 import { CustomersService } from '../customers/customers.service';
 import { KnowledgeBaseService } from '../ai/knowledge-base.service';
-import { playgroundChat } from '../ai/agents/playground';
 import { AttachmentsService } from '../attachments/attachments.service';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UploadedFile, UseInterceptors } from '@nestjs/common';

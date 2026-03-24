@@ -121,4 +121,11 @@ export class CreateTicketDto {
   @IsString()
   @IsOptional()
   channel?: string;
+
+  @ApiPropertyOptional({
+    description: 'Whether this ticket was created from the playground',
+    example: false,
+  })
+  @IsOptional()
+  isPlayground?: boolean;
 }
