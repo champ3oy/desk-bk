@@ -114,6 +114,32 @@ export class Ticket {
   sentiment?: string;
 
   @ApiPropertyOptional({
+    description: 'Cached AI-generated sentiment analysis',
+  })
+  @Prop({ type: Object, required: false })
+  cachedSentiment?: {
+    sentiment: string;
+    confidence: string;
+    explanation: string;
+    keyPhrases: string[];
+    cachedAt: Date;
+    messageCount: number;
+  };
+
+  @ApiPropertyOptional({
+    description: 'Cached AI-generated summary data',
+  })
+  @Prop({ type: Object, required: false })
+  cachedSummary?: {
+    summary: string;
+    sentiment: string;
+    urgency: string;
+    topic: string;
+    cachedAt: Date;
+    messageCount: number;
+  };
+
+  @ApiPropertyOptional({
     description: 'Whether AI auto-reply is disabled for this ticket',
     example: false,
   })

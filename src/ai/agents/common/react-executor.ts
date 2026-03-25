@@ -45,7 +45,7 @@ export async function runReActAgent(params: {
   } = params;
   let { kbUsed } = params;
 
-  const MAX_TURNS = 5;
+  const MAX_TURNS = requestComplexity === 'SIMPLE' ? 2 : 3;
   let turn = 0;
   const executedTools: string[] = [];
 

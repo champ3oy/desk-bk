@@ -15,6 +15,7 @@ import {
 import { Message, MessageSchema } from '../threads/entities/message.entity';
 import { AiModule } from '../ai/ai.module'; // Import AiModule for forwardRef check
 import { Tag, TagSchema } from '../tags/entities/tag.entity';
+import { Category, CategorySchema } from '../categories/entities/category.entity';
 import { CustomersModule } from '../customers/customers.module';
 import { GroupsModule } from '../groups/groups.module';
 import { ThreadsModule } from '../threads/threads.module';
@@ -35,6 +36,7 @@ import { TicketCronService } from './ticket-cron.service';
       { name: Counter.name, schema: CounterSchema },
       { name: Organization.name, schema: OrganizationSchema },
       { name: Message.name, schema: MessageSchema },
+      { name: Category.name, schema: CategorySchema },
     ]),
     forwardRef(() => CustomersModule),
     GroupsModule,

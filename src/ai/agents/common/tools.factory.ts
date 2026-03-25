@@ -14,7 +14,6 @@ export interface ToolDefinition {
   schema: any;
   func: (args: any) => Promise<any>;
   enabledForOrgs?: string[];
-  requiredKeywords?: string[];
 }
 
 export function getAgentTools(params: {
@@ -103,16 +102,24 @@ export function getAgentTools(params: {
     {
       name: 'update_ticket_attributes',
       description:
-        'Update ticket priority, status, or tags. Use this to organize the ticket.',
+        'Update ticket priority, category, or tags. ALWAYS set a category for the ticket based on the issue type (e.g. "Billing", "Account Setup", "Login Issues", "Payments", "Technical Support", etc.).',
       schema: z.object({
         priority: z.enum(['low', 'medium', 'high', 'urgent']).optional(),
+        category: z
+          .string()
+          .describe(
+            'Issue category (e.g. "Billing", "Account Setup", "Login Issues", "Payments", "Technical Support"). Will be created if it does not exist.',
+          )
+          .optional(),
         tags: z.array(z.string()).optional(),
       }),
       func: async ({
         priority,
+        category,
         tags,
       }: {
         priority?: string;
+        category?: string;
         tags?: string[];
       }) => {
         if (!ticket) return 'No ticket context available to update.';
@@ -126,6 +133,17 @@ export function getAgentTools(params: {
             updateData.priority = p;
           } else {
             console.warn(`[Tool] Invalid priority input: ${priority}`);
+          }
+        }
+
+        // Category resolution (create if not exists)
+        if (category) {
+          const categoryId = await ticketsService.resolveCategory(
+            category,
+            organizationId,
+          );
+          if (categoryId) {
+            updateData.categoryId = categoryId.toString();
           }
         }
 

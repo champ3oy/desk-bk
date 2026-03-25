@@ -19,6 +19,8 @@ import {
 } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { AiRateLimitGuard } from './guards/ai-rate-limit.guard';
+import { AiInputLimitGuard } from './guards/ai-input-limit.guard';
 import { draftResponse } from './agents/response';
 import { draftHumanResponse } from './agents/draft-human-response';
 import { analyzeSentiment } from './agents/sentiment';
@@ -66,6 +68,7 @@ export class AiController {
   ) {}
 
   @Post('generate-instructions')
+  @UseGuards(AiRateLimitGuard, AiInputLimitGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Generate system instructions',
@@ -93,6 +96,7 @@ export class AiController {
   }
 
   @Post('draft-response')
+  @UseGuards(AiRateLimitGuard, AiInputLimitGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Draft a response for human agent',
@@ -125,6 +129,7 @@ export class AiController {
   }
 
   @Post('analyze-sentiment')
+  @UseGuards(AiRateLimitGuard, AiInputLimitGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Analyze sentiment of a ticket',
@@ -153,6 +158,7 @@ export class AiController {
   }
 
   @Post('summarize-ticket')
+  @UseGuards(AiRateLimitGuard, AiInputLimitGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Summarize a ticket',
@@ -181,6 +187,7 @@ export class AiController {
   }
 
   @Post('brief-summary')
+  @UseGuards(AiRateLimitGuard, AiInputLimitGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Get a brief one-sentence summary of a ticket',

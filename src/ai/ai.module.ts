@@ -11,6 +11,8 @@ import { KnowledgeBaseService } from './knowledge-base.service';
 import { CustomersModule } from '../customers/customers.module';
 import { AiVoiceGateway } from '../gateways/ai-voice.gateway';
 import { AiTelemetryModule } from './telemetry/ai-telemetry.module';
+import { AiRateLimitGuard } from './guards/ai-rate-limit.guard';
+import { AiInputLimitGuard } from './guards/ai-input-limit.guard';
 
 import { SmartCache, SmartCacheSchema } from './entities/smart-cache.entity';
 import { SmartCacheService } from './smart-cache.service';
@@ -30,7 +32,13 @@ import { SmartCacheService } from './smart-cache.service';
     AiTelemetryModule,
   ],
   controllers: [AiController],
-  providers: [KnowledgeBaseService, AiVoiceGateway, SmartCacheService],
+  providers: [
+    KnowledgeBaseService,
+    AiVoiceGateway,
+    SmartCacheService,
+    AiRateLimitGuard,
+    AiInputLimitGuard,
+  ],
   exports: [KnowledgeBaseService, SmartCacheService],
 })
 export class AiModule {}

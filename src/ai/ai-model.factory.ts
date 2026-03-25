@@ -167,12 +167,12 @@ export class AIModelFactory {
       } finally {
         const performanceMs = Date.now() - startTime;
 
-        // 3. Handle Telemetry & Credit Deduction (Async)
+        // 3. Handle Telemetry & Credit Deduction (Synchronous)
         try {
           const usage =
             response?.usage_metadata || response?.response_metadata?.tokenUsage;
 
-          AiUsageService.logUsageAndDeduct({
+          await AiUsageService.logUsageAndDeduct({
             provider,
             modelName,
             inputTokens: usage?.input_tokens || usage?.promptTokens || 0,

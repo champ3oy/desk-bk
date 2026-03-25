@@ -23,6 +23,7 @@ import { CreateTicketDto } from './dto/create-ticket.dto';
 import { UpdateTicketDto } from './dto/update-ticket.dto';
 import { UserRole } from '../users/entities/user.entity';
 import { Tag, TagDocument } from '../tags/entities/tag.entity';
+import { Category, CategoryDocument } from '../categories/entities/category.entity';
 import { Counter, CounterDocument } from './entities/counter.entity';
 import { GroupsService } from '../groups/groups.service';
 import { ThreadsService } from '../threads/threads.service';
@@ -56,6 +57,8 @@ export class TicketsService {
     private messageModel: Model<MessageDocument>,
     @InjectModel(Tag.name)
     private tagModel: Model<TagDocument>,
+    @InjectModel(Category.name)
+    private categoryModel: Model<CategoryDocument>,
     private groupsService: GroupsService,
     @Inject(forwardRef(() => ThreadsService))
     private threadsService: ThreadsService,
@@ -96,6 +99,43 @@ export class TicketsService {
     });
 
     return tags.map((t) => t._id);
+  }
+
+  /**
+   * Resolve a category name to its ObjectId. Creates the category if it doesn't exist.
+   */
+  async resolveCategory(
+    categoryName: string,
+    organizationId: string,
+  ): Promise<Types.ObjectId | null> {
+    if (!categoryName || !categoryName.trim()) return null;
+
+    const name = categoryName.trim();
+    const orgId = new Types.ObjectId(organizationId);
+
+    // Try to find existing (case-insensitive)
+    let category = await this.categoryModel.findOne({
+      organizationId: orgId,
+      name: new RegExp(`^${name}$`, 'i'),
+    });
+
+    // Create if not found
+    if (!category) {
+      try {
+        category = await this.categoryModel.create({
+          organizationId: orgId,
+          name,
+        });
+      } catch (e) {
+        // Race condition: another request created it
+        category = await this.categoryModel.findOne({
+          organizationId: orgId,
+          name: new RegExp(`^${name}$`, 'i'),
+        });
+      }
+    }
+
+    return category?._id || null;
   }
 
   /**
@@ -465,6 +505,37 @@ ${messageContent}`;
       const ticket = await this.ticketModel.findById(ticketId);
       if (!ticket) {
         await this.redisLockService.releaseLock(lockKey); // Release lock
+        return;
+      }
+
+      // Skip bounce-back / undeliverable emails — they waste AI tokens
+      const subjectLower = (ticket.subject || '').toLowerCase();
+      const contentLower = (messageContent || '').toLowerCase();
+      const customerDoc = await this.customersService.findOne(
+        ticket.customerId?.toString(),
+        organizationId,
+      ).catch(() => null);
+      const customerEmail = (customerDoc?.email || '').toLowerCase();
+
+      const isBounce =
+        customerEmail.includes('mailer-daemon') ||
+        customerEmail.includes('postmaster@') ||
+        customerEmail.includes('noreply') ||
+        customerEmail.includes('no-reply') ||
+        subjectLower.includes('undeliverable') ||
+        subjectLower.includes('delivery status') ||
+        subjectLower.includes('mail delivery failed') ||
+        subjectLower.includes('returned mail') ||
+        subjectLower.includes('delivery failure') ||
+        contentLower.includes('550 5.1.1') ||
+        contentLower.includes('message not delivered') ||
+        contentLower.includes('this is an automatically generated');
+
+      if (isBounce) {
+        console.log(
+          `[AutoReply] Skipping bounce/undeliverable email for ticket ${ticketId} (subject: "${ticket.subject}", sender: ${customerEmail})`,
+        );
+        await this.redisLockService.releaseLock(lockKey);
         return;
       }
 

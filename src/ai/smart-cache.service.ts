@@ -35,6 +35,35 @@ export class SmartCacheService {
       'hola',
       'hi there',
       'hello there',
+      'ok',
+      'okay',
+      'got it',
+      'sure',
+      'alright',
+      'cool',
+      'noted',
+      'fine',
+      'k',
+      'yep',
+      'yes',
+      'no',
+      'nope',
+      'hmm',
+      'ah ok',
+      'oh ok',
+      'oh okay',
+      'i see',
+      'understood',
+      'right',
+      'sup',
+      'whats up',
+      "what's up",
+      'howdy',
+      'greetings',
+      'good day',
+      'morning',
+      'afternoon',
+      'evening',
     ];
     return greetings.includes(q);
   }
@@ -150,7 +179,7 @@ export class SmartCacheService {
         const bestMatch = results[0];
         const score = bestMatch.score;
 
-        if (score >= 0.94) {
+        if (score >= 0.92) {
           this.logger.debug(
             `[SmartCache] SEMANTIC hit (score: ${score.toFixed(4)}) in ${Date.now() - startTime}ms`,
           );

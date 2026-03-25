@@ -74,6 +74,34 @@ export const summarizeTicket = async (
     `[PERF] Fetch messages for ${threads.length} threads: ${Date.now() - messagesStart}ms`,
   );
 
+  // ========== CHECK CACHED SUMMARY ==========
+  const totalMsgCount = threadsWithMessages.reduce(
+    (sum, t) => sum + t.messages.length,
+    0,
+  );
+
+  if (
+    (ticket as any).cachedSummary &&
+    (ticket as any).cachedSummary.messageCount === totalMsgCount
+  ) {
+    console.log(
+      `[PERF] Returning cached summary for ticket ${ticket_id} (${totalMsgCount} messages)`,
+    );
+    const cached = (ticket as any).cachedSummary;
+    return {
+      summary: cached.summary,
+      content: cached.summary,
+      sentiment: cached.sentiment,
+      urgency: cached.urgency,
+      topic: cached.topic,
+      error: null,
+      metadata: {
+        performanceMs: Date.now() - totalStart,
+        cached: true,
+      },
+    };
+  }
+
   // ========== MODEL INITIALIZATION ==========
   const modelStart = Date.now();
   const model = AIModelFactory.create(configService, {
@@ -135,10 +163,11 @@ Respond ONLY with a JSON object. Analyze the ticket and provide:
 4. topic: A short, representative tag for the issue.`;
 
   // ========== PREPARE IMAGES FOR AI CONTEXT (OPTIONAL) ==========
+  // Only process images from the latest customer message to save tokens
   const imageContents: any[] = [];
   try {
     const latestMsg = prunedMessages[prunedMessages.length - 1];
-    if (latestMsg?.attachments) {
+    if (latestMsg?.attachments && latestMsg.authorType === 'customer') {
       for (const att of latestMsg.attachments) {
         const mime = att.mimeType || att.mime_type || att.mimetype;
         if (mime?.startsWith('image/') && att.path?.startsWith('http')) {
@@ -266,7 +295,7 @@ Respond ONLY with a JSON object. Analyze the ticket and provide:
 
   console.log(`[PERF] TOTAL summarizeTicket: ${Date.now() - totalStart}ms`);
 
-  return {
+  const result = {
     summary: parsedData.summary || rawContent,
     content: rawContent,
     sentiment: parsedData.sentiment || 'Neutral',
@@ -279,4 +308,28 @@ Respond ONLY with a JSON object. Analyze the ticket and provide:
       performanceMs: Date.now() - totalStart,
     },
   };
+
+  // ========== CACHE SUMMARY ON TICKET ==========
+  try {
+    await ticketsService.update(
+      ticket_id,
+      {
+        cachedSummary: {
+          summary: result.summary,
+          sentiment: result.sentiment,
+          urgency: result.urgency,
+          topic: result.topic,
+          cachedAt: new Date(),
+          messageCount: totalMsgCount,
+        },
+      } as any,
+      userId,
+      userRole,
+      organizationId,
+    );
+  } catch (e) {
+    console.error(`[WARN] Failed to cache summary: ${e.message}`);
+  }
+
+  return result;
 };

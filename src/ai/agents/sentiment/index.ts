@@ -57,25 +57,38 @@ export const analyzeSentiment = async (
     `[PERF] Parallel fetch (ticket + threads + comments): ${Date.now() - parallelStart}ms`,
   );
 
-  // Fetch messages for all threads in parallel
-  const messagesStart = Date.now();
-  const threadsWithMessages = await Promise.all(
-    threads.map(async (thread) => {
-      const messages = await threadsService.getMessages(
-        thread._id.toString(),
-        organizationId,
-        userId,
-        userRole,
-      );
-      return {
-        ...thread.toObject(),
-        messages: messages,
-      };
-    }),
-  );
-  console.log(
-    `[PERF] Fetch messages for ${threads.length} threads: ${Date.now() - messagesStart}ms`,
-  );
+  // ========== CHECK CACHED SENTIMENT ==========
+  const allThreadMessages = (
+    await Promise.all(
+      threads.map((thread) =>
+        threadsService.getMessages(
+          thread._id.toString(),
+          organizationId,
+          userId,
+          userRole,
+        ),
+      ),
+    )
+  ).flat();
+  const currentMessageCount = allThreadMessages.length;
+
+  if (
+    (ticket as any).cachedSentiment &&
+    (ticket as any).cachedSentiment.messageCount === currentMessageCount
+  ) {
+    console.log(
+      `[PERF] Returning cached sentiment for ticket ${ticket_id} (${currentMessageCount} messages)`,
+    );
+    const cached = (ticket as any).cachedSentiment;
+    return {
+      sentiment: cached.sentiment,
+      confidence: cached.confidence,
+      explanation: cached.explanation,
+      keyPhrases: cached.keyPhrases,
+      content: `[Cached] ${cached.explanation}`,
+      performanceMs: Date.now() - totalStart,
+    };
+  }
 
   // ========== MODEL INITIALIZATION ==========
   const modelStart = Date.now();
@@ -85,12 +98,10 @@ export const analyzeSentiment = async (
   console.log(`[PERF] Model initialization: ${Date.now() - modelStart}ms`);
 
   // ========== BUILD CONTEXT WITH PRE-FETCHED DATA ==========
-  const allMessages = threadsWithMessages
-    .flatMap((t) => t.messages)
-    .sort(
-      (a, b) =>
-        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-    );
+  const allMessages = allThreadMessages.sort(
+    (a: any, b: any) =>
+      new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+  );
 
   const totalMessageCount = allMessages.length;
   const prunedMessages = allMessages.slice(-15); // Focusing on most recent for current sentiment
@@ -193,16 +204,40 @@ Analyze the sentiment of the customer communications in this ticket. Consider al
 
   console.log(`[PERF] TOTAL analyzeSentiment: ${Date.now() - totalStart}ms`);
 
+  const finalKeyPhrases =
+    keyPhrases.length > 0
+      ? keyPhrases
+      : keyPhrasesText
+        ? [keyPhrasesText]
+        : [];
+
+  // ========== CACHE SENTIMENT ON TICKET ==========
+  try {
+    await ticketsService.update(
+      ticket_id,
+      {
+        cachedSentiment: {
+          sentiment,
+          confidence,
+          explanation,
+          keyPhrases: finalKeyPhrases,
+          cachedAt: new Date(),
+          messageCount: currentMessageCount,
+        },
+      } as any,
+      userId,
+      userRole,
+      organizationId,
+    );
+  } catch (e) {
+    console.error(`[WARN] Failed to cache sentiment: ${e.message}`);
+  }
+
   return {
     sentiment,
     confidence,
     explanation,
-    keyPhrases:
-      keyPhrases.length > 0
-        ? keyPhrases
-        : keyPhrasesText
-          ? [keyPhrasesText]
-          : [],
+    keyPhrases: finalKeyPhrases,
     content: responseContent,
     performanceMs: Date.now() - totalStart,
   };

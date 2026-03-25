@@ -75,7 +75,7 @@ export const draftResponse = async (
         new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
     );
 
-  const recentMessages = allMessages.slice(-5);
+  const recentMessages = allMessages.slice(-3);
   const lastCustomerMessage = [...recentMessages]
     .reverse()
     .find((m) => m.authorType === 'customer');
@@ -96,16 +96,6 @@ export const draftResponse = async (
     // 1. Check organization restriction
     if (t.enabledForOrgs && !t.enabledForOrgs.includes(organizationId)) {
       return false;
-    }
-
-    // 2. Check keyword restriction (e.g. KYC tools only for KYC tickets)
-    if (t.requiredKeywords && t.requiredKeywords.length > 0) {
-      const allText =
-        `${ticket.subject} ${ticket.description} ${recentMessages.map((m) => m.content).join(' ')}`.toLowerCase();
-      const hasMatch = t.requiredKeywords.some((kw: string) =>
-        allText.includes(kw.toLowerCase()),
-      );
-      if (!hasMatch) return false;
     }
 
     return true;
@@ -133,7 +123,7 @@ export const draftResponse = async (
     if (
       cacheResult.type !== 'NONE' &&
       cacheResult.response &&
-      (cacheResult.type === 'LITERAL' || (cacheResult.score || 1) >= 0.94)
+      (cacheResult.type === 'LITERAL' || (cacheResult.score || 1) >= 0.92)
     ) {
       const customerName = (ticket.customerId as any).firstName || 'Customer';
       const personalizedContent = await smartCacheService.personalize(
@@ -306,10 +296,14 @@ export const draftResponse = async (
   let kbUsed = false;
 
   if (knowledgeBaseService && lastUserMessage?.authorType === 'customer') {
+    const kbQuery = (lastUserMessage.content || '').slice(0, 500);
     prefetchedKBContext = await knowledgeBaseService
-      .retrieveRelevantContent(lastUserMessage.content, organizationId, 3)
+      .retrieveRelevantContent(kbQuery, organizationId, 3)
       .catch(() => '');
-    if (prefetchedKBContext) kbUsed = true;
+    if (prefetchedKBContext) {
+      prefetchedKBContext = prefetchedKBContext.slice(0, 3000);
+      kbUsed = true;
+    }
   }
 
   const contextInstruction = `

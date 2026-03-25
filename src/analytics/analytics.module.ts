@@ -17,6 +17,12 @@ import {
   Organization,
   OrganizationSchema,
 } from '../organizations/entities/organization.entity';
+import {
+  Category,
+  CategorySchema,
+} from '../categories/entities/category.entity';
+import { Thread, ThreadSchema } from '../threads/entities/thread.entity';
+import { Message, MessageSchema } from '../threads/entities/message.entity';
 
 @Module({
   imports: [
@@ -26,6 +32,9 @@ import {
       { name: User.name, schema: UserSchema },
       { name: OrgAnalytics.name, schema: OrgAnalyticsSchema },
       { name: Organization.name, schema: OrganizationSchema },
+      { name: Category.name, schema: CategorySchema },
+      { name: Thread.name, schema: ThreadSchema },
+      { name: Message.name, schema: MessageSchema },
     ]),
   ],
   controllers: [AnalyticsController],
