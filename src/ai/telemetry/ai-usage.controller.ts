@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
 import { AiUsageService } from './ai-usage.service';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
@@ -102,5 +102,56 @@ export class AiUsageController {
   @ApiOperation({ summary: 'Get model performance and efficiency metrics' })
   async getEfficiency() {
     return await this.aiUsageService.getModelEfficiency();
+  }
+
+  // ── Org-scoped endpoints (accessible by any authenticated user) ──
+
+  @Get('my-usage')
+  @ApiOperation({
+    summary: 'Get AI usage summary for the current user\'s organization',
+  })
+  @ApiQuery({ name: 'startDate', required: false })
+  @ApiQuery({ name: 'endDate', required: false })
+  async getMyUsage(
+    @Req() req: any,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    return this.aiUsageService.getOrgUsageSummary(
+      req.user.organizationId,
+      startDate ? new Date(startDate) : undefined,
+      endDate ? new Date(endDate) : undefined,
+    );
+  }
+
+  @Get('my-usage/time-series')
+  @ApiOperation({
+    summary: 'Get daily AI usage time-series for the current organization',
+  })
+  @ApiQuery({ name: 'days', required: false, type: Number })
+  async getMyUsageTimeSeries(
+    @Req() req: any,
+    @Query('days') days?: number,
+  ) {
+    return this.aiUsageService.getOrgUsageTimeSeries(
+      req.user.organizationId,
+      days ? Number(days) : 30,
+    );
+  }
+
+  @Get('my-usage/top-users')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Get top AI users within the current organization',
+  })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  async getMyUsageTopUsers(
+    @Req() req: any,
+    @Query('limit') limit?: number,
+  ) {
+    return this.aiUsageService.getOrgTopUsers(
+      req.user.organizationId,
+      limit ? Number(limit) : 10,
+    );
   }
 }

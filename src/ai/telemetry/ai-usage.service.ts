@@ -489,6 +489,161 @@ export class AiUsageService implements OnModuleInit {
   }
 
   /**
-   * Get total usage for an organization (useful for dashboard later)
+   * Get AI usage summary for an organization (credits, requests, breakdown by feature)
    */
+  async getOrgUsageSummary(
+    organizationId: string,
+    startDate?: Date,
+    endDate?: Date,
+  ) {
+    const query: any = { organizationId };
+    if (startDate || endDate) {
+      query.createdAt = {};
+      if (startDate) query.createdAt.$gte = startDate;
+      if (endDate) query.createdAt.$lte = endDate;
+    }
+
+    const [summary, byFeature, cacheStats] = await Promise.all([
+      this.usageLogModel.aggregate([
+        { $match: query },
+        {
+          $group: {
+            _id: null,
+            totalRequests: { $sum: 1 },
+            totalCreditsUsed: { $sum: '$creditsUsed' },
+            avgPerformanceMs: { $avg: '$performanceMs' },
+          },
+        },
+      ]),
+      this.usageLogModel.aggregate([
+        { $match: query },
+        {
+          $group: {
+            _id: '$feature',
+            requests: { $sum: 1 },
+            creditsUsed: { $sum: '$creditsUsed' },
+          },
+        },
+        { $sort: { creditsUsed: -1 } },
+      ]),
+      this.usageLogModel.aggregate([
+        { $match: query },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: 1 },
+            cacheHits: { $sum: { $cond: ['$cacheHit', 1, 0] } },
+          },
+        },
+      ]),
+    ]);
+
+    const org = await this.orgModel
+      .findById(organizationId)
+      .select('aiCredits')
+      .lean();
+
+    const s = summary[0] || {
+      totalRequests: 0,
+      totalCreditsUsed: 0,
+      avgPerformanceMs: 0,
+    };
+    const c = cacheStats[0] || { total: 0, cacheHits: 0 };
+
+    return {
+      creditsBalance: org?.aiCredits || 0,
+      totalRequests: s.totalRequests,
+      totalCreditsUsed: s.totalCreditsUsed,
+      avgResponseMs: Math.round(s.avgPerformanceMs),
+      cacheHitRate: c.total > 0 ? Math.round((c.cacheHits / c.total) * 100) : 0,
+      byFeature: byFeature.map((f) => ({
+        feature: f._id,
+        requests: f.requests,
+        creditsUsed: f.creditsUsed,
+      })),
+    };
+  }
+
+  /**
+   * Get daily credit usage time-series for an organization
+   */
+  async getOrgUsageTimeSeries(organizationId: string, days: number = 30) {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+
+    return this.usageLogModel.aggregate([
+      {
+        $match: {
+          organizationId,
+          createdAt: { $gte: since },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            $dateToString: { format: '%Y-%m-%d', date: '$createdAt' },
+          },
+          requests: { $sum: 1 },
+          creditsUsed: { $sum: '$creditsUsed' },
+        },
+      },
+      { $sort: { _id: 1 } },
+      {
+        $project: {
+          date: '$_id',
+          requests: 1,
+          creditsUsed: { $round: ['$creditsUsed', 3] },
+          _id: 0,
+        },
+      },
+    ]);
+  }
+
+  /**
+   * Get top users by AI usage within an organization
+   */
+  async getOrgTopUsers(organizationId: string, limit: number = 10) {
+    return this.usageLogModel.aggregate([
+      {
+        $match: {
+          organizationId,
+          userId: { $exists: true, $ne: null },
+        },
+      },
+      {
+        $group: {
+          _id: '$userId',
+          requests: { $sum: 1 },
+          creditsUsed: { $sum: '$creditsUsed' },
+          features: { $addToSet: '$feature' },
+        },
+      },
+      { $sort: { creditsUsed: -1 } },
+      { $limit: limit },
+      {
+        $lookup: {
+          from: 'users',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'user',
+        },
+      },
+      {
+        $project: {
+          userId: '$_id',
+          name: {
+            $concat: [
+              { $ifNull: [{ $arrayElemAt: ['$user.firstName', 0] }, ''] },
+              ' ',
+              { $ifNull: [{ $arrayElemAt: ['$user.lastName', 0] }, ''] },
+            ],
+          },
+          requests: 1,
+          creditsUsed: { $round: ['$creditsUsed', 3] },
+          features: 1,
+          _id: 0,
+        },
+      },
+    ]);
+  }
 }
